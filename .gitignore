@@ -1,0 +1,26 @@
+# ==== 环境与密钥（真实配置不入库）====
+.env
+
+# ==== 后端 ====
+target/
+*.class
+*.log
+logs/
+
+# ==== 前端 ====
+web/node_modules/
+web/dist/
+
+# ==== IDE ====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+
+# ==== 操作系统 ====
+.DS_Store
+Thumbs.db

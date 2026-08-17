@@ -1,0 +1,140 @@
+/*
+ * 黛山水墨主题 · 设计令牌与基础样式
+ * 所有颜色、圆角、阴影集中于此，后续主题（celadon / night）只需替换令牌。
+ */
+:root {
+  /* 颜色令牌 */
+  --color-paper: #f2f4f5;        /* 页面主背景 */
+  --color-panel: #fbfcfd;        /* 卡片、编辑器、弹层 */
+  --color-dai: #dde4e8;          /* 侧栏、选中区域、辅助背景 */
+  --color-line: #c4cfd5;         /* 边框、分割线 */
+  --color-ink: #2c3a43;          /* 标题与主要正文 */
+  --color-muted: #6b7b86;        /* 次要文字 */
+  --color-dai-deep: #4a7a8c;     /* 主按钮、链接、主要操作 */
+  --color-cinnabar: #b6654a;     /* 印章、状态标记、点缀强调 */
+  --color-danger: #a4473e;       /* 删除、失败、危险操作 */
+
+  /* 字体 */
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+  --font-sans: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+
+  /* 形状 */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --shadow-soft: 0 1px 3px rgba(44, 58, 67, 0.06);
+
+  /* 布局 */
+  --nav-width: 216px;
+  --context-width: 264px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-ink);
+  background: var(--color-paper);
+}
+
+/* 键盘焦点可见（可访问性要求） */
+:focus-visible {
+  outline: 2px solid var(--color-dai-deep);
+  outline-offset: 2px;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+}
+
+/* ===== 按钮 ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--color-dai-deep);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: #3f6b7c;
+}
+
+.btn-secondary {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  border-color: var(--color-line);
+}
+.btn-secondary:hover {
+  background: var(--color-dai);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+/* ===== 卡片 ===== */
+.card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-soft);
+}
+
+/* ===== 水墨笔触分隔线 ===== */
+.ink-divider {
+  height: 3px;
+  border: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-line) 15%,
+    var(--color-dai-deep) 50%,
+    var(--color-line) 85%,
+    transparent 100%
+  );
+  opacity: 0.65;
+}
+
+/* ===== 状态标记（不仅依赖颜色，附带文字） ===== */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--color-dai);
+  color: var(--color-ink);
+}
+.tag::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+.tag-running::before { background: var(--color-dai-deep); }
+.tag-success::before { background: #5d8a6b; }
+.tag-failed::before { background: var(--color-danger); }
