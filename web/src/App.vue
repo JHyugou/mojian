@@ -1,7 +1,11 @@
 <script setup>
 import { ref } from 'vue'
+import { useProjectStore } from './stores/project'
+import { useMessageStore } from './stores/message'
 
 const contextOpen = ref(true)
+const projectStore = useProjectStore()
+const messageStore = useMessageStore()
 
 const navItems = [
   { path: '/', label: '创作项目', hint: '项目' },
@@ -26,6 +30,9 @@ const navItems = [
           <span class="brand-sub">AI 长篇小说创作工作台</span>
         </div>
       </div>
+      <span v-if="projectStore.current" class="current-project">
+        当前项目 · {{ projectStore.current.name }}
+      </span>
     </header>
 
     <div class="app-body">
@@ -60,6 +67,18 @@ const navItems = [
         </div>
       </aside>
     </div>
+
+    <div class="toast-area" aria-live="polite">
+      <div
+        v-for="item in messageStore.items"
+        :key="item.id"
+        class="toast"
+        :class="`toast-${item.type}`"
+        @click="messageStore.dismiss(item.id)"
+      >
+        {{ item.text }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -74,9 +93,18 @@ const navItems = [
   height: 52px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 20px;
   background: var(--color-panel);
   border-bottom: 1px solid var(--color-line);
+}
+
+.current-project {
+  font-size: 13px;
+  color: var(--color-dai-deep);
+  background: var(--color-dai);
+  padding: 4px 12px;
+  border-radius: 999px;
 }
 
 .brand {
@@ -189,5 +217,34 @@ const navItems = [
   line-height: 1.8;
   color: var(--color-muted);
   text-align: center;
+}
+
+.toast-area {
+  position: fixed;
+  top: 64px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+}
+
+.toast {
+  padding: 10px 16px;
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-soft);
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 320px;
+}
+
+.toast-success {
+  border-left: 3px solid var(--color-dai-deep);
+}
+
+.toast-error {
+  border-left: 3px solid var(--color-danger);
 }
 </style>

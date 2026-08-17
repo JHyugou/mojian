@@ -5,9 +5,11 @@ import com.mojian.common.api.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -31,6 +33,17 @@ public class GlobalExceptionHandler {
                 .map(fe -> fe.getField() + " " + fe.getDefaultMessage())
                 .orElse(ErrorCode.PARAM_INVALID.getMessage());
         return ApiResponse.fail(ErrorCode.PARAM_INVALID, message);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ApiResponse<Void> handleUnreadable(HttpMessageNotReadableException e) {
+        log.warn("请求体解析失败: {}", e.getMessage());
+        return ApiResponse.fail(ErrorCode.PARAM_INVALID, "请求体格式不正确");
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ApiResponse<Void> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return ApiResponse.fail(ErrorCode.PARAM_INVALID, "路径参数格式不正确");
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
