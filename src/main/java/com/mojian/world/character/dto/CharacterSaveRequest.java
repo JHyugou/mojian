@@ -26,6 +26,8 @@ public class CharacterSaveRequest {
 
     private String speechStyle;
 
+    private String exampleDialogue;
+
     private String currentStatus;
 
     private String characterArc;

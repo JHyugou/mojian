@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS character_profile (
     main_conflict  TEXT COMMENT '主要矛盾',
     relationships  TEXT COMMENT '人物关系（自由文本或JSON）',
     speech_style   TEXT COMMENT '语言风格',
+    example_dialogue TEXT COMMENT '对话示例（模仿声口最有效的素材，参考SillyTavern角色卡mes_example）',
     current_status TEXT COMMENT '当前状态',
     character_arc  TEXT COMMENT '人物发展弧线',
     enabled        TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用：启用才参与默认上下文组装',

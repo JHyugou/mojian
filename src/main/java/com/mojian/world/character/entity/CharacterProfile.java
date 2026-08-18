@@ -30,6 +30,9 @@ public class CharacterProfile extends BaseEntity {
 
     private String speechStyle;
 
+    /** 对话示例：表现人物声口最有效的素材 */
+    private String exampleDialogue;
+
     private String currentStatus;
 
     /** 人物发展弧线 */
