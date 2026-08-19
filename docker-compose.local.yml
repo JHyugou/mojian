@@ -1,0 +1,58 @@
+# 本地快速 Docker 部署（无需等待 Maven 大镜像）
+# 后端直接挂载本机已构建的 target/mojian.jar；web 使用已构建的 mojian-web:latest
+# 用法：docker compose -f docker-compose.local.yml up -d --build
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: mojian-local-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mojian-local-db-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: eclipse-temurin:17-jre
+    container_name: mojian-local-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_MOCK: ${LLM_MOCK:-true}
+    volumes:
+      - ./target/mojian.jar:/app/app.jar:ro
+    working_dir: /app
+    command: ["java", "-jar", "app.jar"]
+    ports:
+      - "8081:8080"
+
+  web:
+    image: mojian-web:latest
+    container_name: mojian-local-web
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mojian-local-db-data:
