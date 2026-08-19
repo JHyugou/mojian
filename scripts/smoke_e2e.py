@@ -85,4 +85,56 @@ check('project gone', after['code'] == 40400, after)
 chars_after = call('GET', f'/projects/{pid}/characters')
 check('characters gone with project', chars_after['code'] == 40400, chars_after)
 
+print('== 生成链路（Mock 模型）==')
+import time
+import urllib.request as _ur
+
+
+def wait_task(task_id, timeout=15):
+    for _ in range(timeout * 2):
+        body = call('GET', f'/generation-tasks/{task_id}')
+        if body['data']['status'] in ('SUCCEEDED', 'FAILED'):
+            return body['data']
+        time.sleep(0.5)
+    raise AssertionError(f'任务 {task_id} 超时未完成')
+
+
+proj2 = call('POST', '/projects', {'name': '生成冒烟·风雪渡口'})
+pid2 = proj2['data']['id']
+chapter2 = call('POST', f'/projects/{pid2}/chapters', {'title': '第二章 风雪渡口'})
+cid2 = chapter2['data']['id']
+
+plan_task = call('POST', f'/chapters/{cid2}/generation-plans',
+                 {'instruction': '主角雪夜渡口遭伏击，旧敌现身'})
+plan = wait_task(plan_task['data']['id'])
+check('plot plan succeeded', plan['status'] == 'SUCCEEDED', plan)
+check('plan result exists', '剧情方案' in (plan.get('result') or ''), (plan.get('result') or '')[:80])
+check('context snapshot exists', plan.get('context') is not None, 'missing context')
+
+# SSE：任务已完成，订阅应立即收到最终状态回放
+req = _ur.Request(f'{BASE}/generation-tasks/{plan_task["data"]["id"]}/events')
+sse_text = ''
+try:
+    with _ur.urlopen(req, timeout=5) as resp:
+        sse_text = resp.read(4096).decode('utf-8')
+except Exception:
+    sse_text = ''
+check('sse replay final status', 'SUCCEEDED' in sse_text, sse_text[:120])
+
+content_task = call('POST', f'/chapters/{cid2}/generation-tasks',
+                    {'taskType': 'CONTENT', 'plan': plan['result'], 'instruction': '按方案生成正文'})
+content = wait_task(content_task['data']['id'])
+check('content succeeded', content['status'] == 'SUCCEEDED', content)
+chapter_after = call('GET', f'/chapters/{cid2}')
+check('chapter content written', bool(chapter_after['data']['content']), 'content empty')
+check('version no advanced', chapter_after['data']['currentVersionNo'] == 1, chapter_after['data'])
+
+memory_task = call('POST', f'/chapters/{cid2}/generation-tasks',
+                   {'taskType': 'CHAPTER_MEMORY', 'instruction': '提炼本章记忆'})
+memory = wait_task(memory_task['data']['id'])
+check('memory draft generated', '摘要' in (memory.get('result') or ''), (memory.get('result') or '')[:80])
+
+clean = call('DELETE', f'/projects/{pid2}')
+check('cleanup generation project', clean['code'] == 0, clean)
+
 print(f'\n全部通过: {len(passed)} 项检查')

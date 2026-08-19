@@ -31,6 +31,10 @@ mojian:
     base-url: ${LLM_BASE_URL:}
     api-key: ${LLM_API_KEY:}
     model: ${LLM_MODEL:}
+    # 显式启用 Mock；未配置 api-key 时也会自动使用 Mock
+    mock: ${LLM_MOCK:false}
+    connect-timeout-seconds: 10
+    read-timeout-seconds: 300
 
 logging:
   level:
