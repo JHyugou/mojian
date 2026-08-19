@@ -13,6 +13,7 @@ import com.mojian.generation.mapper.GenerationTaskMapper;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
 import com.mojian.project.service.ProjectService;
+import com.mojian.version.entity.ChapterVersion;
 import com.mojian.version.mapper.ChapterVersionMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
@@ -62,6 +63,11 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
         return requireById(chapterId);
     }
 
+    /**
+     * 手动保存章节（FR-007）。createVersion=true 时为新内容创建 MANUAL 版本快照（FR-016），
+     * 更新与版本写入在同一事务内，失败整体回滚。
+     */
+    @Transactional(rollbackFor = Exception.class)
     public Chapter update(Long chapterId, ChapterSaveRequest request) {
         Chapter chapter = requireById(chapterId);
         if (request.getOutlineNodeId() != null) {
@@ -72,6 +78,19 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
             chapter.setStatus("DRAFT");
         }
         updateById(chapter);
+
+        if (Boolean.TRUE.equals(request.getCreateVersion())) {
+            int versionNo = (chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo()) + 1;
+            ChapterVersion version = new ChapterVersion();
+            version.setChapterId(chapterId);
+            version.setVersionNo(versionNo);
+            version.setContent(chapter.getContent());
+            version.setSource("MANUAL");
+            version.setRemark(request.getRemark());
+            chapterVersionMapper.insert(version);
+            chapter.setCurrentVersionNo(versionNo);
+            updateById(chapter);
+        }
         return chapter;
     }
 

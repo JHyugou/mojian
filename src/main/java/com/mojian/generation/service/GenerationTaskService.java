@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mojian.generation.GenerationConst;
+import com.mojian.generation.lock.TaskLock;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.mapper.ChapterMapper;
 import com.mojian.chapter.service.ChapterService;
@@ -33,6 +34,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 
 /**
@@ -61,6 +63,7 @@ public class GenerationTaskService implements ApplicationRunner {
     private final TaskEventBroker broker;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final TaskLock taskLock;
     private final Executor executor;
 
     public GenerationTaskService(GenerationTaskMapper taskMapper,
@@ -73,6 +76,7 @@ public class GenerationTaskService implements ApplicationRunner {
                                  TaskEventBroker broker,
                                  ObjectMapper objectMapper,
                                  TransactionTemplate transactionTemplate,
+                                 TaskLock taskLock,
                                  @Qualifier("generationExecutor") Executor executor) {
         this.taskMapper = taskMapper;
         this.chapterMapper = chapterMapper;
@@ -84,6 +88,7 @@ public class GenerationTaskService implements ApplicationRunner {
         this.broker = broker;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
+        this.taskLock = taskLock;
         this.executor = executor;
     }
 
@@ -114,26 +119,44 @@ public class GenerationTaskService implements ApplicationRunner {
             return GenerationTaskVO.from(active, objectMapper);
         }
 
-        ContextSnapshot context = contextService.buildContext(chapter, instruction, selection, plan);
-
-        GenerationTask task = new GenerationTask();
-        task.setChapterId(chapterId);
-        task.setTaskType(type);
-        task.setStatus(GenerationConst.STATUS_CREATED);
-        task.setInputSnapshot(toJson(inputJson(instruction, selection, plan)));
-        task.setContextSnapshot(toJson(context));
-        try {
-            taskMapper.insert(task);
-        } catch (DuplicateKeyException e) {
-            // 防重复第二道：并发窗口内被 active_slot 唯一约束拦下
+        // Redis 开启时：setnx 做第一道快速拦截；未开启时 Noop 直接放行，由 DB 唯一约束兜底
+        String lockKey = "mojian:task:active:" + chapterId;
+        String lockToken = UUID.randomUUID().toString();
+        boolean locked = taskLock.tryLock(lockKey, lockToken);
+        if (!locked) {
             GenerationTask winner = findActiveTask(chapterId);
-            log.info("章节 {} 并发提交生成任务，复用已有任务 {}", chapterId, winner != null ? winner.getId() : null);
-            return GenerationTaskVO.from(winner != null ? winner : task, objectMapper);
+            if (winner != null) {
+                return GenerationTaskVO.from(winner, objectMapper);
+            }
+            // 锁竞争但活动任务尚未落库：继续走 insert，数据库唯一约束仍会兜底
         }
 
-        executor.execute(() -> runTask(task.getId()));
-        // 异步模式下读到 CREATED；同步执行（测试）时已是终态——以数据库为准
-        return GenerationTaskVO.from(taskMapper.selectById(task.getId()), objectMapper);
+        try {
+            ContextSnapshot context = contextService.buildContext(chapter, instruction, selection, plan);
+
+            GenerationTask task = new GenerationTask();
+            task.setChapterId(chapterId);
+            task.setTaskType(type);
+            task.setStatus(GenerationConst.STATUS_CREATED);
+            task.setInputSnapshot(toJson(inputJson(instruction, selection, plan)));
+            task.setContextSnapshot(toJson(context));
+            try {
+                taskMapper.insert(task);
+            } catch (DuplicateKeyException e) {
+                // 防重复第二道：并发窗口内被 active_slot 唯一约束拦下
+                GenerationTask winner = findActiveTask(chapterId);
+                log.info("章节 {} 并发提交生成任务，复用已有任务 {}", chapterId, winner != null ? winner.getId() : null);
+                return GenerationTaskVO.from(winner != null ? winner : task, objectMapper);
+            }
+
+            executor.execute(() -> runTask(task.getId()));
+            // 异步模式下读到 CREATED；同步执行（测试）时已是终态——以数据库为准
+            return GenerationTaskVO.from(taskMapper.selectById(task.getId()), objectMapper);
+        } finally {
+            if (locked) {
+                taskLock.unlock(lockKey, lockToken);
+            }
+        }
     }
 
     // ==================== 执行任务 ====================

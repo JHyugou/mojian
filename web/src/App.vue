@@ -53,7 +53,12 @@ const navItems = [
         <RouterView />
       </main>
 
-      <aside class="app-context" :class="{ collapsed: !contextOpen }" aria-label="上下文辅助">
+      <aside
+        v-if="$route.path !== '/chapters'"
+        class="app-context"
+        :class="{ collapsed: !contextOpen }"
+        aria-label="上下文辅助"
+      >
         <button
           class="context-toggle btn btn-secondary"
           @click="contextOpen = !contextOpen"

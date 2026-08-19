@@ -138,3 +138,112 @@ h1, h2, h3 {
 .tag-running::before { background: var(--color-dai-deep); }
 .tag-success::before { background: #5d8a6b; }
 .tag-failed::before { background: var(--color-danger); }
+
+/* ===== 页面通用 ===== */
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.page-title {
+  font-size: 22px;
+}
+
+.page-hint {
+  color: var(--color-muted);
+}
+
+.btn-mini {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* ===== 表单通用 ===== */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.required {
+  color: var(--color-danger);
+}
+
+.form-input {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: var(--font-sans);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  resize: vertical;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--color-dai-deep);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* ===== 空状态 ===== */
+.empty-state {
+  margin-top: 40px;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+/* ===== 折叠分组（递进披露） ===== */
+details.advanced-group {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  padding: 8px 12px;
+  background: var(--color-paper);
+}
+
+details.advanced-group summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-dai-deep);
+  user-select: none;
+}
+
+/* ===== 标签页 ===== */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.tab-item {
+  border: none;
+  background: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--color-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-item.active {
+  color: var(--color-dai-deep);
+  border-bottom-color: var(--color-cinnabar);
+  font-weight: 600;
+}

@@ -30,6 +30,7 @@ public class MockLlmClient implements LlmClient {
         return switch (request.purpose()) {
             case "PLOT_PLAN" -> buildPlan(request);
             case "CHAPTER_MEMORY" -> buildMemory(request);
+            case "EXAMPLE_DIALOGUE" -> buildDialogue(request);
             default -> buildPlan(request);
         };
     }
@@ -99,6 +100,18 @@ public class MockLlmClient implements LlmClient {
                 未解决冲突：神秘来客身份未明；桌上异物的来历成谜。
                 人物状态变化：主角对盟友的信任出现裂痕。
                 """.formatted(title == null ? "本章" : "「" + title + "」");
+    }
+
+    private String buildDialogue(LlmRequest request) {
+        String name = extractMarker(request.userPrompt(), "人物姓名");
+        String who = name == null ? "他" : name;
+        return """
+                %s："这地方的风，比人先认输。"
+                对方："你还要等到什么时候？"
+                %s："等雪停。或者，等有人先忍不住。"
+                对方："若是都不呢？"
+                %s："那就都留下。"
+                """.formatted(who, who, who);
     }
 
     private String extractMarker(String prompt, String marker) {

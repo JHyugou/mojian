@@ -134,6 +134,28 @@ memory_task = call('POST', f'/chapters/{cid2}/generation-tasks',
 memory = wait_task(memory_task['data']['id'])
 check('memory draft generated', '摘要' in (memory.get('result') or ''), (memory.get('result') or '')[:80])
 
+print('== 版本管理与回滚（FR-016/017）==')
+ai_content = call('GET', f'/chapters/{cid2}')['data']['content']
+manual = call('PUT', f'/chapters/{cid2}',
+              {'title': '第二章 风雪渡口', 'content': '手动修改后的正文', 'createVersion': True, 'remark': '定稿一稿'})
+check('manual version created', manual['data']['currentVersionNo'] == 2, manual['data'])
+
+versions = call('GET', f'/chapters/{cid2}/versions')['data']
+check('version list has two', len(versions) == 2, versions)
+check('manual version source', versions[0]['source'] == 'MANUAL' and versions[0]['remark'] == '定稿一稿', versions[0])
+
+v1_detail = call('GET', f"/chapter-versions/{versions[1]['id']}")
+check('version preview content', v1_detail['data']['content'] == ai_content, 'mismatch')
+
+rolled = call('POST', f'/chapters/{cid2}/rollback', {'versionId': versions[1]['id']})
+check('rollback creates v3', rolled['data']['versionNo'] == 3 and rolled['data']['source'] == 'ROLLBACK', rolled)
+check('chapter back to v1 content', call('GET', f'/chapters/{cid2}')['data']['content'] == ai_content, 'mismatch')
+
+print('== 对话示例 AI 草稿（FR-018）==')
+char3 = call('POST', f'/projects/{pid2}/characters', {'name': '沈孤鸿', 'speechStyle': '冷峭，短句'})
+draft = call('POST', f"/characters/{char3['data']['id']}/dialogue-example-drafts", {'hint': '口头禅：无所谓'})
+check('ai dialogue draft', draft['code'] == 0 and '沈孤鸿' in draft['data'], draft)
+
 clean = call('DELETE', f'/projects/{pid2}')
 check('cleanup generation project', clean['code'] == 0, clean)
 

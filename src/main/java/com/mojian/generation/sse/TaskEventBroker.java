@@ -73,7 +73,7 @@ public class TaskEventBroker {
         }
         broadcast(taskId, "status", finalStatus);
         if (errorMessage != null) {
-            broadcast(taskId, "error", errorMessage);
+            broadcast(taskId, "task-error", errorMessage);
         }
         broadcast(taskId, "end", finalStatus);
         for (SseEmitter emitter : emittersByTask.getOrDefault(taskId, new CopyOnWriteArrayList<>())) {

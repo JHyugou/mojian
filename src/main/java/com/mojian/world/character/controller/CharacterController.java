@@ -2,6 +2,7 @@ package com.mojian.world.character.controller;
 
 import com.mojian.common.api.ApiResponse;
 import com.mojian.world.character.dto.CharacterSaveRequest;
+import com.mojian.world.character.dto.DialogueExampleDraftRequest;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
 import jakarta.validation.Valid;
@@ -38,5 +39,12 @@ public class CharacterController {
     public ApiResponse<Void> delete(@PathVariable Long characterId) {
         characterService.delete(characterId);
         return ApiResponse.ok();
+    }
+
+    @PostMapping("/characters/{characterId}/dialogue-example-drafts")
+    public ApiResponse<String> draftDialogueExample(@PathVariable Long characterId,
+                                                    @Valid @RequestBody(required = false) DialogueExampleDraftRequest request) {
+        String hint = request == null ? null : request.getHint();
+        return ApiResponse.ok(characterService.draftDialogueExample(characterId, hint));
     }
 }

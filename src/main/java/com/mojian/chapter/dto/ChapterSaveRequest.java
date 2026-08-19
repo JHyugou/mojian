@@ -21,4 +21,11 @@ public class ChapterSaveRequest {
 
     /** 正文（手动保存，FR-007） */
     private String content;
+
+    /** 手动保存时是否同时创建版本快照（FR-016，缺省 false） */
+    private Boolean createVersion;
+
+    /** 版本备注（createVersion=true 时生效） */
+    @Size(max = 200, message = "版本备注不能超过200字")
+    private String remark;
 }
