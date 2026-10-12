@@ -19,3 +19,16 @@ export function deleteCharacter(characterId) {
 export function draftDialogueExample(characterId, hint) {
   return http.post(`/characters/${characterId}/dialogue-example-drafts`, { hint })
 }
+// ===== 人物版本节点（起点制：从第 X 章起生效直至下一节点） =====
+export function listCharacterNodes(characterId) {
+  return http.get(`/characters/${characterId}/nodes`)
+}
+export function createCharacterNode(characterId, data) {
+  return http.post(`/characters/${characterId}/nodes`, data)
+}
+export function updateCharacterNode(nodeId, data) {
+  return http.put(`/character-nodes/${nodeId}`, data)
+}
+export function deleteCharacterNode(nodeId) {
+  return http.delete(`/character-nodes/${nodeId}`)
+}

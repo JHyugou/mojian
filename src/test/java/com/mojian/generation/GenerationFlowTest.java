@@ -8,7 +8,7 @@ import com.mojian.generation.dto.GenerationTaskRequest;
 import com.mojian.generation.dto.PlanGenerationRequest;
 import com.mojian.generation.entity.GenerationTask;
 import com.mojian.generation.llm.LlmClient;
-import com.mojian.generation.llm.MockLlmClient;
+import com.mojian.generation.llm.RoutingLlmClient;
 import com.mojian.generation.mapper.GenerationTaskMapper;
 import com.mojian.generation.service.GenerationTaskService;
 import com.mojian.generation.vo.GenerationTaskVO;
@@ -30,7 +30,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 生成链路集成测试（SRS 13.2）：MockLlmClient + 同步执行器，
+ * 生成链路集成测试（SRS 13.2）：RoutingLlmClient 路由至 Mock + 同步执行器，
  * 覆盖两阶段流程、版本落库、失败保护、防重复、僵尸回收。
  */
 @SpringBootTest(properties = "spring.main.allow-bean-definition-overriding=true")
@@ -113,7 +113,7 @@ class GenerationFlowTest {
         save.setContent("已有的正文，不能被破坏");
         chapterService.update(chapterId, save);
 
-        ((MockLlmClient) llmClient).setFailNext(1);
+        ((RoutingLlmClient) llmClient).setFailNext(1);
         GenerationTaskRequest req = new GenerationTaskRequest();
         req.setTaskType("CONTENT");
         req.setPlan("任意方案");
@@ -129,7 +129,7 @@ class GenerationFlowTest {
     @Test
     void failedTaskCanBeRetried() {
         Long chapterId = newChapterId();
-        ((MockLlmClient) llmClient).setFailNext(1);
+        ((RoutingLlmClient) llmClient).setFailNext(1);
 
         PlanGenerationRequest planReq = new PlanGenerationRequest();
         planReq.setInstruction("测试重试");
@@ -189,5 +189,80 @@ class GenerationFlowTest {
         assertTrue(content.startsWith("开头段落。"), "选中文本前的内容保持不变");
         assertTrue(content.contains("【改写结果】"), "选中文本被替换为改写结果");
         assertTrue(content.endsWith("结尾段落。"), "选中文本后的内容保持不变");
+    }
+
+    @Test
+    void continueTaskPromptCarriesCurrentContentAndAppends() {
+        Long chapterId = newChapterId();
+        ChapterSaveRequest save = new ChapterSaveRequest();
+        save.setTitle("第一章 夜雨客栈");
+        save.setContent("雪落长街，他背着剑走进客栈。");
+        chapterService.update(chapterId, save);
+
+        GenerationTaskRequest req = new GenerationTaskRequest();
+        req.setTaskType("CONTINUE");
+        GenerationTaskVO task = taskService.createTask(chapterId, req);
+
+        assertEquals("SUCCEEDED", task.getStatus());
+        // 续写的衔接基础是现有正文：Mock 输出不依赖它，真实模型依赖它，必须出现在提示词里
+        String prompt = ((RoutingLlmClient) llmClient).getLastUserPrompt();
+        assertTrue(prompt.contains("【现有正文】"), "续写提示词应包含【现有正文】段");
+        assertTrue(prompt.contains("雪落长街"), "续写提示词应携带章节现有内容");
+
+        Chapter chapter = chapterService.requireById(chapterId);
+        assertTrue(chapter.getContent().startsWith("雪落长街"), "续写在原文后追加");
+        assertEquals(1, chapter.getCurrentVersionNo());
+        List<ChapterVersion> versions = versionMapper.selectList(
+                new LambdaQueryWrapper<ChapterVersion>().eq(ChapterVersion::getChapterId, chapterId));
+        assertEquals(1, versions.size());
+        assertEquals("AI", versions.get(0).getSource());
+    }
+
+    @Test
+    void chapterMemoryPromptCarriesCurrentContent() {
+        Long chapterId = newChapterId();
+        ChapterSaveRequest save = new ChapterSaveRequest();
+        save.setTitle("第一章 夜雨客栈");
+        save.setContent("他数着檐角的水滴，等到第三声便推门而出。");
+        chapterService.update(chapterId, save);
+
+        GenerationTaskRequest req = new GenerationTaskRequest();
+        req.setTaskType("CHAPTER_MEMORY");
+        GenerationTaskVO task = taskService.createTask(chapterId, req);
+
+        assertEquals("SUCCEEDED", task.getStatus());
+        // 记忆提炼的原料就是本章正文，缺失会导致真实模型空转
+        String prompt = ((RoutingLlmClient) llmClient).getLastUserPrompt();
+        assertTrue(prompt.contains("【现有正文】"), "记忆任务提示词应包含【现有正文】段");
+        assertTrue(prompt.contains("檐角的水滴"), "记忆任务提示词应携带本章正文");
+
+        GenerationTask row = taskMapper.selectById(task.getId());
+        assertNotNull(row.getResultSnapshot(), "提炼结果应写入结果快照");
+        assertEquals(0, versionMapper.selectCount(
+                new LambdaQueryWrapper<ChapterVersion>().eq(ChapterVersion::getChapterId, chapterId)),
+                "记忆任务不得产生正文版本（回归：finishTask 分支曾反转导致记忆写入正文）");
+    }
+
+    @Test
+    void retrySuccessClearsStaleErrorFields() {
+        Long chapterId = newChapterId();
+        ((RoutingLlmClient) llmClient).setFailNext(1);
+
+        PlanGenerationRequest planReq = new PlanGenerationRequest();
+        planReq.setInstruction("验证重试后残留字段清理");
+        GenerationTaskVO failed = taskService.createPlanTask(chapterId, planReq.getInstruction());
+        assertEquals("FAILED", failed.getStatus());
+
+        GenerationTask before = taskMapper.selectById(failed.getId());
+        assertNotNull(before.getErrorMessage(), "失败时错误信息应已落库");
+
+        GenerationTaskVO retried = taskService.retry(failed.getId());
+        assertEquals("SUCCEEDED", retried.getStatus());
+
+        GenerationTask after = taskMapper.selectById(failed.getId());
+        assertNull(after.getErrorMessage(), "重试成功后旧错误信息必须清空");
+        assertNotNull(after.getResultSnapshot(), "重试成功后应写入新一轮的结果快照");
+        assertEquals("SUCCEEDED", after.getStatus());
+        assertNotNull(after.getFinishedAt());
     }
 }

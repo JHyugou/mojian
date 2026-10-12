@@ -15,4 +15,7 @@ public interface LlmClient {
      * 回调在调用线程内同步执行；任何异常通过 onError 传出。
      */
     void chatStream(LlmRequest request, StreamCallback callback);
+
+    /** 释放客户端持有的后台资源（如流式看门狗线程池）；默认无资源 */
+    default void shutdown() {}
 }

@@ -218,7 +218,7 @@ function fmtTime(value) {
 .version-source {
   font-size: 12px;
   background: var(--color-dai);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   padding: 1px 8px;
   flex: none;
 }

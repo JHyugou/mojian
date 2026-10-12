@@ -27,6 +27,7 @@ public class TaskEventBroker {
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> emittersByTask = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> deltaBufferByTask = new ConcurrentHashMap<>();
+    private final Map<Long, StringBuilder> reasoningBufferByTask = new ConcurrentHashMap<>();
     private final Map<Long, String> statusByTask = new ConcurrentHashMap<>();
 
     public synchronized SseEmitter subscribe(Long taskId) {
@@ -41,6 +42,10 @@ public class TaskEventBroker {
         // 立即回放：当前状态 + 已缓冲片段，断线重连不丢内容
         String status = statusByTask.getOrDefault(taskId, "CREATED");
         send(emitter, taskId, "status", status);
+        String bufferedReasoning = reasoningBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
+        if (!bufferedReasoning.isEmpty()) {
+            send(emitter, taskId, "reasoning", bufferedReasoning);
+        }
         String buffered = deltaBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
         if (!buffered.isEmpty()) {
             send(emitter, taskId, "delta", buffered);
@@ -66,6 +71,14 @@ public class TaskEventBroker {
         broadcast(taskId, "delta", delta);
     }
 
+    /** 思维链片段：缓冲供重连重放，实时广播给订阅者 */
+    public void publishReasoning(Long taskId, String delta) {
+        synchronized (this) {
+            reasoningBufferByTask.computeIfAbsent(taskId, k -> new StringBuilder()).append(delta);
+        }
+        broadcast(taskId, "reasoning", delta);
+    }
+
     /** 任务终结（成功/失败）后调用：通知并清理正文缓冲，保留最终状态供晚到订阅者 */
     public void finish(Long taskId, String finalStatus, String errorMessage) {
         synchronized (this) {
@@ -86,6 +99,7 @@ public class TaskEventBroker {
         synchronized (this) {
             emittersByTask.remove(taskId);
             deltaBufferByTask.remove(taskId);
+            reasoningBufferByTask.remove(taskId);
         }
     }
 

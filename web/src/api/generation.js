@@ -25,6 +25,7 @@ export function subscribeTask(taskId, handlers) {
   const source = new EventSource(`/api/generation-tasks/${taskId}/events`)
   source.addEventListener('status', (e) => handlers.onStatus?.(e.data))
   source.addEventListener('delta', (e) => handlers.onDelta?.(e.data))
+  source.addEventListener('reasoning', (e) => handlers.onReasoning?.(e.data))
   source.addEventListener('task-error', (e) => handlers.onError?.(e.data))
   source.addEventListener('end', (e) => {
     handlers.onEnd?.(e.data)

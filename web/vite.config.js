@@ -8,7 +8,7 @@ export default defineConfig({
     proxy: {
       // 开发环境将 /api 代理到本地 Spring Boot，避免跨域
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         changeOrigin: true
       }
     }

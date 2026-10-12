@@ -31,10 +31,7 @@ public class PromptRenderer {
         if (snapshot.getOutline() != null) {
             section(sb, "章节标题", snapshot.getChapterTitle());
             section(sb, "蓝图节点", joinFields(
-                    snapshot.getOutline().getName(), snapshot.getOutline().getSummary(),
-                    snapshot.getOutline().getPlotGoal(), snapshot.getOutline().getConflict(),
-                    snapshot.getOutline().getScene(),
-                    prefix("必须情节：", snapshot.getOutline().getMustEvents())));
+                    snapshot.getOutline().getName(), snapshot.getOutline().getSummary()));
         } else if (StringUtils.hasText(snapshot.getChapterTitle())) {
             section(sb, "章节标题", snapshot.getChapterTitle());
         }
@@ -42,11 +39,8 @@ public class PromptRenderer {
             for (ContextSnapshot.CharacterBrief c : snapshot.getCharacters()) {
                 section(sb, "人物档案", joinFields(
                         c.getName(), prefix("身份：", c.getRoleIdentity()),
-                        prefix("性格：", c.getPersonality()), prefix("目标：", c.getCoreGoal()),
-                        prefix("矛盾：", c.getMainConflict()), prefix("关系：", c.getRelationships()),
-                        prefix("语言风格：", c.getSpeechStyle()),
-                        prefix("对话示例：", c.getExampleDialogue()),
-                        prefix("当前状态：", c.getCurrentStatus())));
+                        prefix("设定：", c.getDescription()),
+                        prefix("对话示例：", c.getExampleDialogue())));
             }
         }
         if (snapshot.getSettings() != null) {
@@ -57,16 +51,26 @@ public class PromptRenderer {
         if (snapshot.getPreviousMemories() != null) {
             for (ContextSnapshot.MemoryBrief m : snapshot.getPreviousMemories()) {
                 section(sb, "前文记忆", joinFields(
-                        prefix("来自：", m.getChapterTitle()), m.getSummary(),
-                        prefix("未解决：", m.getUnresolvedConflicts())));
+                        prefix("来自：", m.getChapterTitle()), m.getMemory()));
             }
         }
-        if (GenerationConst.TYPE_CONTINUE.equals(taskType)
-                && snapshot.getConfirmedPlan() == null) {
-            // 续写需要现有正文作衔接基础
+        if (StringUtils.hasText(snapshot.getPreviousContentTail())) {
+            section(sb, "上一章正文尾部", snapshot.getPreviousContentTail());
+        }
+        if (StringUtils.hasText(snapshot.getCurrentContent())) {
+            section(sb, "现有正文", snapshot.getCurrentContent());
+            if (GenerationConst.TYPE_CONTINUE.equals(taskType)) {
+                sb.append("（续写时从上文自然衔接，不要复述已有内容）\n");
+            }
         }
         section(sb, "剧情方案", snapshot.getConfirmedPlan());
         section(sb, "选中文本", snapshot.getSelection());
+        if (StringUtils.hasText(snapshot.getBeforeSelection())) {
+            section(sb, "选中文本前文", snapshot.getBeforeSelection());
+        }
+        if (StringUtils.hasText(snapshot.getAfterSelection())) {
+            section(sb, "选中文本后文", snapshot.getAfterSelection());
+        }
         section(sb, "创作指令", snapshot.getInstruction());
         sb.append("\n请开始输出。");
         return sb.toString();

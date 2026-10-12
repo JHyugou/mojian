@@ -14,23 +14,10 @@ public class CharacterSaveRequest {
     @Size(max = 200, message = "身份定位不能超过200字")
     private String roleIdentity;
 
-    private String appearance;
-
-    private String personality;
-
-    private String coreGoal;
-
-    private String mainConflict;
-
-    private String relationships;
-
-    private String speechStyle;
+    /** 人物设定全文：外貌/性格/能力/关系/状态融合的大段自然语言描述 */
+    private String description;
 
     private String exampleDialogue;
-
-    private String currentStatus;
-
-    private String characterArc;
 
     /** 是否启用，缺省为 true */
     private Boolean enabled;

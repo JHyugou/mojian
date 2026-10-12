@@ -22,19 +22,8 @@ public class PlotOutline extends BaseEntity {
 
     private String summary;
 
-    private String plotGoal;
-
     /** 章节节点：主要人物档案ID（JSON数组字符串） */
     private String mainCharacters;
-
-    /** 章节节点：冲突 */
-    private String conflict;
-
-    /** 章节节点：场景 */
-    private String scene;
-
-    /** 章节节点：必须发生的情节 */
-    private String mustEvents;
 
     private Integer sortOrder;
 

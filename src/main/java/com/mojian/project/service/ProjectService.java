@@ -11,6 +11,7 @@ import com.mojian.project.dto.ProjectSaveRequest;
 import com.mojian.project.entity.StoryProject;
 import com.mojian.project.mapper.StoryProjectMapper;
 import com.mojian.version.mapper.ChapterVersionMapper;
+import com.mojian.world.character.mapper.CharacterNodeMapper;
 import com.mojian.world.character.mapper.CharacterProfileMapper;
 import com.mojian.world.setting.mapper.SettingEntryMapper;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import java.util.List;
 public class ProjectService extends ServiceImpl<StoryProjectMapper, StoryProject> {
 
     private final CharacterProfileMapper characterProfileMapper;
+    private final CharacterNodeMapper characterNodeMapper;
     private final SettingEntryMapper settingEntryMapper;
     private final com.mojian.outline.mapper.PlotOutlineMapper plotOutlineMapper;
     private final ChapterMapper chapterMapper;
@@ -65,6 +67,9 @@ public class ProjectService extends ServiceImpl<StoryProjectMapper, StoryProject
             generationTaskMapper.deleteByChapterId(chapter.getId());
         }
         chapterMapper.deleteByProjectId(projectId);
+        List<Long> characterIds = characterProfileMapper.selectByProjectId(projectId)
+                .stream().map(c -> c.getId()).toList();
+        characterNodeMapper.deleteByCharacterIds(characterIds);
         characterProfileMapper.deleteByProjectId(projectId);
         settingEntryMapper.deleteByProjectId(projectId);
         plotOutlineMapper.deleteByProjectId(projectId);

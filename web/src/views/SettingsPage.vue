@@ -3,9 +3,11 @@ import { onMounted, reactive, ref } from 'vue'
 import ProjectGate from '../components/ProjectGate.vue'
 import AppModal from '../components/AppModal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import JsonImportDialog from '../components/JsonImportDialog.vue'
 import { useProjectStore } from '../stores/project'
 import { useMessageStore } from '../stores/message'
 import { listSettings, createSetting, updateSetting, deleteSetting } from '../api/setting'
+import { exportSettings, importSettings } from '../api/share'
 
 const projectStore = useProjectStore()
 const message = useMessageStore()
@@ -18,6 +20,8 @@ const saving = ref(false)
 const deleteTarget = ref(null)
 const deleting = ref(false)
 const editingId = ref(null)
+const importing = ref(false)
+const showImportDialog = ref(false)
 
 const emptyForm = {
   title: '', content: '', tags: '', triggerKeywords: '',
@@ -51,25 +55,69 @@ function openEdit(setting) {
   showForm.value = true
 }
 
-async function submit() {
-  if (!form.title.trim() || !form.content.trim()) {
-    message.error('名称和内容为必填项')
-    return
-  }
+async function doSave(payload, successText) {
   saving.value = true
   try {
     if (editingId.value) {
-      await updateSetting(editingId.value, { ...form })
+      await updateSetting(editingId.value, payload)
     } else {
-      await createSetting(projectStore.currentId, { ...form })
+      await createSetting(projectStore.currentId, payload)
     }
-    message.success(editingId.value ? '设定已更新' : '设定已创建')
+    message.success(successText)
     showForm.value = false
     await load()
   } catch (e) {
     message.error(e.message)
   } finally {
     saving.value = false
+  }
+}
+
+async function submit() {
+  if (!form.title.trim() || !form.content.trim()) {
+    message.error('名称和内容为必填项')
+    return
+  }
+  await doSave({ ...form }, editingId.value ? '设定已更新' : '设定已创建')
+}
+
+/** 存草稿：名称与内容是后端必填项；其余留空允许，保存后保持停用 */
+async function submitDraft() {
+  if (!form.title.trim() || !form.content.trim()) {
+    message.error('存草稿需至少填写名称与内容')
+    return
+  }
+  await doSave({ ...form, enabled: false }, '设定已存为草稿（停用状态，不参与生成）')
+}
+
+async function doExport() {
+  try {
+    const data = await exportSettings(projectStore.currentId, null)
+    const text = JSON.stringify({ format: 'mojian-settings/v1', version: 1, data }, null, 2)
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '世界观设定集.json'
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success(`已导出 ${data.length} 条设定`)
+  } catch (e) {
+    message.error(e.message)
+  }
+}
+
+async function doImport(payload) {
+  importing.value = true
+  try {
+    const result = await importSettings(projectStore.currentId, payload)
+    message.success(`成功导入 ${result.imported} 条设定`)
+    showImportDialog.value = false
+    await load()
+  } catch (e) {
+    message.error(e.message)
+  } finally {
+    importing.value = false
   }
 }
 
@@ -100,6 +148,8 @@ function tagList(setting) {
         <div class="toolbar">
           <input v-model.trim="keyword" class="form-input search-input" placeholder="搜索名称 / 标签 / 关键词" @keyup.enter="load" />
           <button class="btn btn-secondary" type="button" @click="load">搜索</button>
+          <button class="btn btn-secondary" type="button" @click="doExport">导出</button>
+          <button class="btn btn-secondary" type="button" @click="showImportDialog = true">导入</button>
           <button class="btn btn-primary" type="button" @click="openCreate">＋ 新建设定</button>
         </div>
       </div>
@@ -170,6 +220,15 @@ function tagList(setting) {
           </label>
           <div class="form-actions">
             <button class="btn btn-secondary" type="button" @click="showForm = false">取消</button>
+            <button
+              class="btn btn-secondary"
+              type="button"
+              :disabled="saving"
+              title="保存条目但保持停用：不参与生成上下文，需填写名称与内容"
+              @click.prevent="submitDraft"
+            >
+              存草稿
+            </button>
             <button class="btn btn-primary" type="submit" :disabled="saving">
               {{ saving ? '保存中…' : '保存设定' }}
             </button>
@@ -188,7 +247,16 @@ function tagList(setting) {
         @confirm="confirmDelete"
       />
     </section>
-  </ProjectGate>
+  <JsonImportDialog
+    :visible="showImportDialog"
+    title="导入世界观设定"
+    expected-format="mojian-settings/v1"
+    format-label="世界观设定集"
+    :loading="importing"
+    @close="showImportDialog = false"
+    @confirm="doImport"
+  />
+    </ProjectGate>
 </template>
 
 <style scoped>
@@ -236,7 +304,7 @@ function tagList(setting) {
   font-size: 12px;
   color: var(--color-dai-deep);
   background: var(--color-dai);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   padding: 1px 8px;
 }
 

@@ -22,16 +22,8 @@ public class OutlineNodeSaveRequest {
 
     private String summary;
 
-    private String plotGoal;
-
     /** 章节节点：主要人物档案ID（JSON数组字符串） */
     private String mainCharacters;
-
-    private String conflict;
-
-    private String scene;
-
-    private String mustEvents;
 
     /** 同级排序，缺省 0 */
     private Integer sortOrder;

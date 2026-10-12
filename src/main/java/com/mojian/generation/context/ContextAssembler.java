@@ -4,6 +4,7 @@ import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.entity.ChapterMemory;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.project.entity.StoryProject;
+import com.mojian.world.character.entity.CharacterNode;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.setting.entity.SettingEntry;
 import org.springframework.stereotype.Component;
@@ -23,14 +24,29 @@ import java.util.stream.Collectors;
  *    每条内容截断至 500 字。
  * 3. 记忆：取本章之前最近 3 章的章节记忆。
  * 4. 系统不得无条件注入全部资料——所有列表都有容量上限。
+ * 5. 现有正文随任务快照保存：续写衔接、改写语境、记忆提炼都依赖它；
+ *    超过上限时保留首尾、省略中段（保护模型上下文窗口）。
+ * 6. 人物版本节点（起点制）：生成第 N 章时，若人物存在 chapter_from ≤ N 的节点，
+ *    取最近一个节点的字段覆盖基础档案（节点字段 null 表示沿用基础档案）。
  */
 @Component
 public class ContextAssembler {
 
     static final int MAX_CHARACTERS = 6;
     static final int MAX_SETTINGS = 8;
-    static final int MAX_MEMORY_CHAPTERS = 3;
+
+    /** 对话示例草稿的世界观注入上限：术语与规则的语境锚点，非全书设定罗列 */
+    static final int MAX_DIALOGUE_SETTINGS = 6;
+
+    /** 对话示例草稿的其他人物注入上限 */
+    static final int MAX_DIALOGUE_OTHERS = 6;
     static final int SETTING_CONTENT_MAX_CHARS = 500;
+
+    /** 现有正文注入上限：常规章节（数千字）不会触发，仅防御异常超长内容撑爆上下文 */
+    static final int CURRENT_CONTENT_MAX_CHARS = 20000;
+
+    /** 上一章正文尾部注入长度：衔接文风与场景，尾部贴近续写点 */
+    static final int PREVIOUS_TAIL_CHARS = 4000;
 
     public ContextSnapshot buildSnapshot(StoryProject project,
                                          Chapter chapter,
@@ -43,7 +59,9 @@ public class ContextAssembler {
                                          Map<Long, ChapterMemory> memoriesByChapterId,
                                          String instruction,
                                          String selection,
-                                         String confirmedPlan) {
+                                         String confirmedPlan,
+                                         Map<Long, List<CharacterNode>> appliedNodes,
+                                         String previousContentTail) {
         ContextSnapshot snapshot = new ContextSnapshot();
         snapshot.setProjectName(project.getName());
         snapshot.setStyleRules(mergeStyleRules(project));
@@ -51,15 +69,20 @@ public class ContextAssembler {
         snapshot.setChapterTitle(chapter.getTitle());
         snapshot.setInstruction(trimOrNull(instruction));
         snapshot.setSelection(trimOrNull(selection));
+        extractSelectionContext(chapter.getContent(), trimOrNull(selection), snapshot);
         snapshot.setConfirmedPlan(trimOrNull(confirmedPlan));
+        snapshot.setCurrentContent(condenseContent(chapter.getContent()));
         snapshot.setOutline(toOutlineBrief(outlineNode));
         snapshot.setCharacters(selectCharacters(allCharacters, referencedCharacterIds).stream()
-                .map(this::toCharacterBrief).toList());
+                .map(c -> this.toCharacterBrief(c,
+                        appliedNodes == null ? null : appliedNodes.get(c.getId())))
+                .toList());
         snapshot.setSettings(selectSettings(allSettings, matchText(snapshot, outlineNode), chapterNo).stream()
                 .map(this::toSettingBrief).toList());
         snapshot.setSettingsConsidered((int) allSettings.stream()
                 .filter(s -> Boolean.TRUE.equals(s.getEnabled())).count());
         snapshot.setPreviousMemories(selectMemories(orderedChapters, chapter.getId(), memoriesByChapterId));
+        snapshot.setPreviousContentTail(trimOrNull(previousContentTail));
         return snapshot;
     }
 
@@ -95,6 +118,41 @@ public class ContextAssembler {
                         .thenComparing(s -> Optional.ofNullable(s.getPriority()).orElse(0), Comparator.reverseOrder())
                         .thenComparing(s -> Optional.ofNullable(s.getCreatedAt()).orElse(LocalDateTime.MIN)))
                 .limit(MAX_SETTINGS)
+                .toList();
+    }
+
+    /**
+     * 对话示例草稿的世界观注入（FR-018 增强）：人物卡是全书素材，不涉章节范围，
+     * 只按"触发关键词命中 → 优先级 → 创建时间"选取与该人物相关的启用设定。
+     * matchText 通常是 人物名 + 身份 + 设定全文 + 补充要求。
+     */
+    public List<SettingEntry> selectSettingsForCharacterDialogue(List<SettingEntry> all, String matchText) {
+        String text = matchText == null ? "" : matchText.toLowerCase();
+        return all.stream()
+                .filter(s -> Boolean.TRUE.equals(s.getEnabled()))
+                .sorted(Comparator
+                        .comparing((SettingEntry s) -> keywordHit(s, text) ? 0 : 1)
+                        .thenComparing(s -> Optional.ofNullable(s.getPriority()).orElse(0), Comparator.reverseOrder())
+                        .thenComparing(s -> Optional.ofNullable(s.getCreatedAt()).orElse(LocalDateTime.MIN)))
+                .limit(MAX_DIALOGUE_SETTINGS)
+                .toList();
+    }
+
+    /**
+     * 对话示例草稿的其他人物注入：项目内除主角外的启用人物，
+     * 姓名出现在主角设定全文中（关系人）的排前，其余按创建顺序，上限 6。
+     */
+    public List<CharacterProfile> selectOthersForCharacterDialogue(
+            List<CharacterProfile> all, Long selfId, String subjectDescription) {
+        String subject = subjectDescription == null ? "" : subjectDescription;
+        return all.stream()
+                .filter(c -> Boolean.TRUE.equals(c.getEnabled()))
+                .filter(c -> !c.getId().equals(selfId))
+                .sorted(Comparator
+                        .comparing((CharacterProfile c) ->
+                                (StringUtils.hasText(c.getName()) && subject.contains(c.getName())) ? 0 : 1)
+                        .thenComparing(c -> Optional.ofNullable(c.getCreatedAt()).orElse(LocalDateTime.MIN)))
+                .limit(MAX_DIALOGUE_OTHERS)
                 .toList();
     }
 
@@ -146,7 +204,6 @@ public class ContextAssembler {
         }
         if (outlineNode != null) {
             appendIfPresent(sb, outlineNode.getSummary());
-            appendIfPresent(sb, outlineNode.getPlotGoal());
         }
         if (snapshot.getInstruction() != null) {
             sb.append(snapshot.getInstruction());
@@ -154,6 +211,30 @@ public class ContextAssembler {
         return sb.toString();
     }
 
+    /**
+     * 改写/扩缩写时提取选中文本前后的上下文片段（各约 800 字），
+     * 让模型看到选中段落的前后文，保持改写后逻辑连贯。
+     */
+    private void extractSelectionContext(String content, String selection, ContextSnapshot snapshot) {
+        if (!StringUtils.hasText(selection) || !StringUtils.hasText(content)) {
+            return;
+        }
+        int selStart = content.indexOf(selection);
+        if (selStart < 0) {
+            return;
+        }
+        int selEnd = selStart + selection.length();
+        int ctxLen = 800;
+        int before = Math.max(0, selStart - ctxLen);
+        int after = Math.min(content.length(), selEnd + ctxLen);
+        snapshot.setBeforeSelection(content.substring(Math.max(0, before), selStart));
+        snapshot.setAfterSelection(content.substring(selEnd, Math.min(content.length(), after)));
+    }
+
+    /**
+     * 全书记忆注入：不设章数上限——每条记忆是浓缩信号（记忆全文），
+     * 全部注入的成本远低于全文正文，却保证任何伏笔都不出窗口。
+     */
     private List<ContextSnapshot.MemoryBrief> selectMemories(List<Chapter> orderedChapters,
                                                              Long currentChapterId,
                                                              Map<Long, ChapterMemory> memoriesByChapterId) {
@@ -163,31 +244,51 @@ public class ContextAssembler {
                 break;
             }
             ChapterMemory memory = memoriesByChapterId.get(chapter.getId());
-            if (memory == null || !StringUtils.hasText(memory.getSummary())) {
+            if (memory == null || !StringUtils.hasText(memory.getMemory())) {
                 continue;
             }
             ContextSnapshot.MemoryBrief brief = new ContextSnapshot.MemoryBrief();
             brief.setChapterTitle(chapter.getTitle());
-            brief.setSummary(memory.getSummary());
-            brief.setUnresolvedConflicts(memory.getUnresolvedConflicts());
+            brief.setMemory(memory.getMemory());
             result.add(brief);
         }
-        return result.size() > MAX_MEMORY_CHAPTERS
-                ? result.subList(result.size() - MAX_MEMORY_CHAPTERS, result.size())
-                : result;
+        return result;
     }
 
-    private ContextSnapshot.CharacterBrief toCharacterBrief(CharacterProfile c) {
+    /** 上一章正文尾部：空内容返回 null */
+    public String previousChapterTail(String content) {
+        if (!StringUtils.hasText(content)) {
+            return null;
+        }
+        String trimmed = content.trim();
+        return trimmed.length() <= PREVIOUS_TAIL_CHARS
+                ? trimmed
+                : trimmed.substring(trimmed.length() - PREVIOUS_TAIL_CHARS);
+    }
+
+    /**
+     * 组装人物简报：基础档案打底；若存在对本章生效的版本节点，
+     * 节点字段非 null 时逐项覆盖（null = 沿用基础档案，传空字符串 = 有意清空）。
+     */
+    private ContextSnapshot.CharacterBrief toCharacterBrief(CharacterProfile c, List<CharacterNode> nodes) {
         ContextSnapshot.CharacterBrief brief = new ContextSnapshot.CharacterBrief();
         brief.setName(c.getName());
         brief.setRoleIdentity(c.getRoleIdentity());
-        brief.setPersonality(c.getPersonality());
-        brief.setCoreGoal(c.getCoreGoal());
-        brief.setMainConflict(c.getMainConflict());
-        brief.setRelationships(c.getRelationships());
-        brief.setSpeechStyle(c.getSpeechStyle());
+        brief.setDescription(c.getDescription());
         brief.setExampleDialogue(c.getExampleDialogue());
-        brief.setCurrentStatus(c.getCurrentStatus());
+        if (nodes != null && !nodes.isEmpty()) {
+            // 增量时间线：节点是"自第X章起"的变化补充，按起点升序追加在基础设定之后；
+            // 写早期章节时未来节点不注入，历史节点永不覆盖基础档案
+            StringBuilder timeline = new StringBuilder(brief.getDescription() == null
+                    ? "" : brief.getDescription());
+            for (CharacterNode node : nodes) {
+                if (StringUtils.hasText(node.getDescription())) {
+                    timeline.append("\n【自第").append(node.getChapterFrom()).append("章起】")
+                            .append(node.getDescription().trim());
+                }
+            }
+            brief.setDescription(timeline.toString());
+        }
         return brief;
     }
 
@@ -208,10 +309,6 @@ public class ContextAssembler {
         ContextSnapshot.OutlineBrief brief = new ContextSnapshot.OutlineBrief();
         brief.setName(node.getName());
         brief.setSummary(node.getSummary());
-        brief.setPlotGoal(node.getPlotGoal());
-        brief.setConflict(node.getConflict());
-        brief.setScene(node.getScene());
-        brief.setMustEvents(node.getMustEvents());
         return brief;
     }
 
@@ -234,5 +331,24 @@ public class ContextAssembler {
 
     private String trimOrNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    /**
+     * 现有正文压缩：超上限时保留头部与尾部、中段以省略标记替代，
+     * 压缩结果恒不超过 CURRENT_CONTENT_MAX_CHARS。
+     * 首尾全保是因为开头是续写衔接处、结尾贴近"接下来写什么"；中段被省略时，
+     * 改写任务若选中文本恰好落在省略区，模型缺少该处语境，但替换仍在后端按原文精确执行。
+     */
+    String condenseContent(String content) {
+        if (content == null || content.length() <= CURRENT_CONTENT_MAX_CHARS) {
+            return content;
+        }
+        int reserved = 64; // 省略标记及换行预留
+        int bodyBudget = CURRENT_CONTENT_MAX_CHARS - reserved;
+        int head = bodyBudget * 7 / 10;
+        int tail = bodyBudget - head;
+        return content.substring(0, head)
+                + "\n……（中间约 " + (content.length() - head - tail) + " 字已省略）……\n"
+                + content.substring(content.length() - tail);
     }
 }

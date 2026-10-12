@@ -7,6 +7,9 @@ public interface StreamCallback {
 
     void onDelta(String delta);
 
+    /** 思维链片段（reasoning_content）：推理模型"思考中"的可见化，默认忽略 */
+    default void onReasoning(String delta) {}
+
     void onComplete(String fullText);
 
     void onError(Throwable error);

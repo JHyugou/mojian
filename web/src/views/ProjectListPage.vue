@@ -2,10 +2,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listProjects, createProject, deleteProject } from '../api/project'
+import { exportProject, importProject } from '../api/share'
 import { useProjectStore } from '../stores/project'
 import { useMessageStore } from '../stores/message'
 import AppModal from '../components/AppModal.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import JsonImportDialog from '../components/JsonImportDialog.vue'
 
 const router = useRouter()
 const projectStore = useProjectStore()
@@ -26,6 +28,15 @@ const form = reactive({
 
 const deleteTarget = ref(null)
 const deleting = ref(false)
+
+// 导出项目（多选框勾选要导出的内容）
+const exportTarget = ref(null)
+const exportSections = reactive({ characters: true, settings: true, outline: true, chapters: true })
+const exporting = ref(false)
+
+// 导入项目
+const showImport = ref(false)
+const importing = ref(false)
 
 async function load() {
   loading.value = true
@@ -91,6 +102,46 @@ async function confirmDelete() {
   }
 }
 
+function openExport(project) {
+  exportTarget.value = project
+}
+
+async function doExport() {
+  if (!exportTarget.value) return
+  const sections = Object.keys(exportSections).filter((k) => exportSections[k])
+  if (sections.length === 0) {
+    message.error('至少勾选一项导出内容')
+    return
+  }
+  exporting.value = true
+  try {
+    const payload = await exportProject(exportTarget.value.id, sections)
+    const text = JSON.stringify(payload, null, 2)
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${payload.project.name}·项目导出.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('项目导出成功')
+  } catch (e) {
+    message.error(e.message)
+  } finally {
+    exporting.value = false
+  }
+}
+
+function download(filename, text, mime) {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function fmtTime(value) {
   if (!value) return ''
   const date = new Date(String(value).replace(' ', 'T'))
@@ -103,7 +154,10 @@ function fmtTime(value) {
   <section>
     <div class="page-head">
       <h1 class="page-title">创作项目</h1>
-      <button class="btn btn-primary" type="button" @click="openCreate">＋ 新建项目</button>
+      <div class="head-actions">
+        <button class="btn btn-secondary" type="button" @click="showImport = true">导入项目</button>
+        <button class="btn btn-primary" type="button" @click="openCreate">＋ 新建项目</button>
+      </div>
     </div>
     <hr class="ink-divider" />
 
@@ -138,13 +192,22 @@ function fmtTime(value) {
         <p class="project-intro">{{ project.intro || '暂无简介' }}</p>
         <div class="project-card-foot">
           <span class="project-time">更新于 {{ fmtTime(project.updatedAt) }}</span>
-          <button
-            class="btn btn-secondary btn-mini"
-            type="button"
-            @click.stop="askDelete(project)"
-          >
-            删除
-          </button>
+          <span class="project-ops">
+            <button
+              class="btn btn-secondary btn-mini"
+              type="button"
+              @click.stop="openExport(project)"
+            >
+              导出
+            </button>
+            <button
+              class="btn btn-secondary btn-mini"
+              type="button"
+              @click.stop="askDelete(project)"
+            >
+              删除
+            </button>
+          </span>
         </div>
       </article>
     </div>
@@ -180,6 +243,42 @@ function fmtTime(value) {
       </form>
     </AppModal>
 
+    <AppModal :visible="!!exportTarget" title="导出项目" width="420px" @close="exportTarget = null">
+      <p class="export-hint">勾选要导出的内容（至少一项）：</p>
+      <label class="export-check">
+        <input v-model="exportSections.characters" type="checkbox" />
+        人物设定集（含演变节点）
+      </label>
+      <label class="export-check">
+        <input v-model="exportSections.settings" type="checkbox" />
+        世界观设定
+      </label>
+      <label class="export-check">
+        <input v-model="exportSections.outline" type="checkbox" />
+        剧情蓝图
+      </label>
+      <label class="export-check">
+        <input v-model="exportSections.chapters" type="checkbox" />
+        章节正文与记忆（含草稿）
+      </label>
+      <div class="form-actions">
+        <button class="btn btn-secondary" type="button" @click="exportTarget = null">取消</button>
+        <button class="btn btn-primary" type="button" :disabled="exporting" @click="doExport">
+          {{ exporting ? '导出中…' : '导出 JSON' }}
+        </button>
+      </div>
+    </AppModal>
+
+    <JsonImportDialog
+      :visible="showImport"
+      title="导入项目"
+      expected-format="mojian-project/v1"
+      format-label="项目"
+      :loading="importing"
+      @close="showImport = false"
+      @confirm="confirmImport"
+    />
+
     <ConfirmDialog
       :visible="!!deleteTarget"
       title="删除创作项目"
@@ -206,6 +305,11 @@ function fmtTime(value) {
 
 .page-hint {
   color: var(--color-muted);
+}
+
+.head-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .project-grid {
@@ -263,66 +367,29 @@ function fmtTime(value) {
   color: var(--color-muted);
 }
 
+.project-ops {
+  display: flex;
+  gap: 6px;
+}
+
 .btn-mini {
   padding: 4px 12px;
   font-size: 12px;
 }
 
-.empty-state {
-  margin-top: 40px;
-  padding: 56px 24px;
-  text-align: center;
-}
-
-.empty-art {
-  width: 160px;
-}
-
-.empty-title {
-  margin-top: 16px;
-  font-family: var(--font-serif);
-  font-size: 16px;
-}
-
-.empty-desc {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.9;
-  color: var(--color-muted);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.form-label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.export-hint {
   font-size: 13px;
   color: var(--color-muted);
+  margin-bottom: 12px;
 }
 
-.required {
-  color: var(--color-danger);
-}
-
-.form-input {
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-s);
-  padding: 8px 10px;
+.export-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
-  font-family: var(--font-sans);
-  background: var(--color-panel);
-  color: var(--color-ink);
-  resize: vertical;
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--color-dai-deep);
+  padding: 6px 0;
+  cursor: pointer;
 }
 
 .form-actions {

@@ -39,6 +39,8 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_MOCK: ${LLM_MOCK:-true}
+      # 容器内固定 8080：application.yml 的 8081 仅为本机开发端口偏好
+      SERVER_PORT: 8080
     volumes:
       - ./target/mojian.jar:/app/app.jar:ro
     working_dir: /app

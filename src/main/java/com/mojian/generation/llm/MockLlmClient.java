@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 行为约定：
  * - 指令包含 FAIL_TRIGGER 时抛出模拟故障（验证失败路径与重试）；
  * - failNext(n) 让接下来 n 次请求失败（验证"失败后重试成功"）；
- * - 输出会嵌入提示词中的【章节标题】与【创作指令】摘要，便于人工验证上下文确实被使用。
+ * - 输出会嵌入提示词中的【章节标题】与【创作指令】摘要，便于人工验证上下文确实被使用；
+ * - 记录最近一次请求的 userPrompt（getLastUserPrompt），供测试断言提示词组装正确。
  */
 public class MockLlmClient implements LlmClient {
 
@@ -23,9 +24,16 @@ public class MockLlmClient implements LlmClient {
     @Setter
     private volatile int failNext = 0;
     private final AtomicInteger callCounter = new AtomicInteger();
+    private volatile String lastUserPrompt;
+
+    /** 最近一次请求的 user 提示词（测试观察点，含失败请求） */
+    public String getLastUserPrompt() {
+        return lastUserPrompt;
+    }
 
     @Override
     public String chat(LlmRequest request) {
+        lastUserPrompt = request.userPrompt();
         failIfNeeded();
         return switch (request.purpose()) {
             case "PLOT_PLAN" -> buildPlan(request);
@@ -37,9 +45,12 @@ public class MockLlmClient implements LlmClient {
 
     @Override
     public void chatStream(LlmRequest request, StreamCallback callback) {
+        lastUserPrompt = request.userPrompt();
         failIfNeeded();
         String text = switch (request.purpose()) {
+            case "PLOT_PLAN" -> buildPlan(request);
             case "CONTENT", "CONTINUE" -> buildContent(request);
+            case "CHAPTER_MEMORY" -> buildMemory(request);
             default -> buildRewrite(request);
         };
         // 以 12 字为片段切分，模拟流式到达

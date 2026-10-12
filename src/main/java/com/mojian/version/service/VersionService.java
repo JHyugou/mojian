@@ -51,6 +51,9 @@ public class VersionService extends ServiceImpl<ChapterVersionMapper, ChapterVer
     public VersionCompareVO compare(Long baseVersionId, Long targetVersionId) {
         ChapterVersion base = requireById(baseVersionId);
         ChapterVersion target = requireById(targetVersionId);
+        if (!base.getChapterId().equals(target.getChapterId())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "两个版本不属于同一章节，无法对比");
+        }
         VersionCompareVO vo = new VersionCompareVO();
         vo.setBaseVersionId(base.getId());
         vo.setBaseVersionNo(base.getVersionNo());
@@ -59,6 +62,9 @@ public class VersionService extends ServiceImpl<ChapterVersionMapper, ChapterVer
         vo.setLines(computeDiff(base.getContent(), target.getContent()));
         return vo;
     }
+
+    /** 中段差异超过该规模（行数乘积）时退化为整块标注，避免 O(n·m) 矩阵内存失控 */
+    private static final long MAX_LCS_CELLS = 4_000_000L;
 
     private List<VersionDiffLine> computeDiff(String oldText, String newText) {
         String[] a = splitLines(oldText);
@@ -77,16 +83,72 @@ public class VersionService extends ServiceImpl<ChapterVersionMapper, ChapterVer
         for (int i = 0; i < start; i++) {
             lines.add(VersionDiffLine.of("same", a[i]));
         }
-        for (int i = start; i < endA; i++) {
-            lines.add(VersionDiffLine.of("del", a[i]));
-        }
-        for (int i = start; i < endB; i++) {
-            lines.add(VersionDiffLine.of("add", b[i]));
-        }
+        appendMiddleDiff(lines,
+                java.util.Arrays.copyOfRange(a, start, endA),
+                java.util.Arrays.copyOfRange(b, start, endB));
         for (int i = endA; i < a.length; i++) {
             lines.add(VersionDiffLine.of("same", a[i]));
         }
         return lines;
+    }
+
+    /**
+     * 中段差异按最长公共子序列（LCS）拆分：一章内多处分散修改也能精确到行，
+     * 而不是把中间未变的文字整块标成"删+增"。规模超限时退化为先删后增的整块标注。
+     */
+    private void appendMiddleDiff(List<VersionDiffLine> out, String[] a, String[] b) {
+        if (a.length == 0) {
+            for (String line : b) {
+                out.add(VersionDiffLine.of("add", line));
+            }
+            return;
+        }
+        if (b.length == 0) {
+            for (String line : a) {
+                out.add(VersionDiffLine.of("del", line));
+            }
+            return;
+        }
+        if ((long) a.length * b.length > MAX_LCS_CELLS) {
+            for (String line : a) {
+                out.add(VersionDiffLine.of("del", line));
+            }
+            for (String line : b) {
+                out.add(VersionDiffLine.of("add", line));
+            }
+            return;
+        }
+
+        // dp[i][j] = a[i..] 与 b[j..] 的公共子序列长度，从后往前填表
+        int[][] dp = new int[a.length + 1][b.length + 1];
+        for (int i = a.length - 1; i >= 0; i--) {
+            for (int j = b.length - 1; j >= 0; j--) {
+                dp[i][j] = a[i].equals(b[j])
+                        ? dp[i + 1][j + 1] + 1
+                        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        int ia = 0;
+        int jb = 0;
+        while (ia < a.length && jb < b.length) {
+            if (a[ia].equals(b[jb])) {
+                out.add(VersionDiffLine.of("same", a[ia]));
+                ia++;
+                jb++;
+            } else if (dp[ia + 1][jb] >= dp[ia][jb + 1]) {
+                out.add(VersionDiffLine.of("del", a[ia]));
+                ia++;
+            } else {
+                out.add(VersionDiffLine.of("add", b[jb]));
+                jb++;
+            }
+        }
+        while (ia < a.length) {
+            out.add(VersionDiffLine.of("del", a[ia++]));
+        }
+        while (jb < b.length) {
+            out.add(VersionDiffLine.of("add", b[jb++]));
+        }
     }
 
     private String[] splitLines(String content) {
@@ -108,7 +170,7 @@ public class VersionService extends ServiceImpl<ChapterVersionMapper, ChapterVer
             throw new BusinessException(ErrorCode.PARAM_INVALID, "目标版本不属于该章节");
         }
 
-        int newVersionNo = nextVersionNo(chapterId, chapter.getCurrentVersionNo());
+        int newVersionNo = VersionNumbers.next(baseMapper, chapterId, chapter.getCurrentVersionNo());
         ChapterVersion rollbackVersion = new ChapterVersion();
         rollbackVersion.setChapterId(chapterId);
         rollbackVersion.setVersionNo(newVersionNo);
@@ -130,20 +192,5 @@ public class VersionService extends ServiceImpl<ChapterVersionMapper, ChapterVer
             throw new BusinessException(ErrorCode.NOT_FOUND, "章节版本不存在");
         }
         return version;
-    }
-
-    /**
-     * 新版本号 = max(章节指针, 现存最大版本号) + 1。
-     * 以现存数据为准做防御：即使指针落后也不会撞唯一键。
-     */
-    private int nextVersionNo(Long chapterId, Integer pointerNo) {
-        ChapterVersion latest = lambdaQuery()
-                .eq(ChapterVersion::getChapterId, chapterId)
-                .orderByDesc(ChapterVersion::getVersionNo)
-                .last("LIMIT 1")
-                .one();
-        int maxExisting = latest == null ? 0 : latest.getVersionNo();
-        int pointer = pointerNo == null ? 0 : pointerNo;
-        return Math.max(maxExisting, pointer) + 1;
     }
 }

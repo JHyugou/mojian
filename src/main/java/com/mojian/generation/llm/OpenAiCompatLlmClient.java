@@ -104,6 +104,10 @@ public class OpenAiCompatLlmClient implements LlmClient {
                 if ("[DONE]".equals(payload)) {
                     break;
                 }
+                String reasoning = extractReasoning(payload);
+                if (!reasoning.isEmpty()) {
+                    callback.onReasoning(reasoning);
+                }
                 String delta = extractDelta(payload);
                 if (!delta.isEmpty()) {
                     full.append(delta);
@@ -113,6 +117,7 @@ public class OpenAiCompatLlmClient implements LlmClient {
             guard.cancel(false);
             callback.onComplete(full.toString());
         } catch (InterruptedException e) {
+            guard.cancel(false);
             Thread.currentThread().interrupt();
             callback.onError(new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型流式输出超时，请重试"));
         } catch (Exception e) {
@@ -120,6 +125,12 @@ public class OpenAiCompatLlmClient implements LlmClient {
             log.warn("模型流式输出失败: {}", e.getMessage());
             callback.onError(new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型流式输出失败，请稍后重试"));
         }
+    }
+
+    /** 停止流式空闲看门狗；路由层切换配置退役旧客户端时调用 */
+    @Override
+    public void shutdown() {
+        watchdog.shutdownNow();
     }
 
     private HttpRequest buildRequest(LlmRequest request, boolean stream) {
@@ -143,6 +154,16 @@ public class OpenAiCompatLlmClient implements LlmClient {
         try {
             JsonNode node = MAPPER.readTree(payload);
             return node.path("choices").path(0).path("delta").path("content").asText("");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** 思维链增量：GLM/DeepSeek 等推理模型在 delta.reasoning_content 输出思考过程 */
+    private String extractReasoning(String payload) {
+        try {
+            JsonNode node = MAPPER.readTree(payload);
+            return node.path("choices").path(0).path("delta").path("reasoning_content").asText("");
         } catch (Exception e) {
             return "";
         }

@@ -32,11 +32,20 @@ pid = proj['data']['id']
 check('id is string', isinstance(pid, str), pid)
 
 print('== 人物档案 ==')
-char = call('POST', f'/projects/{pid}/characters', {'name': '林晚照', 'roleIdentity': '北境剑修', 'personality': '外冷内热'})
+char = call('POST', f'/projects/{pid}/characters', {'name': '林晚照', 'roleIdentity': '北境剑修', 'description': '筑基后期剑修；擅御剑与轻功；外冷内热'})
 check('create character', char['code'] == 0, char)
 cid = char['data']['id']
 chars = call('GET', f'/projects/{pid}/characters')
 check('list characters', chars['code'] == 0 and len(chars['data']) == 1, chars)
+
+print('== 人物版本节点（起点制） ==')
+node = call('POST', f'/characters/{cid}/nodes',
+            {'chapterFrom': 5, 'description': '觉醒血脉：筑基后期；擅御剑'})
+check('create character node', node['code'] == 0 and node['data']['chapterFrom'] == 5, node)
+dup = call('POST', f'/characters/{cid}/nodes', {'chapterFrom': 5})
+check('duplicate node start rejected', dup['code'] == 40000, dup)
+nodes = call('GET', f'/characters/{cid}/nodes')
+check('list character nodes', nodes['code'] == 0 and len(nodes['data']) == 1, nodes)
 
 print('== 故事设定 ==')
 setting = call('POST', f'/projects/{pid}/settings',
@@ -52,7 +61,7 @@ volume = call('POST', f'/projects/{pid}/outline/nodes', {'nodeType': 'VOLUME', '
 check('create volume', volume['code'] == 0, volume)
 vid = volume['data']['id']
 node = call('POST', f'/projects/{pid}/outline/nodes',
-            {'nodeType': 'CHAPTER', 'name': '夜雨客栈', 'parentId': vid, 'plotGoal': '主角初到客栈，遭遇第一次刺杀'})
+            {'nodeType': 'CHAPTER', 'name': '夜雨客栈', 'parentId': vid, 'summary': '主角初到客栈，遭遇第一次刺杀'})
 check('create chapter node', node['code'] == 0, node)
 nid = node['data']['id']
 tree = call('GET', f'/projects/{pid}/outline')
@@ -64,10 +73,14 @@ check('create chapter linked to node', chapter['code'] == 0, chapter)
 chid = chapter['data']['id']
 upd = call('PUT', f'/chapters/{chid}', {'title': '第一章 夜雨', 'content': '夜雨落了整宿……', 'status': 'WRITING'})
 check('manual save chapter', upd['code'] == 0 and upd['data']['status'] == 'WRITING', upd)
-mem = call('PUT', f'/chapters/{chid}/memory', {'summary': '主角抵达客栈，遇到黑衣人', 'unresolvedConflicts': '刺杀者身份未明'})
+mem = call('PUT', f'/chapters/{chid}/memory', {'memory': '主角抵达客栈，遇到黑衣人；刺杀者身份未明'})
 check('save memory', mem['code'] == 0, mem)
+book = call('GET', f'/projects/{pid}/book')
+check('book assembles chapters',
+      book['code'] == 0 and book['data']['chapters'][0]['content'] == '夜雨落了整宿……'
+      and book['data']['totalChars'] > 0, book)
 mem2 = call('GET', f'/chapters/{chid}/memory')
-check('get memory back', mem2['data']['summary'] == '主角抵达客栈，遇到黑衣人', mem2)
+check('get memory back', mem2['data']['memory'] == '主角抵达客栈，遇到黑衣人；刺杀者身份未明', mem2)
 chapters = call('GET', f'/projects/{pid}/chapters')
 check('chapter list without content', chapters['data'][0].get('content') is None, chapters)
 
@@ -90,7 +103,7 @@ import time
 import urllib.request as _ur
 
 
-def wait_task(task_id, timeout=15):
+def wait_task(task_id, timeout=900):
     for _ in range(timeout * 2):
         body = call('GET', f'/generation-tasks/{task_id}')
         if body['data']['status'] in ('SUCCEEDED', 'FAILED'):

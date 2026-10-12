@@ -139,4 +139,35 @@ class VersionServiceTest {
         assertTrue(vo.getLines().stream().anyMatch(l -> "del".equals(l.getType()) && "第二行".equals(l.getText())));
         assertTrue(vo.getLines().stream().anyMatch(l -> "add".equals(l.getType()) && "第二行改".equals(l.getText())));
     }
+
+    @Test
+    void compareRejectsVersionsFromDifferentChapters() {
+        Long chapterA = newChapterId();
+        Long chapterB = newChapterId();
+        ChapterVersion vInA = insertVersion(chapterA, 1, "A 的版本");
+        ChapterVersion vInB = insertVersion(chapterB, 1, "B 的版本");
+
+        assertThrows(Exception.class, () -> versionService.compare(vInA.getId(), vInB.getId()),
+                "跨章节的版本对比没有意义，必须拒绝");
+    }
+
+    @Test
+    void compareInterleavedEditsKeepUnchangedLinesVisible() {
+        Long chapterId = newChapterId();
+        // 两处分散修改：第2行和第4行各自改动，中间未变的行不应被卷进增删块
+        ChapterVersion v1 = insertVersion(chapterId, 1, "一\n甲\n三\n乙\n五");
+        ChapterVersion v2 = insertVersion(chapterId, 2, "一\n甲改\n三\n乙改\n五");
+
+        var vo = versionService.compare(v1.getId(), v2.getId());
+
+        assertEquals("same", vo.getLines().get(0).getType(), "首行应标为未变");
+        List<String> middleTypes = vo.getLines().stream().skip(1).map(l -> l.getType()).toList();
+        long delCount = middleTypes.stream().filter("del"::equals).count();
+        long addCount = middleTypes.stream().filter("add"::equals).count();
+        assertEquals(2, delCount);
+        assertEquals(2, addCount);
+        // 中间的"三"仍在且未被标成增删
+        assertTrue(vo.getLines().stream()
+                .anyMatch(l -> "same".equals(l.getType()) && "三".equals(l.getText())));
+    }
 }

@@ -24,15 +24,8 @@ CREATE TABLE IF NOT EXISTS character_profile (
     project_id     BIGINT       NOT NULL COMMENT '所属项目',
     name           VARCHAR(50)  NOT NULL COMMENT '姓名',
     role_identity  VARCHAR(200)          DEFAULT NULL COMMENT '身份/角色定位',
-    appearance     TEXT COMMENT '外貌描述',
-    personality    TEXT COMMENT '性格特征',
-    core_goal      TEXT COMMENT '核心目标',
-    main_conflict  TEXT COMMENT '主要矛盾',
-    relationships  TEXT COMMENT '人物关系（自由文本或JSON）',
-    speech_style   TEXT COMMENT '语言风格',
+    description    TEXT COMMENT '人物设定全文（SillyTavern式大段描述：外貌/性格/能力/关系/状态融合叙述）',
     example_dialogue TEXT COMMENT '对话示例（模仿声口最有效的素材，参考SillyTavern角色卡mes_example）',
-    current_status TEXT COMMENT '当前状态',
-    character_arc  TEXT COMMENT '人物发展弧线',
     enabled        TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用：启用才参与默认上下文组装',
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -98,10 +91,7 @@ CREATE TABLE IF NOT EXISTS chapter (
 CREATE TABLE IF NOT EXISTS chapter_memory (
     id                   BIGINT   NOT NULL COMMENT '主键（雪花ID）',
     chapter_id           BIGINT   NOT NULL COMMENT '所属章节',
-    summary              TEXT COMMENT '章节摘要',
-    key_facts            TEXT COMMENT '重要事实',
-    unresolved_conflicts TEXT COMMENT '未解决冲突',
-    character_changes    TEXT COMMENT '人物状态变化',
+    memory               TEXT COMMENT '记忆全文（摘要/重要事实/未解决冲突/人物状态变化的融合叙述）',
     created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -146,3 +136,27 @@ CREATE TABLE IF NOT EXISTS chapter_version (
     PRIMARY KEY (id),
     UNIQUE KEY uk_version_chapter_no (chapter_id, version_no)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '章节版本';
+
+-- 9. 模型接入设置（单例行，id 固定为 1；API Key 以 AES-GCM 密文存储，界面只回显掩码）
+CREATE TABLE IF NOT EXISTS llm_settings (
+    id              BIGINT       NOT NULL COMMENT '主键（固定为1）',
+    base_url        VARCHAR(300) DEFAULT NULL COMMENT 'OpenAI兼容接口地址',
+    api_key_cipher  VARCHAR(600) DEFAULT NULL COMMENT 'API密钥密文（本机密钥文件AES-GCM加密）',
+    model           VARCHAR(100) DEFAULT NULL COMMENT '模型名称',
+    enabled         TINYINT      NOT NULL DEFAULT 1 COMMENT '是否启用：1启用 0停用',
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '模型接入设置';
+
+-- 10. 人物版本节点（起点制：从第 X 章起生效直至下一节点；全量快照，null 字段沿用基础档案）
+CREATE TABLE IF NOT EXISTS character_node (
+    id            BIGINT       NOT NULL COMMENT '主键（雪花ID）',
+    character_id  BIGINT       NOT NULL COMMENT '所属人物档案',
+    chapter_from  INT          NOT NULL COMMENT '生效起点章（含），直至下一节点',
+    description   TEXT COMMENT '本阶段人物设定全文（外貌/性格/能力/关系/状态的融合叙述）',
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_cnode_character (character_id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '人物版本节点';

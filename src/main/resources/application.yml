@@ -12,7 +12,7 @@ spring:
       port: ${REDIS_PORT:6379}
 
 server:
-  port: 8080
+  port: 8081
 
 mybatis-plus:
   configuration:
@@ -34,7 +34,10 @@ mojian:
     # 显式启用 Mock；未配置 api-key 时也会自动使用 Mock
     mock: ${LLM_MOCK:false}
     connect-timeout-seconds: 10
-    read-timeout-seconds: 300
+    # 大提示词下部分模型的"首字延迟"可达数分钟且波动大（实测 glm-5.3-flash
+    # 编码端点 3.5~9.5 分钟不等），该值同时是流式空闲看门狗阈值：
+    # 太短会把"正在等首字"的任务误杀
+    read-timeout-seconds: 900
 
 logging:
   level:

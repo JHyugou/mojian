@@ -107,7 +107,7 @@ class ProjectServiceTest {
 
         ChapterMemory memory = new ChapterMemory();
         memory.setChapterId(chapterId);
-        memory.setSummary("主角初入宗门");
+        memory.setMemory("主角初入宗门");
         chapterMemoryMapper.insert(memory);
 
         ChapterVersion version = new ChapterVersion();

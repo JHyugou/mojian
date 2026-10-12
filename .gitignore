@@ -24,3 +24,7 @@ web/dist/
 # ==== 操作系统 ====
 .DS_Store
 Thumbs.db
+
+# ==== 一次性补丁脚本（开发用临时文件） ====
+patch_*.py
+web/patch_*.py

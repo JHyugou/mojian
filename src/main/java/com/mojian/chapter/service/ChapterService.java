@@ -7,20 +7,24 @@ import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.entity.ChapterMemory;
 import com.mojian.chapter.mapper.ChapterMapper;
 import com.mojian.chapter.mapper.ChapterMemoryMapper;
+import com.mojian.chapter.vo.BookVO;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.exception.BusinessException;
 import com.mojian.generation.mapper.GenerationTaskMapper;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
+import com.mojian.project.entity.StoryProject;
 import com.mojian.project.service.ProjectService;
 import com.mojian.version.entity.ChapterVersion;
 import com.mojian.version.mapper.ChapterVersionMapper;
+import com.mojian.version.service.VersionNumbers;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -64,6 +68,40 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
     }
 
     /**
+     * 成书（FR-020）：按创建顺序装配全书全文，供阅读视图与导出。
+     * 与 list() 不同，这里需要正文大字段。
+     * 草稿（status=DRAFT）章节不收录成书。
+     */
+    public BookVO book(Long projectId) {
+        StoryProject project = projectService.requireById(projectId);
+        List<Chapter> chapters = lambdaQuery()
+                .eq(Chapter::getProjectId, projectId)
+                .ne(Chapter::getStatus, "DRAFT")
+                .orderByAsc(Chapter::getCreatedAt)
+                .list();
+
+        BookVO vo = new BookVO();
+        vo.setProjectName(project.getName());
+        vo.setGenre(project.getGenre());
+        vo.setIntro(project.getIntro());
+        List<BookVO.ChapterSection> sections = new ArrayList<>();
+        int totalChars = 0;
+        for (Chapter c : chapters) {
+            BookVO.ChapterSection section = new BookVO.ChapterSection();
+            section.setId(c.getId());
+            section.setTitle(c.getTitle());
+            section.setContent(c.getContent());
+            section.setChars(c.getContent() == null ? 0 : c.getContent().length());
+            totalChars += section.getChars();
+            sections.add(section);
+        }
+        vo.setChapters(sections);
+        vo.setChapterCount(sections.size());
+        vo.setTotalChars(totalChars);
+        return vo;
+    }
+
+    /**
      * 手动保存章节（FR-007）。createVersion=true 时为新内容创建 MANUAL 版本快照（FR-016），
      * 更新与版本写入在同一事务内，失败整体回滚。
      */
@@ -80,7 +118,7 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
         updateById(chapter);
 
         if (Boolean.TRUE.equals(request.getCreateVersion())) {
-            int versionNo = (chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo()) + 1;
+            int versionNo = VersionNumbers.next(chapterVersionMapper, chapterId, chapter.getCurrentVersionNo());
             ChapterVersion version = new ChapterVersion();
             version.setChapterId(chapterId);
             version.setVersionNo(versionNo);

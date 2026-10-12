@@ -10,7 +10,8 @@ const emit = defineEmits(['close'])
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="modal-mask" @click.self="emit('close')">
+    <!-- 刻意不响应遮罩点击/Esc 关闭：避免误触丢失未保存内容，只能通过明确按钮关闭 -->
+    <div v-if="visible" class="modal-mask">
       <div class="modal-card card" :style="{ maxWidth: width }" role="dialog" :aria-label="title">
         <header class="modal-head">
           <h3 class="modal-title">{{ title }}</h3>
@@ -28,7 +29,7 @@ const emit = defineEmits(['close'])
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(44, 58, 67, 0.35);
+  background: rgba(43, 38, 32, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,8 +1,10 @@
 package com.mojian.world.character.controller;
 
 import com.mojian.common.api.ApiResponse;
+import com.mojian.world.character.dto.CharacterNodeSaveRequest;
 import com.mojian.world.character.dto.CharacterSaveRequest;
 import com.mojian.world.character.dto.DialogueExampleDraftRequest;
+import com.mojian.world.character.entity.CharacterNode;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
 import jakarta.validation.Valid;
@@ -46,5 +48,30 @@ public class CharacterController {
                                                     @Valid @RequestBody(required = false) DialogueExampleDraftRequest request) {
         String hint = request == null ? null : request.getHint();
         return ApiResponse.ok(characterService.draftDialogueExample(characterId, hint));
+    }
+
+    // ==================== 版本节点（起点制人物演变） ====================
+
+    @GetMapping("/characters/{characterId}/nodes")
+    public ApiResponse<List<CharacterNode>> listNodes(@PathVariable Long characterId) {
+        return ApiResponse.ok(characterService.listNodes(characterId));
+    }
+
+    @PostMapping("/characters/{characterId}/nodes")
+    public ApiResponse<CharacterNode> createNode(@PathVariable Long characterId,
+                                                 @Valid @RequestBody CharacterNodeSaveRequest request) {
+        return ApiResponse.ok(characterService.createNode(characterId, request));
+    }
+
+    @PutMapping("/character-nodes/{nodeId}")
+    public ApiResponse<CharacterNode> updateNode(@PathVariable Long nodeId,
+                                                 @Valid @RequestBody CharacterNodeSaveRequest request) {
+        return ApiResponse.ok(characterService.updateNode(nodeId, request));
+    }
+
+    @DeleteMapping("/character-nodes/{nodeId}")
+    public ApiResponse<Void> deleteNode(@PathVariable Long nodeId) {
+        characterService.deleteNode(nodeId);
+        return ApiResponse.ok();
     }
 }

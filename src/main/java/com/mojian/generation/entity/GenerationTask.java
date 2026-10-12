@@ -1,5 +1,7 @@
 package com.mojian.generation.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.mojian.common.entity.BaseEntity;
 import lombok.Data;
@@ -30,12 +32,17 @@ public class GenerationTask extends BaseEntity {
     /** 上下文快照（JSON，不含 API Key） */
     private String contextSnapshot;
 
-    /** 结果快照（剧情方案文本等） */
+    /** 结果快照（剧情方案文本等）。置空需写库，故用 IGNORED 策略覆盖默认 NOT_NULL */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String resultSnapshot;
 
+    /** 失败原因。重试成功后必须清空残留错误信息 */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private String errorMessage;
 
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private LocalDateTime startedAt;
 
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
     private LocalDateTime finishedAt;
 }

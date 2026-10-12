@@ -24,6 +24,7 @@ import com.mojian.generation.sse.TaskEventBroker;
 import com.mojian.generation.vo.GenerationTaskVO;
 import com.mojian.version.entity.ChapterVersion;
 import com.mojian.version.mapper.ChapterVersionMapper;
+import com.mojian.version.service.VersionNumbers;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
@@ -176,29 +177,28 @@ public class GenerationTaskService implements ApplicationRunner {
                 type);
 
         try {
-            if (GenerationConst.TYPE_PLOT_PLAN.equals(type) || GenerationConst.TYPE_CHAPTER_MEMORY.equals(type)) {
-                // 方案与记忆为短生成：同步调用，结果存快照，由用户确认后采用
-                String result = llmClient.chat(request);
-                finishTask(task.getId(), type, result);
-            } else {
-                // 正文类：流式生成（FR-013），成功后在事务内保存版本
-                llmClient.chatStream(request, new StreamCallback() {
-                    @Override
-                    public void onDelta(String delta) {
-                        broker.publishDelta(taskId, delta);
-                    }
+            // 所有任务统一流式：正文/方案/记忆的产出实时可见，推理模型的思维链同步透出
+            llmClient.chatStream(request, new StreamCallback() {
+                @Override
+                public void onDelta(String delta) {
+                    broker.publishDelta(taskId, delta);
+                }
 
-                    @Override
-                    public void onComplete(String fullText) {
-                        finishTask(taskId, type, fullText);
-                    }
+                @Override
+                public void onReasoning(String delta) {
+                    broker.publishReasoning(taskId, delta);
+                }
 
-                    @Override
-                    public void onError(Throwable error) {
-                        failTask(taskId, error.getMessage());
-                    }
-                });
-            }
+                @Override
+                public void onComplete(String fullText) {
+                    finishTask(taskId, type, fullText);
+                }
+
+                @Override
+                public void onError(Throwable error) {
+                    failTask(taskId, error.getMessage());
+                }
+            });
         } catch (Exception e) {
             log.warn("任务 {} 执行失败: {}", taskId, e.getMessage());
             failTask(taskId, e.getMessage());
@@ -209,9 +209,10 @@ public class GenerationTaskService implements ApplicationRunner {
     void finishTask(Long taskId, String type, String result) {
         Boolean ok = transactionTemplate.execute(txStatus -> {
             // 条件更新：仅 RUNNING 可流转，过期回调不会覆盖新状态
-            boolean planOrMemory = GenerationConst.TYPE_PLOT_PLAN.equals(type)
-                    || GenerationConst.TYPE_CHAPTER_MEMORY.equals(type);
-            if (!planOrMemory) {
+            // 剧情方案与章节记忆不落正文版本（记忆结果由用户核对后保存）
+            boolean contentTask = !GenerationConst.TYPE_PLOT_PLAN.equals(type)
+                    && !GenerationConst.TYPE_CHAPTER_MEMORY.equals(type);
+            if (contentTask) {
                 saveContentVersion(taskId, type, result);
             }
             return transitionTo(taskId, GenerationConst.STATUS_SUCCEEDED, result, null);
@@ -249,7 +250,7 @@ public class GenerationTaskService implements ApplicationRunner {
             default -> replaceSelection(chapter.getContent(), selection, generated);
         };
 
-        int versionNo = (chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo()) + 1;
+        int versionNo = VersionNumbers.next(versionMapper, chapter.getId(), chapter.getCurrentVersionNo());
         ChapterVersion version = new ChapterVersion();
         version.setChapterId(chapter.getId());
         version.setVersionNo(versionNo);

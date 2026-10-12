@@ -38,7 +38,7 @@ function childTypes(nodeType) {
         <button class="btn btn-secondary btn-mini node-delete" type="button" @click="emit('delete', node)">删</button>
       </span>
     </div>
-    <p v-if="node.plotGoal || node.summary" class="node-desc">{{ node.plotGoal || node.summary }}</p>
+    <p v-if="node.summary" class="node-desc">{{ node.summary }}</p>
 
     <OutlineTreeNode
       v-for="child in node.children"
@@ -104,7 +104,7 @@ function childTypes(nodeType) {
   font-size: 11px;
   color: var(--color-dai-deep);
   border: 1px solid var(--color-line);
-  border-radius: 999px;
+  border-radius: var(--radius-s);
   padding: 0 8px;
 }
 

@@ -8,20 +8,59 @@ import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.mapper.PlotOutlineMapper;
 import com.mojian.outline.vo.OutlineNodeVO;
 import com.mojian.project.service.ProjectService;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.*;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OutlineService extends ServiceImpl<PlotOutlineMapper, PlotOutline> {
 
     private final ProjectService projectService;
     private final com.mojian.chapter.mapper.ChapterMapper chapterMapper;
+    private final JdbcTemplate jdbcTemplate;
+
+    /**
+     * 老库结构演进（幂等）：面向新手作者的精简——章节节点只保留"摘要"，
+     * 剧情目标/冲突/场景/必须情节 的已填内容以标签段落并入摘要后删列。
+     * 主要人物（main_characters）是功能字段（驱动蓝图引用人物优先注入），保留。
+     */
+    @PostConstruct
+    public void migrateOutlineSchema() {
+        if (!columnExists("plot_outline", "plot_goal")) {
+            return;
+        }
+        jdbcTemplate.update("UPDATE plot_outline SET summary = CONCAT_WS(CHAR(10), "
+                + "NULLIF(summary, ''), "
+                + "NULLIF(CONCAT('【剧情目标】', plot_goal), '【剧情目标】'), "
+                + "NULLIF(CONCAT('【冲突】', conflict), '【冲突】'), "
+                + "NULLIF(CONCAT('【场景】', scene), '【场景】'), "
+                + "NULLIF(CONCAT('【必须情节】', must_events), '【必须情节】')) "
+                + "WHERE plot_goal IS NOT NULL AND plot_goal != '' "
+                + "OR conflict IS NOT NULL AND conflict != '' "
+                + "OR scene IS NOT NULL AND scene != '' "
+                + "OR must_events IS NOT NULL AND must_events != ''");
+        jdbcTemplate.execute("ALTER TABLE plot_outline "
+                + "DROP COLUMN plot_goal, DROP COLUMN conflict, "
+                + "DROP COLUMN scene, DROP COLUMN must_events");
+        log.info("plot_outline 剧情目标/冲突/场景/必须情节 已并入摘要并删列");
+    }
+
+    private boolean columnExists(String table, String column) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                Integer.class, table, column);
+        return count != null && count > 0;
+    }
 
     /**
      * 返回项目的完整蓝图树：一次查询全部节点后内存装配（FR-006）。

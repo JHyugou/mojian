@@ -9,7 +9,9 @@ import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
 import com.mojian.project.entity.StoryProject;
 import com.mojian.project.service.ProjectService;
+import com.mojian.world.character.entity.CharacterNode;
 import com.mojian.world.character.entity.CharacterProfile;
+import com.mojian.world.character.mapper.CharacterNodeMapper;
 import com.mojian.world.character.service.CharacterService;
 import com.mojian.world.setting.entity.SettingEntry;
 import com.mojian.world.setting.service.SettingService;
@@ -17,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +39,7 @@ public class GenerationContextService {
     private final OutlineService outlineService;
     private final ChapterService chapterService;
     private final ChapterMemoryMapper chapterMemoryMapper;
+    private final CharacterNodeMapper characterNodeMapper;
     private final ContextAssembler assembler;
     private final ObjectMapper objectMapper;
 
@@ -67,13 +71,41 @@ public class GenerationContextService {
             }
         }
 
+        List<CharacterProfile> characters = characterService.list(projectId);
+        Map<Long, List<CharacterNode>> appliedNodes = nodesAppliedBy(characters, chapterNo);
+        String previousTail = chapterNo > 1 && chapterNo <= orderedChapters.size()
+                ? assembler.previousChapterTail(
+                        chapterService.requireById(orderedChapters.get(chapterNo - 2).getId()).getContent())
+                : null;
+
         return assembler.buildSnapshot(
                 project, chapter, chapterNo, outlineNode,
                 parseReferencedIds(outlineNode),
-                characterService.list(projectId),
+                characters,
                 settingService.list(projectId, null),
                 orderedChapters, memories,
-                instruction, selection, confirmedPlan);
+                instruction, selection, confirmedPlan, appliedNodes, previousTail);
+    }
+
+    /**
+     * 增量时间线解析（FR-003 演进版）：每个人物取 chapter_from ≤ 本章的**全部**节点，
+     * 按起点升序返回——装配器把它们作为"自第X章起的变化"依序追加在基础设定之后。
+     * 未来节点（chapter_from > 本章）不注入：写早期章节时不会剧透后期演变。
+     * 返回的 Map 不含无生效节点的人物（沿用基础档案）。
+     */
+    private Map<Long, List<CharacterNode>> nodesAppliedBy(List<CharacterProfile> characters,
+                                                          int chapterNo) {
+        if (characters.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = characters.stream().map(CharacterProfile::getId).toList();
+        Map<Long, List<CharacterNode>> applied = new HashMap<>();
+        for (CharacterNode node : characterNodeMapper.selectByCharacterIds(ids)) {
+            if (node.getChapterFrom() != null && node.getChapterFrom() <= chapterNo) {
+                applied.computeIfAbsent(node.getCharacterId(), k -> new ArrayList<>()).add(node);
+            }
+        }
+        return applied;
     }
 
     /** 蓝图章节节点上记录的主要人物 ID（JSON 数组字符串） */

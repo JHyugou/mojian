@@ -8,16 +8,29 @@ const projectStore = useProjectStore()
 const messageStore = useMessageStore()
 
 const navItems = [
-  { path: '/', label: '创作项目', hint: '项目' },
-  { path: '/characters', label: '人物档案', hint: '人物' },
-  { path: '/settings', label: '故事设定库', hint: '设定' },
-  { path: '/outline', label: '剧情蓝图', hint: '蓝图' },
-  { path: '/chapters', label: '章节创作', hint: '章节' }
+  { path: '/', label: '创作项目', num: '壹' },
+  { path: '/characters', label: '人物档案', num: '贰' },
+  { path: '/settings', label: '故事设定库', num: '叁' },
+  { path: '/outline', label: '剧情蓝图', num: '肆' },
+  { path: '/chapters', label: '章节创作', num: '伍' },
+  { path: '/book', label: '成书', num: '陆' },
+  { path: '/chat', label: 'AI 助手', num: '柒' },
+  { path: '/ai-settings', label: '模型接入', num: '捌' }
 ]
 </script>
 
 <template>
   <div class="app-shell">
+    <!-- 水墨背景装饰层：远山、流霭、竖排诗句（纯装饰，不参与交互） -->
+    <div class="backdrop" aria-hidden="true">
+      <svg class="mountains" viewBox="0 0 1440 300" preserveAspectRatio="none">
+        <path d="M0 300 L180 190 Q260 130 340 195 L430 260 L560 170 Q650 105 750 185 L860 262 L990 175 Q1090 110 1190 190 L1290 250 L1440 205 L1440 300 Z" fill="rgba(60,54,44,.06)"/>
+        <path d="M0 300 L220 240 Q330 195 450 245 L600 215 Q720 185 850 235 L1010 218 Q1160 192 1300 240 L1440 228 L1440 300 Z" fill="rgba(60,54,44,.10)"/>
+      </svg>
+      <span class="mist mist-1"></span>
+      <span class="mist mist-2"></span>
+      <span class="vertical-verse brush">落笔惊风雨 · 诗成泣鬼神</span>
+    </div>
     <header class="app-header">
       <div class="brand">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
@@ -33,6 +46,7 @@ const navItems = [
       <span v-if="projectStore.current" class="current-project">
         当前项目 · {{ projectStore.current.name }}
       </span>
+      <span class="seal-stamp brush" aria-hidden="true">墨笺</span>
     </header>
 
     <div class="app-body">
@@ -44,7 +58,7 @@ const navItems = [
           class="nav-item"
           active-class="active"
         >
-          <span class="nav-hint">{{ item.hint }}</span>
+          <span class="nav-num">{{ item.num }}</span>
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
@@ -89,13 +103,66 @@ const navItems = [
 
 <style scoped>
 .app-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
+/* ===== 水墨背景装饰层 ===== */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mountains {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 32vh;
+}
+.mist {
+  position: absolute;
+  width: 520px;
+  height: 150px;
+  border-radius: 50%;
+  filter: blur(52px);
+  background: rgba(92, 86, 72, 0.16);
+}
+.mist-1 { top: 16%; left: -80px; animation: mist-drift 24s ease-in-out infinite alternate; }
+.mist-2 { bottom: 18%; right: -100px; animation: mist-drift 30s ease-in-out infinite alternate-reverse; }
+.vertical-verse {
+  position: absolute;
+  top: 96px;
+  right: 18px;
+  writing-mode: vertical-rl;
+  font-size: 19px;
+  letter-spacing: 0.4em;
+  color: rgba(43, 38, 32, 0.28);
+  animation: verse-float 9s ease-in-out infinite alternate;
+}
+@keyframes mist-drift {
+  from { transform: translateX(-46px); }
+  to { transform: translateX(46px); }
+}
+@keyframes verse-float {
+  from { transform: translateY(-7px); }
+  to { transform: translateY(7px); }
+}
+
+.app-header,
+.app-body,
+.toast-area {
+  position: relative;
+  z-index: 1;
+}
+
 .app-header {
-  height: 52px;
+  height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -106,10 +173,12 @@ const navItems = [
 
 .current-project {
   font-size: 13px;
-  color: var(--color-dai-deep);
-  background: var(--color-dai);
-  padding: 4px 12px;
-  border-radius: 999px;
+  letter-spacing: 0.08em;
+  color: var(--color-ink);
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid var(--color-line);
+  padding: 5px 14px;
+  border-radius: var(--radius-s);
 }
 
 .brand {
@@ -124,15 +193,41 @@ const navItems = [
 }
 
 .brand-name {
-  font-family: var(--font-serif);
-  font-size: 18px;
-  letter-spacing: 4px;
+  font-family: var(--font-brush);
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: 3px;
+  transform: rotate(-1.5deg);
 }
 
 .brand-sub {
   font-size: 12px;
+  letter-spacing: 0.22em;
   color: var(--color-muted);
-  margin-left: 8px;
+  margin-left: 10px;
+}
+
+.seal-stamp {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.05;
+  color: #f7efe2;
+  background: var(--color-cinnabar);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px rgba(247, 239, 226, 0.65), 0 3px 12px rgba(163, 63, 48, 0.4);
+  transform: rotate(-6deg);
+  animation: seal-stamp-in 0.7s 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+@keyframes seal-stamp-in {
+  0% { opacity: 0; transform: rotate(-12deg) scale(1.9); }
+  60% { opacity: 1; transform: rotate(-5deg) scale(0.94); }
+  100% { transform: rotate(-6deg) scale(1); }
 }
 
 .app-body {
@@ -152,35 +247,59 @@ const navItems = [
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
+  gap: 11px;
+  padding: 10px 12px;
   border-radius: var(--radius-s);
   color: var(--color-ink);
   text-decoration: none;
   border-left: 3px solid transparent;
+  transition: transform 0.15s ease, background 0.18s ease;
 }
 
 .nav-item:hover {
-  background: var(--color-panel);
+  background: rgba(43, 38, 32, 0.06);
+  transform: translateX(2px);
 }
 
 .nav-item.active {
-  background: var(--color-panel);
+  background: linear-gradient(90deg, rgba(43, 38, 32, 0.12), transparent);
   border-left-color: var(--color-cinnabar);
-  color: var(--color-dai-deep);
-  font-weight: 600;
+  color: var(--color-ink);
+  font-weight: 700;
 }
 
-.nav-hint {
-  font-family: var(--font-serif);
-  color: var(--color-muted);
-  font-size: 13px;
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  margin-top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-ink);
+  box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px var(--color-ink);
+  animation: nav-ink-pulse 2.4s ease infinite;
+}
+@keyframes nav-ink-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 3px var(--color-ink); }
+  50% { box-shadow: 0 0 0 2px var(--color-paper), 0 0 0 7px rgba(43, 38, 32, 0); }
 }
 
-.nav-item.active .nav-hint {
+.nav-num {
+  font-family: var(--font-brush);
+  font-size: 16px;
   color: var(--color-cinnabar);
+  width: 20px;
+  text-align: center;
+  flex: none;
+}
+
+.nav-item.active .nav-num {
+  color: var(--color-ink);
 }
 
 .app-main {
@@ -224,29 +343,52 @@ const navItems = [
   text-align: center;
 }
 
+/* 提示停靠在页面底部居中：避开顶栏、侧边导航与右侧上下文面板的操作区 */
 .toast-area {
   position: fixed;
-  top: 64px;
-  right: 20px;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
+  align-items: center;
   gap: 8px;
-  z-index: 200;
+  z-index: 2000;
+  pointer-events: none;
 }
 
 .toast {
-  padding: 10px 16px;
-  border-radius: var(--radius-m);
-  background: var(--color-panel);
-  border: 1px solid var(--color-line);
-  box-shadow: var(--shadow-soft);
-  font-size: 13px;
+  pointer-events: auto;
+}
+
+.toast {
+  padding: 10px 20px;
+  border-radius: var(--radius-s);
+  background: rgba(33, 29, 24, 0.93);
+  border: none;
+  color: #efe8d6;
+  box-shadow: 4px 4px 0 rgba(163, 63, 48, 0.75);
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
   cursor: pointer;
-  max-width: 320px;
+  max-width: 460px;
+  line-height: 1.6;
+  animation: toast-in 0.22s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .toast-success {
-  border-left: 3px solid var(--color-dai-deep);
+  border-left: 3px solid #55795c;
 }
 
 .toast-error {
