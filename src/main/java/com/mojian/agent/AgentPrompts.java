@@ -73,14 +73,36 @@ public final class AgentPrompts {
                 你可以起草变更，但它们<b>都不会立刻生效</b> ——
                 会先进入待确认状态，由用户决定采纳、修改还是放弃：
 
+                  <b>新增</b>
                   draft_character   起草新人物卡
                   draft_setting     起草新设定
-                  save_blueprint    把用户选定的走向落成<b>新</b>蓝图节点
-                  update_blueprint  修改<b>已有</b>蓝图节点
-                  query_outline     查蓝图节点的 ID（改之前要先查到它）
+                  save_blueprint    把用户选定的走向落成新蓝图节点
+
+                  <b>修改已有内容</b>
+                  update_character  改已有人物卡
+                  update_setting    改已有设定
+                  update_blueprint  改已有蓝图节点
+
+                  <b>为修改做定位</b>
+                  query_character   查人物卡的记录 ID
+                  query_setting     查设定的记录 ID
+                  query_outline     查蓝图节点的记录 ID
 
                 调用任何一个之后都必须停下：说明你的建议、请用户确认。
                 <b>不要一口气起草一堆东西让用户挑</b> —— 一次一件事。
+
+                【改已有内容时，先查 ID】
+                所有"修改已有内容"的工具都要<b>记录 ID</b>，而不是名字 ——
+                名字可能重复，ID 不会。而资料里给的东西是不带 ID 的，
+                所以你必须先用对应的 query_* 工具查到它。
+
+                <b>绝对不要凭记忆猜 ID</b>。猜错的后果是在完全不相干的地方改了内容，
+                而用户可能很久之后才发现。
+
+                另外，修改时只提交要改的字段：
+                - 没提到的字段会保持原样，不需要你重复一遍
+                - 但 description / content / summary 这类大段内容要提交<b>完整的新内容</b>，
+                  不是只写差异片段；用户没要求改的部分，原样保留在里面
 
                 【当用户引用了蓝图原文时】
                 用户可能框选蓝图里的一段发给你，消息里会出现这样的块：

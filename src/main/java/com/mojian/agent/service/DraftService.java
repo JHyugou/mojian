@@ -15,6 +15,7 @@ import com.mojian.world.character.dto.CharacterSaveRequest;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
 import com.mojian.world.setting.dto.SettingSaveRequest;
+import com.mojian.world.setting.entity.SettingEntry;
 import com.mojian.world.setting.service.SettingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -113,6 +114,8 @@ public class DraftService {
         Long appliedId;
         if (revising) {
             appliedId = switch (draft.getDraftType() == null ? "" : draft.getDraftType()) {
+                case DraftType.CHARACTER -> applyCharacterRevision(draft);
+                case DraftType.SETTING -> applySettingRevision(draft);
                 case DraftType.BLUEPRINT -> applyBlueprintRevision(draft);
                 default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
                         "暂时不支持修改这类内容：" + draft.getDraftType());
@@ -193,6 +196,43 @@ public class DraftService {
         request.setSortOrder(0);
         request.setStatus("PLANNED");
         return outlineService.create(draft.getProjectId(), request).getId();
+    }
+
+    /**
+     * 修改已有的人物卡。
+     *
+     * <p>和蓝图一样：草稿里只放"Agent 想改成什么样"，没提到的字段沿用原值。
+     * 这里尤其要注意 —— {@code CharacterService.update} 是属性全量覆盖，
+     * 只传 description 会把姓名、身份一起清空。
+     */
+    private Long applyCharacterRevision(AgentDraft draft) {
+        CharacterProfile profile = characterService.requireById(draft.getTargetId());
+        Map<String, String> payload = payloadOf(draft);
+
+        CharacterSaveRequest request = new CharacterSaveRequest();
+        request.setName(firstNonBlank(payload.get("name"), profile.getName()));
+        request.setRoleIdentity(firstNonBlank(payload.get("roleIdentity"), profile.getRoleIdentity()));
+        request.setDescription(firstNonBlank(payload.get("description"), profile.getDescription()));
+        request.setExampleDialogue(firstNonBlank(payload.get("exampleDialogue"), profile.getExampleDialogue()));
+        request.setEnabled(profile.getEnabled());
+        characterService.update(profile.getId(), request);
+        return profile.getId();
+    }
+
+    /** 修改已有的设定条目（同样要把字段补齐，理由见上） */
+    private Long applySettingRevision(AgentDraft draft) {
+        SettingEntry entry = settingService.requireById(draft.getTargetId());
+        Map<String, String> payload = payloadOf(draft);
+
+        SettingSaveRequest request = new SettingSaveRequest();
+        request.setTitle(firstNonBlank(payload.get("title"), entry.getTitle()));
+        request.setContent(firstNonBlank(payload.get("content"), entry.getContent()));
+        request.setTags(firstNonBlank(payload.get("tags"), entry.getTags()));
+        request.setTriggerKeywords(firstNonBlank(payload.get("triggerKeywords"), entry.getTriggerKeywords()));
+        request.setPriority(entry.getPriority());
+        request.setEnabled(entry.getEnabled());
+        settingService.update(entry.getId(), request);
+        return entry.getId();
     }
 
     /**

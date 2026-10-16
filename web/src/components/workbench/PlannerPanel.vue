@@ -201,7 +201,8 @@ function buildMessage() {
         .split('\n')
         .map((line) => '> ' + line)
         .join('\n')
-      return `【引用 · 蓝图节点「${c.nodeName}」】\n${body}`
+      // 标明出处：人物 / 设定 / 蓝图节点。模型由此知道该用哪个 update_* 工具
+      return `【引用 · ${c.kind || '资料'}「${c.targetName}」】\n${body}`
     })
     .join('\n\n')
 

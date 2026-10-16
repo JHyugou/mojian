@@ -119,11 +119,10 @@
         </Transition>
       </main>
 
-      <!-- 右：可切换分屏。
-           「资料」看本书家底与上下文用量；「蓝图」是完整蓝图浏览器，
-           在那里框选文字右键即可把原文引用到对话里。
-           蓝图模式下加宽 —— 浏览和框选需要宽度。 -->
-      <aside class="wb-right" :class="{ 'is-wide': rightTab === 'outline' }">
+      <!-- 右：可切换分屏（引用源）。
+           四种内容都能浏览并框选引用；中栏始终是纯交互区。
+           非「资料」页签时加宽 —— 浏览长文本和框选都需要宽度。 -->
+      <aside class="wb-right" :class="{ 'is-wide': rightTab !== 'info' }">
         <nav class="wb-right-tabs">
           <button
             v-for="t in rightTabs"
@@ -140,13 +139,22 @@
           <template v-if="rightTab === 'info'">
             <div class="wb-side-head">
               <span class="mj-title mj-title-sm">本书资料</span>
+              <span class="mj-muted">点数字看条目</span>
             </div>
 
+            <!-- 数字本身就是入口：它是"有多少"，最自然的下一步就是"看看都是些什么" -->
             <div class="wb-stats">
-              <div v-for="s in stats" :key="s.label" class="wb-stat">
+              <button
+                v-for="s in stats"
+                :key="s.label"
+                class="wb-stat"
+                :class="{ 'is-link': s.tab }"
+                :disabled="!s.tab"
+                @click="s.tab && (rightTab = s.tab)"
+              >
                 <span class="wb-stat-num">{{ s.value }}</span>
                 <span class="mj-muted">{{ s.label }}</span>
-              </div>
+              </button>
             </div>
 
             <hr class="mj-hr-scroll wb-hr" />
@@ -169,7 +177,7 @@
                   report.trimmedSections?.length ? `，裁掉 ${report.trimmedSections.length} 段` : ''
                 }}
               </p>
-              <!-- 到 80% 就该启用检索了；这件事应该由数据提醒，不该靠人凭感觉判断 -->
+              <!-- 到 80% 就该启用检索了；这件事该由数据提醒，不该靠人凭感觉判断 -->
               <p v-if="report.usagePercent > 80" class="wb-warn">
                 上下文已用到 {{ report.usagePercent }}%。<br />
                 再写下去就该启用检索了 —— 现在还是全部塞进去（更准，但空间有限）。
@@ -181,7 +189,29 @@
             <div v-else class="mj-muted wb-report-text">正在读取…</div>
           </template>
 
-          <OutlineBrowser v-else :nodes="outlineTree" @cite="addCitation" />
+          <ResourceBrowser
+            v-else-if="rightTab === 'characters'"
+            :items="characterItems"
+            kind="人物"
+            empty-hint="还没有人物档案。在中间和策划 Agent 聊，它会帮你建。"
+            @cite="addCitation"
+          />
+
+          <ResourceBrowser
+            v-else-if="rightTab === 'settings'"
+            :items="settingItems"
+            kind="设定"
+            empty-hint="还没有世界观设定。在中间和策划 Agent 聊，它会帮你建。"
+            @cite="addCitation"
+          />
+
+          <ResourceBrowser
+            v-else
+            :items="outlineItems"
+            kind="蓝图节点"
+            empty-hint="还没有蓝图。在中间和策划 Agent 聊，它会帮你把走向规划成蓝图节点。"
+            @cite="addCitation"
+          />
         </div>
       </aside>
     </div>
@@ -198,7 +228,7 @@ import { getOutlineTree } from '../api/outline'
 import { getContextReport } from '../api/agent'
 import PlannerPanel from '../components/workbench/PlannerPanel.vue'
 import WriterPanel from '../components/workbench/WriterPanel.vue'
-import OutlineBrowser from '../components/workbench/OutlineBrowser.vue'
+import ResourceBrowser from '../components/workbench/ResourceBrowser.vue'
 
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentId)
@@ -212,6 +242,8 @@ const mode = ref('planner')
 const rightTab = ref('info')
 const rightTabs = [
   { key: 'info', label: '资料' },
+  { key: 'characters', label: '人物' },
+  { key: 'settings', label: '设定' },
   { key: 'outline', label: '蓝图' }
 ]
 
@@ -240,15 +272,55 @@ function removeCitation(index) {
 const chapters = ref([])
 const activeChapter = ref(null)
 const outlineTree = ref([])
+const characters = ref([])
+const settings = ref([])
 const counts = ref({ characters: 0, settings: 0, outline: 0 })
 const report = ref(null)
 
+/** 数字上绑了页签名：点一下就能过去看条目，而不是只能看到一个数 */
 const stats = computed(() => [
-  { label: '人物', value: counts.value.characters },
-  { label: '设定', value: counts.value.settings },
-  { label: '蓝图节点', value: counts.value.outline },
-  { label: '章节', value: chapters.value.length }
+  { label: '人物', value: counts.value.characters, tab: 'characters' },
+  { label: '设定', value: counts.value.settings, tab: 'settings' },
+  { label: '蓝图节点', value: counts.value.outline, tab: 'outline' },
+  { label: '章节', value: counts.value.chapters }
 ])
+
+/*
+ * 三种资源转成统一的条目形状（标题 / 标签 / 正文 / 子项），
+ * 交给同一个 ResourceBrowser 渲染 —— 它们在结构上本来就是一回事。
+ */
+const characterItems = computed(() =>
+  characters.value.map((c) => ({
+    id: c.id,
+    title: c.name,
+    tag: c.roleIdentity ? shorten(c.roleIdentity, 10) : '',
+    body: c.description
+  }))
+)
+
+const settingItems = computed(() =>
+  settings.value.map((s) => ({
+    id: s.id,
+    title: s.title,
+    tag: s.tags ? shorten(s.tags, 10) : '',
+    body: s.content
+  }))
+)
+
+/** 蓝图保留树形：卷 / 章 的层级本身是有信息量的 */
+const outlineItems = computed(() => toOutlineItems(outlineTree.value))
+
+function toOutlineItems(nodes) {
+  return (nodes || []).map((n) => ({
+    id: n.id,
+    title: n.name,
+    tag: nodeTypeLabel(n.nodeType),
+    body: n.summary,
+    children: toOutlineItems(n.children)
+  }))
+}
+
+const shorten = (text, max) => (text.length > max ? text.slice(0, max) + '…' : text)
 
 /**
  * 蓝图树拍平成带缩进层级的列表。
@@ -323,26 +395,34 @@ function countOutline(nodes) {
 onMounted(async () => {
   if (!projectId.value) return
 
-  // 各块互不依赖，一起发；某一块失败不该让整页空白
-  const [chapterList, characters, settings, outline] = await Promise.allSettled([
+  // 各块互不依赖，一起发；某一块失败不该让整页空白。
+  // 结果变量刻意不叫 characters/settings —— 那会和上面的同名单例 ref 撞名
+  const [chapterResult, characterResult, settingResult, outlineResult] = await Promise.allSettled([
     listChapters(projectId.value),
     listCharacters(projectId.value),
     listSettings(projectId.value),
     getOutlineTree(projectId.value)
   ])
 
-  if (chapterList.status === 'fulfilled') {
-    chapters.value = chapterList.value || []
+  if (chapterResult.status === 'fulfilled') {
+    chapters.value = chapterResult.value || []
     // 默认落在最后一章：作者最可能要写的就是"下一章"
     activeChapter.value = chapters.value[chapters.value.length - 1] || null
   }
-  if (outline.status === 'fulfilled') {
-    outlineTree.value = outline.value || []
+  if (characterResult.status === 'fulfilled') {
+    characters.value = characterResult.value || []
+  }
+  if (settingResult.status === 'fulfilled') {
+    settings.value = settingResult.value || []
+  }
+  if (outlineResult.status === 'fulfilled') {
+    outlineTree.value = outlineResult.value || []
   }
   counts.value = {
-    characters: characters.status === 'fulfilled' ? (characters.value?.length ?? 0) : 0,
-    settings: settings.status === 'fulfilled' ? (settings.value?.length ?? 0) : 0,
-    outline: countOutline(outlineTree.value)
+    characters: characters.value.length,
+    settings: settings.value.length,
+    outline: countOutline(outlineTree.value),
+    chapters: chapters.value.length
   }
 
   try {
@@ -578,7 +658,21 @@ onMounted(async () => {
   border-radius: var(--radius-s);
   background: var(--color-paper-warm);
   font-size: 12px;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
 }
+
+/* 能点的数字给个明确的可点信号：边框转棕 + 悬停微提 */
+.wb-stat.is-link {
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+}
+.wb-stat.is-link:hover {
+  border-color: var(--color-brown);
+  transform: translateY(-1px);
+}
+.wb-stat:disabled { cursor: default; }
 
 .wb-stat-num {
   font-family: var(--font-serif);

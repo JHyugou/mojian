@@ -76,7 +76,6 @@ public class CharacterQueryTool implements AgentTool {
             return "本书共 " + all.size() + " 个人物：" + names(all)
                     + "。需要了解谁，请再用姓名查一次。";
         }
-
         List<CharacterProfile> hits = all.stream()
                 .filter(c -> StringUtils.hasText(c.getName()) && c.getName().contains(keyword))
                 .toList();
@@ -99,7 +98,9 @@ public class CharacterQueryTool implements AgentTool {
     private String render(List<CharacterProfile> profiles) {
         StringBuilder sb = new StringBuilder();
         for (CharacterProfile profile : profiles) {
-            sb.append("【").append(profile.getName()).append("】");
+            // 带上记录 ID：要修改某个人物时，update_character 必须拿它定位。
+            // 材料里的人物卡片是没有 ID 的，所以只能在这里给。
+            sb.append("【").append(profile.getName()).append("】(记录ID ").append(profile.getId()).append(")");
             if (StringUtils.hasText(profile.getRoleIdentity())) {
                 sb.append("（").append(profile.getRoleIdentity().trim()).append("）");
             }
