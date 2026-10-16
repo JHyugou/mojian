@@ -8,14 +8,17 @@ const projectStore = useProjectStore()
 const messageStore = useMessageStore()
 
 const navItems = [
-  { path: '/', label: '创作项目', num: '壹' },
-  { path: '/characters', label: '人物档案', num: '贰' },
-  { path: '/settings', label: '故事设定库', num: '叁' },
-  { path: '/outline', label: '剧情蓝图', num: '肆' },
-  { path: '/chapters', label: '章节创作', num: '伍' },
-  { path: '/book', label: '成书', num: '陆' },
-  { path: '/chat', label: 'AI 助手', num: '柒' },
-  { path: '/ai-settings', label: '模型接入', num: '捌' }
+  // 创作工作台放在最前：它是新的主入口（对话式策划 + 写作）。
+  // 旧页面全部保留，重构期间旧功能不能废，验收通过后再逐页替换。
+  { path: '/workbench', label: '创作工作台', num: '壹' },
+  { path: '/', label: '创作项目', num: '貳' },
+  { path: '/characters', label: '人物档案', num: '叁' },
+  { path: '/settings', label: '故事设定库', num: '肆' },
+  { path: '/outline', label: '剧情蓝图', num: '伍' },
+  { path: '/chapters', label: '章节创作', num: '陆' },
+  { path: '/book', label: '成书', num: '柒' },
+  { path: '/chat', label: 'AI 助手', num: '捌' },
+  { path: '/ai-settings', label: '模型接入', num: '玖' }
 ]
 </script>
 
@@ -68,7 +71,7 @@ const navItems = [
       </main>
 
       <aside
-        v-if="$route.path !== '/chapters'"
+        v-if="$route.path !== '/chapters' && $route.path !== '/workbench'"
         class="app-context"
         :class="{ collapsed: !contextOpen }"
         aria-label="上下文辅助"
