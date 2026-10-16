@@ -20,6 +20,13 @@ public class Chapter extends BaseEntity {
     /** 当前工作正文 */
     private String content;
 
+    /**
+     * 本章写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
+     * —— 风格、人称、篇幅、禁忌、必须出现或必须避开的桥段。
+     * 由写作 Agent 作为必需上下文注入，永不裁剪。
+     */
+    private String writingRequirement;
+
     /** 状态：DRAFT / WRITING / COMPLETED */
     private String status;
 
