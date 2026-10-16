@@ -1,5 +1,6 @@
 package com.mojian.agent.service;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.mojian.agent.AgentRole;
 import com.mojian.agent.context.AgentContextBudget;
 import com.mojian.agent.dto.AgentProfileUpdateRequest;
@@ -55,6 +56,16 @@ public class AgentProfileService {
      *
      * <p>字段语义见 {@link AgentProfileUpdateRequest}：null=不变，空串=清除覆盖。
      * 密钥用本机密钥加密后落库，明文不出这个方法的栈帧。
+     *
+     * <p><b>两个坑，都踩过：</b>
+     * <ol>
+     *   <li>MyBatis-Plus 的 {@code updateById} 默认策略是"非 null 才更新"，
+     *       所以<b>把字段设成 null 想"清除"是不生效的</b>。必须用显式 {@code set} 的
+     *       UpdateWrapper，它才会真的写 NULL</li>
+     *   <li>更新完必须<b>重新读一次</b>再返回。之前的写法直接返回内存对象，
+     *       而内存对象是按"意图"改好的 —— 于是接口显示"已清除覆盖"，
+     *       数据库里却原封不动。<b>接口说改了、其实没改，是最难查的一类 bug</b></li>
+     * </ol>
      */
     @Transactional
     public AgentProfile update(String role, AgentProfileUpdateRequest request) {
@@ -80,11 +91,24 @@ public class AgentProfileService {
                     ? cipher.encrypt(request.apiKey().trim()) : null);
         }
 
-        profileMapper.updateById(profile);
-        log.info("更新角色配置 {}：模型={}，接口地址={}，密钥={}", role, profile.getModel(),
-                StringUtils.hasText(profile.getBaseUrl()) ? profile.getBaseUrl() : "（沿用全局设置）",
-                StringUtils.hasText(profile.getApiKeyCipher()) ? "（本角色单独配置）" : "（沿用全局设置）");
-        return profile;
+        // 显式 set 每个字段：这样 null 才会真正写进库（updateById 会跳过 null）
+        profileMapper.update(null, Wrappers.<AgentProfile>lambdaUpdate()
+                .eq(AgentProfile::getId, profile.getId())
+                .set(AgentProfile::getModel, profile.getModel())
+                .set(AgentProfile::getTemperature, profile.getTemperature())
+                .set(AgentProfile::getMaxSteps, profile.getMaxSteps())
+                .set(AgentProfile::getContextLimit, profile.getContextLimit())
+                .set(AgentProfile::getReserveOutputTokens, profile.getReserveOutputTokens())
+                .set(AgentProfile::getBaseUrl, profile.getBaseUrl())
+                .set(AgentProfile::getApiKeyCipher, profile.getApiKeyCipher())
+                .set(AgentProfile::getEnabled, profile.getEnabled()));
+
+        // 重新读一次：返回的必须是"库里真实的样子"，而不是刚才那点意图
+        AgentProfile persisted = require(role);
+        log.info("更新角色配置 {}：模型={}，接口地址={}，密钥={}", role, persisted.getModel(),
+                StringUtils.hasText(persisted.getBaseUrl()) ? persisted.getBaseUrl() : "（沿用全局设置）",
+                StringUtils.hasText(persisted.getApiKeyCipher()) ? "（本角色单独配置）" : "（沿用全局设置）");
+        return persisted;
     }
 
     /** 对外视图：密钥只出掩码，完整值不出后端 */
