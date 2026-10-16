@@ -4,6 +4,7 @@ import com.mojian.agent.llm.AgentLlmClient;
 import com.mojian.agent.llm.AgentLlmResponse;
 import com.mojian.agent.llm.AgentMessage;
 import com.mojian.agent.llm.AgentToolCall;
+import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
 import org.assertj.core.api.Assertions;
@@ -32,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AgentLoopServiceTest {
 
-    private static final AgentContext CONTEXT = AgentContext.of(1001L);
+    private static final AgentContext CONTEXT = AgentContext.of(1001L, AgentRole.PLANNER);
 
     // ==================== 测试替身 ====================
 
@@ -227,7 +228,7 @@ class AgentLoopServiceTest {
                 .then(call("c2", "query_character", "{}"))
                 .then(AgentLlmResponse.answer("好了"));
 
-        AgentContext context = AgentContext.of(1001L);
+        AgentContext context = AgentContext.of(1001L, AgentRole.PLANNER);
         service(llm, query_character).run(context, "系统提示词", "问题");
 
         // 三轮模型调用都带着同一个会话 id —— 服务端才认得出这是同一段对话，才谈得上缓存
@@ -346,5 +347,34 @@ class AgentLoopServiceTest {
         Assertions.assertThatThrownBy(() -> new ToolRegistry(List.of(中文名工具)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("不符合 OpenAI tools 规范");
+    }
+
+    @Test
+    @DisplayName("累计各轮用量：一次运行到底花了多少 token 是算得出来的")
+    void 累计各轮用量() {
+        FakeTool tool = FakeTool.returning("query_character", "结果");
+        FakeLlm llm = new FakeLlm()
+                .then(AgentLlmResponse.calls(List.of(new AgentToolCall("c1", "query_character", "{}")))
+                        .withUsage(new TokenUsage(1000, 800, 50)))
+                .then(AgentLlmResponse.answer("好了").withUsage(new TokenUsage(1500, 1200, 80)));
+
+        AgentResult result = service(llm, tool).run(CONTEXT, "系统提示词", "问题");
+
+        assertThat(result.usage().promptTokens()).isEqualTo(2500);
+        assertThat(result.usage().cachedTokens()).isEqualTo(2000);
+        assertThat(result.usage().completionTokens()).isEqualTo(130);
+    }
+
+    @Test
+    @DisplayName("按角色传入最大步数：策划和写作可以用不同的刹车阈值")
+    void 按角色传入最大步数() {
+        FakeTool tool = FakeTool.returning("query_character", "结果");
+        FakeLlm llm = new FakeLlm().thenAlways(call("c", "query_character", "{}"));
+
+        AgentResult result = service(llm, tool).run(CONTEXT, "系统提示词", "问题", 2);
+
+        assertThat(result.status()).isEqualTo(AgentResult.Status.MAX_STEPS);
+        assertThat(result.steps()).isEqualTo(2);
+        assertThat(llm.callCount).isEqualTo(2);
     }
 }

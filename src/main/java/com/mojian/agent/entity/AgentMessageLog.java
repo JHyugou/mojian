@@ -10,6 +10,13 @@ import lombok.EqualsAndHashCode;
  *
  * <p>为什么不留在内存：写作任务跨请求、可能持续几分钟，服务还可能重启；
  * 而且用户要能翻回历史对话，看 Agent 当时查了什么资料、怎么想的。
+ *
+ * <p>三个内容字段对应协议里的三种消息形态，重建上下文时一一还原：
+ * <ul>
+ *   <li>{@code content} —— system / user / assistant 的文本；tool 行放工具返回的结果</li>
+ *   <li>{@code toolCallId} —— 仅 tool 行，模型靠它对上"这是哪次调用的结果"</li>
+ *   <li>{@code toolCallsJson} —— 仅 assistant 行，本轮要求的（可能多个）工具调用</li>
+ * </ul>
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -29,9 +36,6 @@ public class AgentMessageLog extends BaseEntity {
     /** 工具结果必须带 tool_call_id，模型才对得上这是哪次调用的结果 */
     private String toolCallId;
 
-    private String toolName;
-
-    private String toolArguments;
-
-    private String toolResult;
+    /** JSON 数组。一轮可以要求调多个工具，所以不能按"一个工具一列"存 */
+    private String toolCallsJson;
 }

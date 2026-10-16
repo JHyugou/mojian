@@ -5,6 +5,7 @@ import com.mojian.agent.llm.AgentLlmClient;
 import com.mojian.agent.llm.AgentLlmResponse;
 import com.mojian.agent.llm.AgentMessage;
 import com.mojian.agent.llm.AgentToolCall;
+import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,9 @@ import java.util.Map;
  * </pre>
  *
  * <p>这个类刻意<b>不带任何 Spring 注解</b>：核心逻辑不依赖框架，才测得干净。
+ *
+ * <p>它同时负责累计各轮 {@code usage} —— 一次运行到底花了多少 token，
+ * 只有循环自己知道（它见过每一轮的返回）。
  */
 @Slf4j
 public class AgentLoopService {
@@ -48,31 +52,39 @@ public class AgentLoopService {
         this.properties = properties;
     }
 
+    /** 用全局默认步数运行（不区分角色时的兜底） */
+    public AgentResult run(AgentContext context, String systemPrompt, String userInput) {
+        return run(context, systemPrompt, userInput, properties.getMaxSteps());
+    }
+
     /**
      * 跑一轮完整的 Agent 对话。
      *
-     * @param context      业务上下文（当前项目 id 等），由调用方注入
+     * @param context      业务上下文（项目 id、角色、会话 id），由调用方注入
      * @param systemPrompt 系统提示词（规矩）
      * @param userInput    用户这次的问题
+     * @param maxSteps     最大步数 —— 由调用方按角色传入（策划与写作需要的步数不一样）
      */
-    public AgentResult run(AgentContext context, String systemPrompt, String userInput) {
+    public AgentResult run(AgentContext context, String systemPrompt, String userInput, int maxSteps) {
         // messages 就是那个"每次发给模型的包裹"，它会在循环里一条条长大
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.system(systemPrompt));
         messages.add(AgentMessage.user(userInput));
 
         List<AgentStep> trace = new ArrayList<>();
+        TokenUsage totalUsage = TokenUsage.NONE;
 
-        for (int step = 1; step <= properties.getMaxSteps(); step++) {
-            log.debug("Agent 第 {} 轮，当前包裹 {} 条", step, messages.size());
+        for (int step = 1; step <= maxSteps; step++) {
+            log.debug("[{}] Agent 第 {} 轮，当前包裹 {} 条", context.agentRole(), step, messages.size());
 
             // ① 想：问模型下一步干什么
             AgentLlmResponse response = llmClient.chat(context, List.copyOf(messages), toolRegistry.all());
+            totalUsage = totalUsage.plus(response.usage());
 
             // 出口①：模型不再要求调工具 = 它认为干完了
             if (!response.wantsTools()) {
-                log.debug("Agent 第 {} 轮结束：模型不再调工具", step);
-                return AgentResult.finished(response.content(), trace, step);
+                log.debug("[{}] Agent 第 {} 轮结束：模型不再调工具，累计 {}", context.agentRole(), step, totalUsage.describe());
+                return AgentResult.finished(response.content(), trace, step, totalUsage);
             }
 
             // 把模型这一轮的意图记进包裹。不记的话，下一轮它不记得自己"说过要调工具"，
@@ -89,8 +101,8 @@ public class AgentLoopService {
         }
 
         // 出口②：刹车
-        log.warn("Agent 达到最大步数 {} 被强制停止", properties.getMaxSteps());
-        return AgentResult.maxSteps(trace, properties.getMaxSteps());
+        log.warn("[{}] Agent 达到最大步数 {} 被强制停止", context.agentRole(), maxSteps);
+        return AgentResult.maxSteps(trace, maxSteps, totalUsage);
     }
 
     /**

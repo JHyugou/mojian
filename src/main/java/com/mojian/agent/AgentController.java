@@ -33,8 +33,9 @@ public class AgentController {
 
     @PostMapping("/chat")
     public ApiResponse<AgentChatResponse> chat(@Valid @RequestBody AgentChatRequest request) {
-        // 每次请求 = 一次独立的 Agent 运行，因此分配一个新的会话 id（利于服务端做 prompt 缓存）
-        AgentContext context = AgentContext.of(request.projectId());
+        // 每次请求 = 一次独立的 Agent 运行，因此分配一个新的会话 id（利于服务端做 prompt 缓存）。
+        // 这个调试入口走策划角色；写作角色的入口在阶段 3 接上 generation_task 之后再加。
+        AgentContext context = AgentContext.of(request.projectId(), AgentRole.PLANNER);
         AgentResult result = agentLoopService.run(context, AgentPrompts.CREATION_ASSISTANT, request.message());
         return ApiResponse.ok(AgentChatResponse.from(result));
     }

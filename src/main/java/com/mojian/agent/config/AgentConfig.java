@@ -4,9 +4,9 @@ import com.mojian.agent.AgentLoopService;
 import com.mojian.agent.AgentProperties;
 import com.mojian.agent.llm.AgentLlmClient;
 import com.mojian.agent.llm.OpenAiCompatAgentLlmClient;
+import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.tool.ToolRegistry;
 import com.mojian.generation.llm.LlmProperties;
-import com.mojian.settings.service.LlmSettingsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -23,9 +23,10 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AgentConfig {
 
+    /** 客户端按"角色"取配置，所以它依赖的是 AgentProfileService 而不是全局设置 */
     @Bean
-    public AgentLlmClient agentLlmClient(LlmProperties llmProperties, LlmSettingsService settingsService) {
-        return new OpenAiCompatAgentLlmClient(llmProperties, settingsService);
+    public AgentLlmClient agentLlmClient(LlmProperties llmProperties, AgentProfileService profileService) {
+        return new OpenAiCompatAgentLlmClient(llmProperties, profileService);
     }
 
     @Bean

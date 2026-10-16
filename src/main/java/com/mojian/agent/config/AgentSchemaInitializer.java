@@ -72,14 +72,12 @@ public class AgentSchemaInitializer {
             CREATE TABLE IF NOT EXISTS agent_message_log (
                 id            BIGINT      NOT NULL,
                 conversation_id BIGINT    NOT NULL,
-                step_no       INT         NOT NULL DEFAULT 0 COMMENT '第几轮（同一步内的多条消息共享）',
-                role          VARCHAR(20) NOT NULL COMMENT 'system/user/assistant/tool',
-                content       MEDIUMTEXT  DEFAULT NULL,
-                tool_call_id  VARCHAR(64) DEFAULT NULL COMMENT '工具结果必须带上，模型才对得上号',
-                tool_name     VARCHAR(64) DEFAULT NULL,
-                tool_arguments TEXT       DEFAULT NULL,
-                tool_result   MEDIUMTEXT  DEFAULT NULL,
-                created_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                step_no         INT         NOT NULL DEFAULT 0 COMMENT '第几轮（同一步内的多条消息共享）',
+                role            VARCHAR(20) NOT NULL COMMENT 'system/user/assistant/tool',
+                content         MEDIUMTEXT  DEFAULT NULL COMMENT 'system/user/assistant 的文本；tool 行放工具结果',
+                tool_call_id    VARCHAR(64) DEFAULT NULL COMMENT '仅 tool 行：对应哪次调用，模型靠它对号',
+                tool_calls_json MEDIUMTEXT  DEFAULT NULL COMMENT '仅 assistant 行：本轮的工具调用意图数组',
+                created_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 KEY idx_agent_msg_conv (conversation_id, id)
@@ -157,6 +155,13 @@ public class AgentSchemaInitializer {
         addColumnIfMissing("chapter", "writing_requirement",
                 "TEXT DEFAULT NULL COMMENT '本章写作要求：风格/人称/篇幅/禁忌等'");
 
+        // 消息表结构修正：工具调用改为存数组（一轮可以要求调多个工具）
+        addColumnIfMissing("agent_message_log", "tool_calls_json",
+                "MEDIUMTEXT DEFAULT NULL COMMENT '仅 assistant 行：本轮的工具调用意图数组' AFTER tool_call_id");
+        dropColumnIfExists("agent_message_log", "tool_name");
+        dropColumnIfExists("agent_message_log", "tool_arguments");
+        dropColumnIfExists("agent_message_log", "tool_result");
+
         jdbcTemplate.execute(SEED_PROFILES);
         jdbcTemplate.execute(SEED_WRITER);
 
@@ -169,6 +174,15 @@ public class AgentSchemaInitializer {
         }
         jdbcTemplate.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition);
         log.info("{}.{} 已自动补列", table, column);
+    }
+
+    /** MySQL 不支持 DROP COLUMN IF EXISTS，只能先查再删 */
+    private void dropColumnIfExists(String table, String column) {
+        if (!columnExists(table, column)) {
+            return;
+        }
+        jdbcTemplate.execute("ALTER TABLE " + table + " DROP COLUMN " + column);
+        log.info("{}.{} 已删除（结构修正）", table, column);
     }
 
     private boolean columnExists(String table, String column) {
