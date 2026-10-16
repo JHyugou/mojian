@@ -5,7 +5,6 @@ import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.context.ContextSectionPolicy;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.entity.ChapterMemory;
-import com.mojian.chapter.mapper.ChapterMapper;
 import com.mojian.chapter.mapper.ChapterMemoryMapper;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +68,7 @@ public class AgentMaterialLoader {
 
     private final CharacterService characterService;
     private final SettingService settingService;
-    private final ChapterMapper chapterMapper;
+    private final ChapterIndex chapterIndex;
     private final ChapterMemoryMapper chapterMemoryMapper;
 
     /**
@@ -152,7 +150,7 @@ public class AgentMaterialLoader {
      * 所以优先级给到最高一档，且不按章拆分（单条摘要本该很短）。
      */
     private AgentContextSection memorySection(Long projectId) {
-        List<Chapter> chapters = orderedChapters(projectId);
+        List<Chapter> chapters = chapterIndex.ordered(projectId);
         if (chapters.isEmpty()) {
             return null;
         }
@@ -186,7 +184,7 @@ public class AgentMaterialLoader {
      * 且优先级随距离递增 —— 于是组装器的"严格优先级裁剪"天然会从最远的章节开始砍。
      */
     private List<AgentContextSection> chapterSections(Long projectId) {
-        List<Chapter> chapters = orderedChapters(projectId);
+        List<Chapter> chapters = chapterIndex.ordered(projectId);
         List<AgentContextSection> sections = new ArrayList<>();
 
         // orderedChapters 是正序（第 1 章在前），从后往前生成，最近的一章先入列
@@ -205,20 +203,6 @@ public class AgentMaterialLoader {
     }
 
     // ==================== 取数细节 ====================
-
-    /**
-     * 章节正序（第 1 章在前）。
-     *
-     * <p>这里直接用 mapper 而不是 {@code ChapterService.list()}：后者刻意不加载正文大字段
-     * （列表页不需要），而取数器恰恰需要正文。
-     */
-    private List<Chapter> orderedChapters(Long projectId) {
-        List<Chapter> chapters = chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
-                .eq(Chapter::getProjectId, projectId));
-        chapters.sort(Comparator.comparing(Chapter::getCreatedAt,
-                Comparator.nullsLast(Comparator.naturalOrder())));
-        return chapters;
-    }
 
     /** 一次查全部记忆，避免 N 次查库（章节多起来时差别很明显） */
     private Map<Long, String> memoriesByChapter(List<Long> chapterIds) {
