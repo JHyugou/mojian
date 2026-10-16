@@ -33,12 +33,14 @@ public class CharacterQueryTool implements AgentTool {
 
     @Override
     public String name() {
-        return "查人物卡";
+        // 必须是 ASCII 标识符：OpenAI tools 规范要求函数名匹配 ^[a-zA-Z0-9_-]+$
+        // 中文会直接被服务方以 400 拒绝。中文说明写进 description。
+        return "query_character";
     }
 
     @Override
     public String description() {
-        return "查询本书中人物的设定资料，包括身份、外貌、性格、能力、人际关系等。"
+        return "查询本书中人物的设定资料（查人物卡），包括身份、外貌、性格、能力、人际关系等。"
                 + "当需要确认某个人物是谁、性格如何、有什么能力、与其他人是什么关系时，使用本工具。"
                 + "参数 name 是人物姓名，支持只给一部分（例如只写「林」）。";
     }

@@ -85,9 +85,12 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型服务连接失败，请稍后重试");
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            log.warn("Agent 模型返回异常状态: {} (模型: {})", response.statusCode(), effective.model());
+            // 必须把服务方返回的内容带上：只报一个状态码，排查时只能靠猜
+            // （例如 400 可能是"工具名不合法"，402 是"余额/订阅问题"，责任和修法完全不同）
+            String detail = shorten(response.body());
+            log.warn("Agent 模型返回异常状态: {} (模型: {}) body={}", response.statusCode(), effective.model(), detail);
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
-                    "模型服务返回异常状态码 " + response.statusCode());
+                    "模型服务返回异常状态码 " + response.statusCode() + "：" + detail);
         }
         return parseResponse(response.body());
     }
@@ -173,5 +176,14 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
 
     private String trimSlash(String url) {
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    /** 错误详情只留前 300 字，避免把超长响应灌进日志和界面 */
+    private static String shorten(String text) {
+        if (text == null) {
+            return "";
+        }
+        String trimmed = text.strip();
+        return trimmed.length() <= 300 ? trimmed : trimmed.substring(0, 300) + "…";
     }
 }

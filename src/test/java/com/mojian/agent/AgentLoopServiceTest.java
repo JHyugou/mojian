@@ -145,12 +145,12 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("模型调一次工具后给出答案：工具真的被执行，循环在第 2 步结束")
     void 调一次工具后正常结束() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "林晚舟：外冷内热的女剑客，惯用左手的短刀");
+        FakeTool query_character = FakeTool.returning("query_character", "林晚舟：外冷内热的女剑客，惯用左手的短刀");
         FakeLlm llm = new FakeLlm()
-                .then(call("call_1", "查人物卡", "{\"name\":\"林晚舟\"}"))
+                .then(call("call_1", "query_character", "{\"name\":\"林晚舟\"}"))
                 .then(AgentLlmResponse.answer("林晚舟是一名外冷内热的女剑客。"));
 
-        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "林晚舟是什么人？");
+        AgentResult result = service(llm, query_character).run(CONTEXT, "你是墨笺助手", "林晚舟是什么人？");
 
         // 结论正确、正常结束
         assertThat(result.status()).isEqualTo(AgentResult.Status.FINISHED);
@@ -159,27 +159,27 @@ class AgentLoopServiceTest {
         assertThat(result.answer()).isEqualTo("林晚舟是一名外冷内热的女剑客。");
 
         // 工具真的被调用了，而且参数被正确解析成了 Map（不是一串 JSON 文本）
-        assertThat(查人物卡.calls).hasSize(1);
-        assertThat(查人物卡.calls.get(0)).containsEntry("name", "林晚舟");
+        assertThat(query_character.calls).hasSize(1);
+        assertThat(query_character.calls.get(0)).containsEntry("name", "林晚舟");
 
         // 留下了可追溯的记录
         assertThat(result.trace()).hasSize(1);
-        assertThat(result.trace().get(0).toolName()).isEqualTo("查人物卡");
+        assertThat(result.trace().get(0).toolName()).isEqualTo("query_character");
         assertThat(result.trace().get(0).result()).contains("女剑客");
     }
 
     @Test
     @DisplayName("业务上下文由代码注入到工具：模型全程看不到 projectId")
     void 工具能拿到业务上下文() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
         FakeLlm llm = new FakeLlm()
-                .then(call("c1", "查人物卡", "{}"))
+                .then(call("c1", "query_character", "{}"))
                 .then(AgentLlmResponse.answer("好了"));
 
-        service(llm, 查人物卡).run(CONTEXT, "系统提示词", "问题");
+        service(llm, query_character).run(CONTEXT, "系统提示词", "问题");
 
         // 工具拿到了项目上下文
-        assertThat(查人物卡.contexts).containsExactly(CONTEXT);
+        assertThat(query_character.contexts).containsExactly(CONTEXT);
         // 但模型收到的消息里，从头到尾没有任何一条泄露 projectId
         assertThat(llm.lastMessages)
                 .noneMatch(m -> m.content() != null && m.content().contains("1001"));
@@ -188,12 +188,12 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("包裹会一轮轮长大：第 2 轮时模型能看到 4 条消息（含工具结果）")
     void 上下文随轮次增长() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
         FakeLlm llm = new FakeLlm()
-                .then(call("call_1", "查人物卡", "{}"))
+                .then(call("call_1", "query_character", "{}"))
                 .then(AgentLlmResponse.answer("好了"));
 
-        service(llm, 查人物卡).run(CONTEXT, "系统提示词", "用户问题");
+        service(llm, query_character).run(CONTEXT, "系统提示词", "用户问题");
 
         // 第 1 轮：system + user = 2 条
         // 第 2 轮：system + user + assistant(带 tool_calls) + tool(结果) = 4 条
@@ -208,27 +208,27 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("工具清单会随请求发给模型：模型是靠说明书决定调哪个的")
     void 工具清单随请求发出() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
-        FakeTool 查设定 = FakeTool.returning("查设定", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
+        FakeTool query_setting = FakeTool.returning("query_setting", "结果");
         FakeLlm llm = new FakeLlm().then(AgentLlmResponse.answer("不用查"));
 
-        service(llm, 查人物卡, 查设定).run(CONTEXT, "系统提示词", "问题");
+        service(llm, query_character, query_setting).run(CONTEXT, "系统提示词", "问题");
 
         assertThat(llm.lastTools).extracting(AgentTool::name)
-                .containsExactly("查人物卡", "查设定");
+                .containsExactly("query_character", "query_setting");
     }
 
     @Test
     @DisplayName("会话 id 在整次运行中保持不变：服务端 prompt 缓存命中的前提")
     void 会话id贯穿整次运行() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
         FakeLlm llm = new FakeLlm()
-                .then(call("c1", "查人物卡", "{}"))
-                .then(call("c2", "查人物卡", "{}"))
+                .then(call("c1", "query_character", "{}"))
+                .then(call("c2", "query_character", "{}"))
                 .then(AgentLlmResponse.answer("好了"));
 
         AgentContext context = AgentContext.of(1001L);
-        service(llm, 查人物卡).run(context, "系统提示词", "问题");
+        service(llm, query_character).run(context, "系统提示词", "问题");
 
         // 三轮模型调用都带着同一个会话 id —— 服务端才认得出这是同一段对话，才谈得上缓存
         assertThat(llm.contexts).hasSize(3);
@@ -239,20 +239,20 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("一轮里要求调两个工具：按顺序都执行，不丢不错")
     void 一轮内多个工具按顺序执行() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "人物资料");
-        FakeTool 查设定 = FakeTool.returning("查设定", "世界观设定");
+        FakeTool query_character = FakeTool.returning("query_character", "人物资料");
+        FakeTool query_setting = FakeTool.returning("query_setting", "世界观设定");
         FakeLlm llm = new FakeLlm()
                 .then(AgentLlmResponse.calls(List.of(
-                        new AgentToolCall("c1", "查人物卡", "{\"name\":\"林晚舟\"}"),
-                        new AgentToolCall("c2", "查设定", "{\"keyword\":\"剑宗\"}"))))
+                        new AgentToolCall("c1", "query_character", "{\"name\":\"林晚舟\"}"),
+                        new AgentToolCall("c2", "query_setting", "{\"keyword\":\"剑宗\"}"))))
                 .then(AgentLlmResponse.answer("综合以上，可以开始写了。"));
 
-        AgentResult result = service(llm, 查人物卡, 查设定).run(CONTEXT, "你是墨笺助手", "准备写林晚舟的出场");
+        AgentResult result = service(llm, query_character, query_setting).run(CONTEXT, "你是墨笺助手", "准备写林晚舟的出场");
 
-        assertThat(查人物卡.calls).hasSize(1);
-        assertThat(查设定.calls).hasSize(1);
+        assertThat(query_character.calls).hasSize(1);
+        assertThat(query_setting.calls).hasSize(1);
         assertThat(result.trace()).extracting(AgentStep::toolName)
-                .containsExactly("查人物卡", "查设定");
+                .containsExactly("query_character", "query_setting");
         assertThat(result.trace().get(1).result()).isEqualTo("世界观设定");
     }
 
@@ -261,10 +261,10 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("模型一直要调工具停不下来：转到最大步数被刹住，不会无限跑")
     void 到达最大步数被刹住() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "还是没有我要的");
-        FakeLlm llm = new FakeLlm().thenAlways(call("call_x", "查人物卡", "{}"));
+        FakeTool query_character = FakeTool.returning("query_character", "还是没有我要的");
+        FakeLlm llm = new FakeLlm().thenAlways(call("call_x", "query_character", "{}"));
 
-        AgentResult result = service(llm, 3, 查人物卡).run(CONTEXT, "你是墨笺助手", "写一章");
+        AgentResult result = service(llm, 3, query_character).run(CONTEXT, "你是墨笺助手", "写一章");
 
         assertThat(result.status()).isEqualTo(AgentResult.Status.MAX_STEPS);
         assertThat(result.succeeded()).isFalse();
@@ -280,16 +280,16 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("模型要求调用一个不存在的工具：把错误回传给模型，循环不崩")
     void 调用不存在的工具() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
         FakeLlm llm = new FakeLlm()
-                .then(call("c1", "查天气", "{}"))
+                .then(call("c1", "query_weather", "{}"))
                 .then(AgentLlmResponse.answer("抱歉，我查不了天气。"));
 
-        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "今天天气如何");
+        AgentResult result = service(llm, query_character).run(CONTEXT, "你是墨笺助手", "今天天气如何");
 
         // 不抛异常，正常结束
         assertThat(result.succeeded()).isTrue();
-        assertThat(result.trace().get(0).result()).contains("没有名为").contains("查人物卡");
+        assertThat(result.trace().get(0).result()).contains("没有名为").contains("query_character");
         // 错误信息被回传给了模型，让它有机会自己纠正
         assertThat(llm.lastMessages)
                 .anyMatch(m -> "tool".equals(m.role()) && m.content().contains("没有名为"));
@@ -298,12 +298,12 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("工具执行时抛异常：把错误回传给模型，循环不崩")
     void 工具执行异常() {
-        FakeTool 查人物卡 = FakeTool.failing("查人物卡", "数据库连接超时");
+        FakeTool query_character = FakeTool.failing("query_character", "数据库连接超时");
         FakeLlm llm = new FakeLlm()
-                .then(call("c1", "查人物卡", "{}"))
+                .then(call("c1", "query_character", "{}"))
                 .then(AgentLlmResponse.answer("资料库暂时读不到，我先按已有信息写。"));
 
-        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "写一章");
+        AgentResult result = service(llm, query_character).run(CONTEXT, "你是墨笺助手", "写一章");
 
         assertThat(result.succeeded()).isTrue();
         assertThat(result.trace().get(0).result()).contains("执行失败").contains("数据库连接超时");
@@ -314,27 +314,37 @@ class AgentLoopServiceTest {
     @Test
     @DisplayName("模型给出非法 JSON 参数：把错误回传给模型，循环不崩")
     void 参数不是合法JSON() {
-        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool query_character = FakeTool.returning("query_character", "结果");
         FakeLlm llm = new FakeLlm()
-                .then(call("c1", "查人物卡", "{这不是JSON"))
+                .then(call("c1", "query_character", "{这不是JSON"))
                 .then(AgentLlmResponse.answer("我重新组织一下参数。"));
 
-        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "查一下");
+        AgentResult result = service(llm, query_character).run(CONTEXT, "你是墨笺助手", "查一下");
 
         assertThat(result.succeeded()).isTrue();
         // 工具没有被执行（参数没解析成功），但循环没崩
-        assertThat(查人物卡.calls).isEmpty();
+        assertThat(query_character.calls).isEmpty();
         assertThat(result.trace().get(0).result()).contains("参数不是合法 JSON");
     }
 
     @Test
     @DisplayName("工具名重名：装配阶段就直接报错，不让它带病上线")
     void 工具重名直接失败() {
-        FakeTool a = FakeTool.returning("查人物卡", "A");
-        FakeTool b = FakeTool.returning("查人物卡", "B");
+        FakeTool a = FakeTool.returning("query_character", "A");
+        FakeTool b = FakeTool.returning("query_character", "B");
 
         Assertions.assertThatThrownBy(() -> new ToolRegistry(List.of(a, b)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("工具名重复");
+    }
+
+    @Test
+    @DisplayName("工具名不合规范（如中文）：装配阶段直接报错，不让它跑到线上被服务方 400 拒绝")
+    void 工具名不合规范直接失败() {
+        FakeTool 中文名工具 = FakeTool.returning("查人物卡", "x");
+
+        Assertions.assertThatThrownBy(() -> new ToolRegistry(List.of(中文名工具)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不符合 OpenAI tools 规范");
     }
 }

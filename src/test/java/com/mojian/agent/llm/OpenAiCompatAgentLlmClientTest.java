@@ -42,8 +42,8 @@ class OpenAiCompatAgentLlmClientTest {
         return OpenAiCompatAgentLlmClient.MAPPER.readTree(json);
     }
 
-    private static final StubTool 查人物卡 = new StubTool(
-            "查人物卡",
+    private static final StubTool query_character = new StubTool(
+            "query_character",
             "查询本书中人物的设定资料",
             Map.of("type", "object",
                     "properties", Map.of("name", Map.of("type", "string", "description", "人物姓名")),
@@ -57,7 +57,7 @@ class OpenAiCompatAgentLlmClientTest {
         String json = OpenAiCompatAgentLlmClient.buildBody(
                 "deepseek-v4.1-flash",
                 List.of(AgentMessage.system("你是墨笺助手"), AgentMessage.user("林晚舟是谁")),
-                List.of(查人物卡));
+                List.of(query_character));
 
         JsonNode root = parse(json);
         assertThat(root.path("model").asText()).isEqualTo("deepseek-v4.1-flash");
@@ -65,7 +65,7 @@ class OpenAiCompatAgentLlmClientTest {
 
         JsonNode function = root.path("tools").path(0).path("function");
         assertThat(root.path("tools").path(0).path("type").asText()).isEqualTo("function");
-        assertThat(function.path("name").asText()).isEqualTo("查人物卡");
+        assertThat(function.path("name").asText()).isEqualTo("query_character");
         assertThat(function.path("description").asText()).contains("设定资料");
         assertThat(function.path("parameters").path("properties").path("name").path("type").asText())
                 .isEqualTo("string");
@@ -78,7 +78,7 @@ class OpenAiCompatAgentLlmClientTest {
                 AgentMessage.system("你是墨笺助手"),
                 AgentMessage.user("林晚舟是谁"),
                 AgentMessage.assistant(null, List.of(
-                        new AgentToolCall("call_1", "查人物卡", "{\"name\":\"林晚舟\"}"))),
+                        new AgentToolCall("call_1", "query_character", "{\"name\":\"林晚舟\"}"))),
                 AgentMessage.tool("call_1", "林晚舟：外冷内热的女剑客"));
 
         JsonNode array = parse(OpenAiCompatAgentLlmClient.buildBody("m", messages, List.of()))
@@ -91,7 +91,7 @@ class OpenAiCompatAgentLlmClientTest {
         JsonNode assistantCall = array.get(2).path("tool_calls").get(0);
         assertThat(assistantCall.path("id").asText()).isEqualTo("call_1");
         assertThat(assistantCall.path("type").asText()).isEqualTo("function");
-        assertThat(assistantCall.path("function").path("name").asText()).isEqualTo("查人物卡");
+        assertThat(assistantCall.path("function").path("name").asText()).isEqualTo("query_character");
         assertThat(assistantCall.path("function").path("arguments").asText()).contains("林晚舟");
 
         assertThat(array.get(3).path("role").asText()).isEqualTo("tool");
@@ -128,7 +128,7 @@ class OpenAiCompatAgentLlmClientTest {
     void 解析工具调用() {
         String raw = """
                 {"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[
-                  {"id":"call_1","type":"function","function":{"name":"查人物卡","arguments":"{\\"name\\":\\"林晚舟\\"}"}}
+                  {"id":"call_1","type":"function","function":{"name":"query_character","arguments":"{\\"name\\":\\"林晚舟\\"}"}}
                 ]}}]}
                 """;
 
@@ -137,7 +137,7 @@ class OpenAiCompatAgentLlmClientTest {
         assertThat(response.wantsTools()).isTrue();
         assertThat(response.toolCalls()).hasSize(1);
         assertThat(response.toolCalls().get(0).id()).isEqualTo("call_1");
-        assertThat(response.toolCalls().get(0).name()).isEqualTo("查人物卡");
+        assertThat(response.toolCalls().get(0).name()).isEqualTo("query_character");
         assertThat(response.toolCalls().get(0).arguments()).contains("林晚舟");
     }
 
@@ -146,22 +146,22 @@ class OpenAiCompatAgentLlmClientTest {
     void 解析多个工具调用() {
         String raw = """
                 {"choices":[{"message":{"tool_calls":[
-                  {"id":"c1","function":{"name":"查人物卡","arguments":"{}"}},
-                  {"id":"c2","function":{"name":"查设定","arguments":"{}"}}
+                  {"id":"c1","function":{"name":"query_character","arguments":"{}"}},
+                  {"id":"c2","function":{"name":"query_setting","arguments":"{}"}}
                 ]}}]}
                 """;
 
         AgentLlmResponse response = OpenAiCompatAgentLlmClient.parseResponse(raw);
 
         assertThat(response.toolCalls()).extracting(AgentToolCall::name)
-                .containsExactly("查人物卡", "查设定");
+                .containsExactly("query_character", "query_setting");
     }
 
     @Test
     @DisplayName("缺少 arguments 时兜底成空对象，不让下游拿到 null")
     void 缺少参数时兜底() {
         String raw = """
-                {"choices":[{"message":{"tool_calls":[{"id":"c1","function":{"name":"查人物卡"}}]}}]}
+                {"choices":[{"message":{"tool_calls":[{"id":"c1","function":{"name":"query_character"}}]}}]}
                 """;
 
         AgentLlmResponse response = OpenAiCompatAgentLlmClient.parseResponse(raw);
