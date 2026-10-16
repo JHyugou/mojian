@@ -6,6 +6,7 @@ import com.mojian.agent.llm.AgentMessage;
 import com.mojian.agent.llm.AgentToolCall;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
+import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class AgentLoopServiceTest {
 
+    private static final AgentContext CONTEXT = AgentContext.of(1001L);
+
     // ==================== 测试替身 ====================
 
     /** 假模型：按剧本回答，并记录每一轮收到了什么包裹 */
@@ -39,6 +42,7 @@ class AgentLoopServiceTest {
         private final Deque<AgentLlmResponse> script = new ArrayDeque<>();
         private AgentLlmResponse fallback;
         private List<AgentMessage> lastMessages = List.of();
+        private List<AgentTool> lastTools = List.of();
         private int callCount = 0;
 
         FakeLlm then(AgentLlmResponse response) {
@@ -56,6 +60,7 @@ class AgentLoopServiceTest {
         public AgentLlmResponse chat(List<AgentMessage> messages, List<AgentTool> tools) {
             callCount++;
             lastMessages = List.copyOf(messages);
+            lastTools = List.copyOf(tools);
             if (!script.isEmpty()) {
                 return script.poll();
             }
@@ -66,13 +71,14 @@ class AgentLoopServiceTest {
         }
     }
 
-    /** 假工具：记录被调用的参数，可以设置为"执行就炸" */
+    /** 假工具：记录被调用的参数和上下文，可以设置为"执行就炸" */
     private static class FakeTool implements AgentTool {
 
         private final String name;
         private final String result;
         private final RuntimeException failure;
         final List<Map<String, Object>> calls = new ArrayList<>();
+        final List<AgentContext> contexts = new ArrayList<>();
 
         private FakeTool(String name, String result, RuntimeException failure) {
             this.name = name;
@@ -104,8 +110,9 @@ class AgentLoopServiceTest {
         }
 
         @Override
-        public String execute(Map<String, Object> arguments) {
+        public String execute(AgentContext context, Map<String, Object> arguments) {
             calls.add(arguments);
+            contexts.add(context);
             if (failure != null) {
                 throw failure;
             }
@@ -139,7 +146,7 @@ class AgentLoopServiceTest {
                 .then(call("call_1", "查人物卡", "{\"name\":\"林晚舟\"}"))
                 .then(AgentLlmResponse.answer("林晚舟是一名外冷内热的女剑客。"));
 
-        AgentResult result = service(llm, 查人物卡).run("你是墨笺助手", "林晚舟是什么人？");
+        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "林晚舟是什么人？");
 
         // 结论正确、正常结束
         assertThat(result.status()).isEqualTo(AgentResult.Status.FINISHED);
@@ -158,6 +165,23 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    @DisplayName("业务上下文由代码注入到工具：模型全程看不到 projectId")
+    void 工具能拿到业务上下文() {
+        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeLlm llm = new FakeLlm()
+                .then(call("c1", "查人物卡", "{}"))
+                .then(AgentLlmResponse.answer("好了"));
+
+        service(llm, 查人物卡).run(CONTEXT, "系统提示词", "问题");
+
+        // 工具拿到了项目上下文
+        assertThat(查人物卡.contexts).containsExactly(CONTEXT);
+        // 但模型收到的消息里，从头到尾没有任何一条泄露 projectId
+        assertThat(llm.lastMessages)
+                .noneMatch(m -> m.content() != null && m.content().contains("1001"));
+    }
+
+    @Test
     @DisplayName("包裹会一轮轮长大：第 2 轮时模型能看到 4 条消息（含工具结果）")
     void 上下文随轮次增长() {
         FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
@@ -165,7 +189,7 @@ class AgentLoopServiceTest {
                 .then(call("call_1", "查人物卡", "{}"))
                 .then(AgentLlmResponse.answer("好了"));
 
-        service(llm, 查人物卡).run("系统提示词", "用户问题");
+        service(llm, 查人物卡).run(CONTEXT, "系统提示词", "用户问题");
 
         // 第 1 轮：system + user = 2 条
         // 第 2 轮：system + user + assistant(带 tool_calls) + tool(结果) = 4 条
@@ -175,6 +199,19 @@ class AgentLoopServiceTest {
         assertThat(llm.lastMessages.get(3).content()).isEqualTo("结果");
         // 工具结果必须带上 toolCallId，否则模型对不上是哪个调用的结果
         assertThat(llm.lastMessages.get(3).toolCallId()).isEqualTo("call_1");
+    }
+
+    @Test
+    @DisplayName("工具清单会随请求发给模型：模型是靠说明书决定调哪个的")
+    void 工具清单随请求发出() {
+        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeTool 查设定 = FakeTool.returning("查设定", "结果");
+        FakeLlm llm = new FakeLlm().then(AgentLlmResponse.answer("不用查"));
+
+        service(llm, 查人物卡, 查设定).run(CONTEXT, "系统提示词", "问题");
+
+        assertThat(llm.lastTools).extracting(AgentTool::name)
+                .containsExactly("查人物卡", "查设定");
     }
 
     @Test
@@ -188,7 +225,7 @@ class AgentLoopServiceTest {
                         new AgentToolCall("c2", "查设定", "{\"keyword\":\"剑宗\"}"))))
                 .then(AgentLlmResponse.answer("综合以上，可以开始写了。"));
 
-        AgentResult result = service(llm, 查人物卡, 查设定).run("你是墨笺助手", "准备写林晚舟的出场");
+        AgentResult result = service(llm, 查人物卡, 查设定).run(CONTEXT, "你是墨笺助手", "准备写林晚舟的出场");
 
         assertThat(查人物卡.calls).hasSize(1);
         assertThat(查设定.calls).hasSize(1);
@@ -205,7 +242,7 @@ class AgentLoopServiceTest {
         FakeTool 查人物卡 = FakeTool.returning("查人物卡", "还是没有我要的");
         FakeLlm llm = new FakeLlm().thenAlways(call("call_x", "查人物卡", "{}"));
 
-        AgentResult result = service(llm, 3, 查人物卡).run("你是墨笺助手", "写一章");
+        AgentResult result = service(llm, 3, 查人物卡).run(CONTEXT, "你是墨笺助手", "写一章");
 
         assertThat(result.status()).isEqualTo(AgentResult.Status.MAX_STEPS);
         assertThat(result.succeeded()).isFalse();
@@ -226,7 +263,7 @@ class AgentLoopServiceTest {
                 .then(call("c1", "查天气", "{}"))
                 .then(AgentLlmResponse.answer("抱歉，我查不了天气。"));
 
-        AgentResult result = service(llm, 查人物卡).run("你是墨笺助手", "今天天气如何");
+        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "今天天气如何");
 
         // 不抛异常，正常结束
         assertThat(result.succeeded()).isTrue();
@@ -244,7 +281,7 @@ class AgentLoopServiceTest {
                 .then(call("c1", "查人物卡", "{}"))
                 .then(AgentLlmResponse.answer("资料库暂时读不到，我先按已有信息写。"));
 
-        AgentResult result = service(llm, 查人物卡).run("你是墨笺助手", "写一章");
+        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "写一章");
 
         assertThat(result.succeeded()).isTrue();
         assertThat(result.trace().get(0).result()).contains("执行失败").contains("数据库连接超时");
@@ -253,13 +290,28 @@ class AgentLoopServiceTest {
     }
 
     @Test
+    @DisplayName("模型给出非法 JSON 参数：把错误回传给模型，循环不崩")
+    void 参数不是合法JSON() {
+        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeLlm llm = new FakeLlm()
+                .then(call("c1", "查人物卡", "{这不是JSON"))
+                .then(AgentLlmResponse.answer("我重新组织一下参数。"));
+
+        AgentResult result = service(llm, 查人物卡).run(CONTEXT, "你是墨笺助手", "查一下");
+
+        assertThat(result.succeeded()).isTrue();
+        // 工具没有被执行（参数没解析成功），但循环没崩
+        assertThat(查人物卡.calls).isEmpty();
+        assertThat(result.trace().get(0).result()).contains("参数不是合法 JSON");
+    }
+
+    @Test
     @DisplayName("工具名重名：装配阶段就直接报错，不让它带病上线")
     void 工具重名直接失败() {
         FakeTool a = FakeTool.returning("查人物卡", "A");
         FakeTool b = FakeTool.returning("查人物卡", "B");
 
-        org.assertj.core.api.Assertions
-                .assertThatThrownBy(() -> new ToolRegistry(List.of(a, b)))
+        Assertions.assertThatThrownBy(() -> new ToolRegistry(List.of(a, b)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("工具名重复");
     }

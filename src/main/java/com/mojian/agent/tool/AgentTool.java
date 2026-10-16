@@ -1,5 +1,7 @@
 package com.mojian.agent.tool;
 
+import com.mojian.agent.AgentContext;
+
 import java.util.Map;
 
 /**
@@ -30,10 +32,14 @@ public interface AgentTool {
     Map<String, Object> parametersSchema();
 
     /**
-     * 真正执行。arguments 是模型给出的参数（已从 JSON 解析成 Map）。
+     * 真正执行。
      *
-     * <p>返回值会作为"观察结果"喂回给模型，所以要用<b>模型能读懂的自然语言</b>，
-     * 而不是返回一个对象或状态码。
+     * @param context   业务上下文（如当前项目 id）——由代码注入，不由模型提供。
+     *                  这样模型只需要关心它该决定的事（参数），内部信息不会泄露给模型、
+     *                  也不会被它猜错。
+     * @param arguments 模型给出的参数（已从 JSON 解析成 Map）
+     * @return 作为"观察结果"喂回给模型的文字。要用<b>模型能读懂的自然语言</b>，
+     *         而不是返回对象或状态码。
      */
-    String execute(Map<String, Object> arguments);
+    String execute(AgentContext context, Map<String, Object> arguments);
 }
