@@ -1,29 +1,55 @@
 /*
- * 墨笺 · 国风水墨主题（demo-6 落地版）
- * 宣纸底、焦墨线框、朱砂印章点缀；楷体为主字体，标题书法笔意。
- * 所有颜色、圆角、阴影集中于令牌，页面只引用变量。
+ * 墨笺 · 国风主题（白 + 棕）
+ *
+ * 设计取向：扁平国风。层次靠「1px 浅棕细线 + 底色差」做出来，不靠阴影堆叠 ——
+ * 这是国风处理"扁平"的正解：水墨画本就是线与留白，不是投影。
+ *
+ * 令牌名称保持不变、只调数值：这样已有页面不用改一行代码就跟着换风格。
  */
 :root {
-  /* 颜色令牌（水墨系） */
-  --color-paper: #f4f0e5;        /* 宣纸主背景 */
-  --color-panel: #fbf8ef;        /* 卡片、编辑器、弹层：略亮的纸面 */
-  --color-dai: #e9e2cf;          /* 侧栏、选中区域、辅助背景：旧宣纸色 */
-  --color-line: #c9bfa8;         /* 边框、分割线：焦墨淡线 */
-  --color-ink: #2b2620;          /* 焦墨：标题与主要正文 */
-  --color-muted: #7a7160;        /* 淡墨：次要文字 */
-  --color-dai-deep: #a33f30;     /* 主操作色：朱砂印红 */
-  --color-cinnabar: #a33f30;     /* 印章、状态标记、点缀强调 */
-  --color-danger: #8f3a31;       /* 删除、失败 */
+  /* 纸面：以白为主 */
+  --color-paper: #ffffff;        /* 主背景：纯白 */
+  --color-panel: #ffffff;        /* 卡片、编辑区 */
+  --color-paper-warm: #faf7f2;   /* 暖白：分区、次级背景 */
+  --color-dai: #f5f1ea;          /* 侧栏、选中区、悬浮态 */
+  --color-line: #e8dfd4;         /* 边框、分割线：浅棕细线（扁平的分层手段） */
 
-  /* 字体 */
-  --font-kai: "KaiTi", "STKaiti", "楷体", "Noto Serif SC", serif; /* 正文主字体 */
-  --font-brush: "Ma Shan Zheng", "KaiTi", "STKaiti", cursive;     /* 书法笔书：品牌/序号/钤印 */
-  --font-serif: "Noto Serif SC", "Source Han Serif SC", "SimSun", serif;
+  /* 墨字：近黑棕，比纯黑柔和 */
+  --color-ink: #2b2119;          /* 主文字、标题 */
+  --color-muted: #6b5c4e;        /* 次要文字 */
 
-  /* 形状：直角硬朗，仅最小圆角防毛刺 */
-  --radius-s: 2px;
-  --radius-m: 3px;
-  --shadow-soft: 0 1px 4px rgba(66, 60, 49, 0.12);
+  /* 棕色主色系 */
+  --color-brown: #8b5e3c;        /* 主色 */
+  --color-brown-deep: #5c3a21;   /* 深棕：标题与强调 */
+  --color-brown-soft: #e8dfd4;   /* 浅棕：线条与描边 */
+  --color-gold: #b8860b;         /* 点缀：选中态 */
+
+  /* 兼容旧令牌名：主操作色由朱砂红改为棕色，服从"棕为主"的整体取向 */
+  --color-dai-deep: #8b5e3c;
+  --color-cinnabar: #a62b1f;     /* 朱砂印章：只保留极少量，做点睛 */
+  --color-danger: #a62b1f;
+
+  /* 字体：标题用宋体（衬线、有文气），正文用无衬线保证清晰 */
+  --font-serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  /* 旧别名保持可用 */
+  --font-kai: var(--font-serif);
+  --font-brush: var(--font-serif);
+
+  /* 形状：克制。扁平的国风不需要大圆角 */
+  --radius-s: 3px;
+  --radius-m: 5px;
+  --radius-l: 8px;
+
+  /* 动效：统一时长与缓动，"过渡自然"靠的是它们一致，而不是各写各的 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 160ms;
+  --dur: 220ms;
+  --dur-slow: 360ms;
+
+  /* 阴影：只在浮层用，正文区一律靠线条分层 */
+  --shadow-soft: 0 1px 3px rgba(43, 33, 25, 0.06);
+  --shadow-float: 0 6px 24px rgba(43, 33, 25, 0.12);
 
   /* 布局 */
   --nav-width: 216px;

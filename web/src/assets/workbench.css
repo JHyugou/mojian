@@ -1,0 +1,283 @@
+/*
+ * 墨笺 · 创作工作台设计系统
+ * ============================
+ * 扁平国风：白纸底、棕线分层、朱砂点睛。
+ *
+ * 三条设计纪律：
+ *   1. 分层靠「1px 浅棕细线 + 底色差」，不靠阴影堆叠 —— 水墨是线与留白，不是投影
+ *   2. 动效统一用 --ease-out 与三档时长；各写各的缓动是"不自然"的根因
+ *   3. 命名空间前缀 mj- ：旧页面继续用 theme.css，两套互不干扰
+ */
+
+/* ==================== 基础容器 ==================== */
+
+.mj-page {
+  min-height: 100%;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* 宋体只给标题用：正文用衬线在小字号下会花 */
+.mj-title {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-brown-deep);
+}
+
+.mj-title-lg { font-size: 22px; }
+.mj-title-md { font-size: 17px; }
+.mj-title-sm { font-size: 15px; }
+
+.mj-muted { color: var(--color-muted); }
+.mj-mono {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+}
+
+/* ==================== 细线：最基础的分层手段 ==================== */
+
+.mj-hr {
+  height: 1px;
+  border: 0;
+  background: var(--color-line);
+}
+
+/* 卷轴式分隔：两端渐隐，比实线更"国风" */
+.mj-hr-scroll {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg,
+      transparent, var(--color-brown-soft) 18%, var(--color-brown-soft) 82%, transparent);
+}
+
+/* ==================== 卡片 ==================== */
+
+.mj-card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  padding: 16px;
+  transition: border-color var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out);
+}
+
+/* 悬浮只"提线"不投阴影 —— 扁平的浮起感来自边框转棕，而不是加阴影 */
+.mj-card-hover:hover {
+  border-color: var(--color-brown);
+  transform: translateY(-2px);
+}
+
+.mj-card-selected {
+  border-color: var(--color-brown);
+  background: var(--color-paper-warm);
+}
+
+/* ==================== 按钮 ==================== */
+
+.mj-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  font-size: 14px;
+  font-family: var(--font-sans);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  background: none;
+  transition: background var(--dur) var(--ease-out),
+              border-color var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+
+.mj-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mj-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.mj-btn-primary {
+  background: var(--color-brown);
+  color: #fff;
+}
+.mj-btn-primary:hover:not(:disabled) { background: var(--color-brown-deep); }
+
+.mj-btn-ghost {
+  border-color: var(--color-line);
+  color: var(--color-ink);
+  background: var(--color-panel);
+}
+.mj-btn-ghost:hover:not(:disabled) {
+  border-color: var(--color-brown);
+  color: var(--color-brown-deep);
+}
+
+.mj-btn-text {
+  color: var(--color-muted);
+  padding: 6px 10px;
+}
+.mj-btn-text:hover:not(:disabled) { color: var(--color-brown-deep); }
+
+.mj-btn-danger { color: var(--color-danger); border-color: transparent; }
+.mj-btn-danger:hover:not(:disabled) { background: rgba(166, 43, 31, 0.06); }
+
+/* ==================== 表单 ==================== */
+
+.mj-input,
+.mj-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  transition: border-color var(--dur) var(--ease-out);
+}
+
+.mj-input:focus,
+.mj-textarea:focus {
+  outline: none;
+  border-color: var(--color-brown);
+}
+
+.mj-textarea { resize: vertical; min-height: 84px; }
+
+/* ==================== 标签：印章式 ==================== */
+
+.mj-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-brown-soft);
+  border-radius: var(--radius-s);
+  font-size: 12px;
+  color: var(--color-muted);
+  background: var(--color-paper-warm);
+  white-space: nowrap;
+}
+
+.mj-tag-brown { color: var(--color-brown-deep); border-color: var(--color-brown); }
+.mj-tag-gold { color: var(--color-gold); border-color: var(--color-gold); }
+
+/* 朱砂印章：只用于"已确认/已完成"这类少数状态，用多了就俗 */
+.mj-seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 9px;
+  border: 1px solid var(--color-cinnabar);
+  border-radius: var(--radius-s);
+  color: var(--color-cinnabar);
+  font-family: var(--font-serif);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  transform: rotate(-1.5deg);
+}
+
+/* ==================== 动效 ==================== */
+/*
+ * 统一用 --ease-out：先快后缓，东西"落"下来的感觉。
+ * 线性或 ease 在两个方向上速度对称，反而显机械。
+ */
+
+@keyframes mj-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes mj-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mj-breathe {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
+@keyframes mj-blink {
+  0%, 49%  { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.mj-rise { animation: mj-rise var(--dur) var(--ease-out) both; }
+.mj-fade { animation: mj-fade var(--dur) var(--ease-out) both; }
+
+/* 错峰入场：列表逐条出现，比一次性全出现更像"正在生成" */
+.mj-stagger > * { animation: mj-rise var(--dur) var(--ease-out) both; }
+.mj-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.mj-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.mj-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.mj-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.mj-stagger > *:nth-child(5) { animation-delay: 160ms; }
+.mj-stagger > *:nth-child(6) { animation-delay: 200ms; }
+.mj-stagger > *:nth-child(n+7) { animation-delay: 240ms; }
+
+/* 流式输出光标：最后那个方块一闪一闪，表示"还在写" */
+.mj-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--color-brown);
+  animation: mj-blink 1s steps(1, end) infinite;
+}
+
+/* 三点呼吸：表示"正在等模型"，比转圈更安静 */
+.mj-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.mj-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-brown);
+  animation: mj-breathe 1.4s ease-in-out infinite;
+}
+.mj-dots i:nth-child(2) { animation-delay: 0.2s; }
+.mj-dots i:nth-child(3) { animation-delay: 0.4s; }
+
+/* Vue 过渡：面板切换 */
+.mj-swap-enter-active,
+.mj-swap-leave-active { transition: opacity var(--dur) var(--ease-out),
+                                    transform var(--dur) var(--ease-out); }
+.mj-swap-enter-from { opacity: 0; transform: translateY(6px); }
+.mj-swap-leave-to   { opacity: 0; transform: translateY(-6px); }
+
+/* 列表项增删 */
+.mj-list-enter-active,
+.mj-list-leave-active { transition: opacity var(--dur) var(--ease-out),
+                                    transform var(--dur) var(--ease-out); }
+.mj-list-enter-from { opacity: 0; transform: translateY(10px); }
+.mj-list-leave-to   { opacity: 0; transform: translateX(12px); }
+.mj-list-move { transition: transform var(--dur) var(--ease-out); }
+
+/* 尊重"减少动态效果"偏好：这不是可选项，是基本礼貌 */
+@media (prefers-reduced-motion: reduce) {
+  .mj-rise, .mj-fade, .mj-stagger > * { animation: none; }
+  .mj-caret::after { animation: none; }
+  * { transition-duration: 1ms !important; }
+}
+
+/* ==================== 滚动条：细、淡、不抢视线 ==================== */
+
+.mj-scroll { overflow-y: auto; }
+.mj-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.mj-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-brown-soft);
+  border-radius: 4px;
+}
+.mj-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-brown); }
+.mj-scroll::-webkit-scrollbar-track { background: transparent; }
