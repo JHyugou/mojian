@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -16,13 +17,18 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 会话持久化测试（真库，事务回滚）。
+ * 会话持久化测试（测试库，事务回滚）。
  *
  * <p>重点验证一件事：<b>存进去的包裹，读出来必须一模一样</b>。
  * 这是整个 Agent 记忆的地基 —— 少了工具调用、串了顺序，模型行为就会变得莫名其妙，
  * 而且这种错误不会报异常，只会表现为"模型好像忘了刚才查过什么"。
+ *
+ * <p><b>{@code @ActiveProfiles("test")} 不能漏</b>：漏了就会连到开发库 mojian。
+ * DML 有事务回滚兜底，但建表迁移是 DDL、会真实生效 —— 曾经因为漏这个注解，
+ * 库结构在跑测试时被改了，而启动日志里看不到任何迁移记录，排查了很久。
  */
 @SpringBootTest
+@ActiveProfiles("test")
 @Transactional
 class ConversationServiceTest {
 
