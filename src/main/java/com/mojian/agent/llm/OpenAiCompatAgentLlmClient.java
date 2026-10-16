@@ -14,6 +14,10 @@ import com.mojian.generation.llm.LlmProperties;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -21,7 +25,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 带工具调用能力的 OpenAI 兼容客户端（/chat/completions）。
@@ -41,8 +47,13 @@ import java.util.List;
  * <p><b>超限自动学习</b>：服务方拒绝超限请求时会把真实上限写在错误里，
  * 这里顺手解析出来写回配置 —— 用户换模型不需要改任何代码。
  *
- * <p>本类<b>不做流式</b>：Agent 循环每一步都要等完整的 tool_calls 才能决定下一步，
- * 流式反而添乱。等最后给用户看的那一次输出再考虑流式。
+ * <p><b>支持流式，但它不是必需能力</b>：Agent 循环每一步都要等完整的 tool_calls 才能决定下一步，
+ * 所以流式在这里的唯一价值是"让用户边等边看见"。
+ *
+ * <p>而这个价值很大：写作任务一轮要两三分钟，且几乎全部时间都花在
+ * <b>生成 tool_calls 的参数</b>上（正文就在那串 JSON 里）。不流式的话，
+ * 用户要盯着空白干等两分钟才看到第一个字节 —— 那才是真正的问题。
+ * 拿不到流式就自动退回非流式：功能不受影响，只是要多等一会儿。
  */
 @Slf4j
 public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
@@ -70,7 +81,161 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
     public AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages, List<AgentTool> availableTools) {
         AgentProfileService.ResolvedModel resolved = profileService.resolve(context.agentRole());
 
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest request = buildRequest(context, resolved, messages, availableTools, false);
+        HttpResponse<String> response = sendWithRetry(request);
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            // 必须把服务方返回的内容带上：只报一个状态码，排查时只能靠猜
+            // （400 可能是"工具名不合法"或"超上下文"，402 是"余额/订阅问题"，责任和修法完全不同）
+            failWithStatus(response.statusCode(), resolved, response.body());
+        }
+
+        AgentLlmResponse parsed = parseResponse(response.body());
+        log.debug("[{}] {} -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
+        return parsed;
+    }
+
+    @Override
+    public AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages,
+                                 List<AgentTool> availableTools, LlmStreamListener listener) {
+        AgentProfileService.ResolvedModel resolved = profileService.resolve(context.agentRole());
+        HttpRequest request = buildRequest(context, resolved, messages, availableTools, true);
+
+        HttpResponse<InputStream> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        } catch (IOException e) {
+            log.warn("Agent 流式连接失败: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "连不上模型服务：" + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型调用被中断");
+        }
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            // 错误路径要把 body 读出来才能给出有用的信息（状态码本身说明不了什么）
+            failWithStatus(response.statusCode(), resolved, readQuietly(response.body()));
+        }
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            AgentLlmResponse parsed = parseStream(reader, listener);
+            log.debug("[{}] {} 流式 -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
+            return parsed;
+        } catch (IOException e) {
+            log.warn("Agent 流式读取中断: {}", e.getMessage());
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "模型流式输出中断：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 解析 SSE 流，边解析边回调。
+     *
+     * <p>两个容易踩的点：
+     * <ol>
+     *   <li><b>tool_calls 是分片到达的</b>：第一片给 id 和工具名，后续片一点点追加
+     *       arguments 字符串。必须按 {@code index} 归并，拼错一步整个参数就是坏的</li>
+     *   <li><b>脏帧要跳过而不是让整轮失败</b>：流里偶尔混进不完整的 JSON 帧，
+     *       因为一帧坏掉就丢弃已经生成的几百字，代价太大</li>
+     * </ol>
+     */
+    private AgentLlmResponse parseStream(BufferedReader reader, LlmStreamListener listener) throws IOException {
+        StringBuilder content = new StringBuilder();
+        Map<Integer, ToolCallBuilder> callBuilders = new LinkedHashMap<>();
+        TokenUsage usage = TokenUsage.NONE;
+        boolean toolCallNotified = false;
+
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            String payload = line.substring(5).trim();
+            if (payload.isEmpty() || "[DONE]".equals(payload)) {
+                continue;
+            }
+
+            JsonNode node;
+            try {
+                node = MAPPER.readTree(payload);
+            } catch (Exception e) {
+                continue; // 脏帧跳过，不拖垮整轮
+            }
+
+            JsonNode usageNode = node.path("usage");
+            if (!usageNode.isMissingNode() && !usageNode.isNull()) {
+                usage = parseUsage(node);
+            }
+
+            JsonNode delta = node.path("choices").path(0).path("delta");
+            String reasoning = delta.path("reasoning_content").asText("");
+            if (!reasoning.isEmpty()) {
+                listener.onReasoning(reasoning);
+            }
+            String text = delta.path("content").asText("");
+            if (!text.isEmpty()) {
+                content.append(text);
+                listener.onDelta(text);
+            }
+
+            JsonNode toolCalls = delta.path("tool_calls");
+            if (toolCalls.isArray()) {
+                for (JsonNode call : toolCalls) {
+                    if (!toolCallNotified) {
+                        listener.onToolCallStarted();
+                        toolCallNotified = true;
+                    }
+                    int index = call.path("index").asInt(0);
+                    ToolCallBuilder builder = callBuilders.computeIfAbsent(index, k -> new ToolCallBuilder());
+                    boolean gotId = call.hasNonNull("id");
+                    if (gotId) {
+                        builder.id = call.path("id").asText("");
+                    }
+                    JsonNode function = call.path("function");
+                    boolean gotName = function.hasNonNull("name");
+                    if (gotName) {
+                        builder.name = function.path("name").asText("");
+                    }
+                    if (function.hasNonNull("arguments")) {
+                        builder.arguments.append(function.path("arguments").asText(""));
+                    }
+                    // 诊断用：收到 tool_calls 帧却没有 id / 函数名，说明这个服务方的
+                    // 流式结构和我们预期的不一样。把原始帧打出来，下次一跑就能定位 ——
+                    // 否则只能看到"工具名是空的"这种毫无线索的现象
+                    if (!gotId && !gotName) {
+                        log.warn("流式 tool_calls 帧结构异常（无 id 无函数名），原始帧: {}", shorten(payload));
+                    }
+                }
+            }
+        }
+
+        List<AgentToolCall> toolCalls = callBuilders.values().stream()
+                .map(b -> new AgentToolCall(b.id, b.name,
+                        b.arguments.isEmpty() ? "{}" : b.arguments.toString()))
+                .toList();
+        // 兜底自检：解析出工具调用却没有名字，等于这轮白跑（会被当成"工具不存在"回传，
+        // 模型只能反复重试）。明确报出来，别让它伪装成"模型乱调工具"
+        for (AgentToolCall call : toolCalls) {
+            if (call.name() == null || call.name().isBlank()) {
+                log.warn("流式解析得到一个没有名字的工具调用（id={}），本轮无法执行", call.id());
+            }
+        }
+        return new AgentLlmResponse(content.isEmpty() ? null : content.toString(), toolCalls, usage);
+    }
+
+    /** 流式分片里的一个工具调用：id 和名字先到，arguments 一片片追加 */
+    private static final class ToolCallBuilder {
+        private String id = "";
+        private String name = "";
+        private final StringBuilder arguments = new StringBuilder();
+    }
+
+    private HttpRequest buildRequest(AgentContext context, AgentProfileService.ResolvedModel resolved,
+                                     List<AgentMessage> messages, List<AgentTool> availableTools,
+                                     boolean stream) {
+        return HttpRequest.newBuilder()
                 .uri(URI.create(trimSlash(resolved.baseUrl()) + "/chat/completions"))
                 .timeout(Duration.ofSeconds(properties.getReadTimeoutSeconds()))
                 .header("Content-Type", "application/json")
@@ -81,35 +246,35 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
                 // 自报家门（服务方明确要求客户端用自己的 UA，而不是通用 SDK 的名字）
                 .header("User-Agent", "mojian-agent/0.1")
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        buildBody(resolved.model(), resolved.temperature(), messages, availableTools),
+                        buildBody(resolved.model(), resolved.temperature(), messages, availableTools, stream),
                         StandardCharsets.UTF_8))
                 .build();
+    }
 
-        HttpResponse<String> response = sendWithRetry(request);
+    /** 统一的错误处理：日志 + 学习上下文上限 + 抛出可读异常 */
+    private void failWithStatus(int statusCode, AgentProfileService.ResolvedModel resolved, String body) {
+        String detail = shorten(body);
+        log.warn("Agent 模型返回异常状态: {} (角色 {} / 模型 {}) body={}",
+                statusCode, resolved.agentRole(), resolved.model(), detail);
 
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            // 必须把服务方返回的内容带上：只报一个状态码，排查时只能靠猜
-            // （400 可能是"工具名不合法"或"超上下文"，402 是"余额/订阅问题"，责任和修法完全不同）
-            String detail = shorten(response.body());
-            log.warn("Agent 模型返回异常状态: {} (角色 {} / 模型 {}) body={}",
-                    response.statusCode(), resolved.agentRole(), resolved.model(), detail);
+        ContextLimitParser.parse(body).ifPresent(limit -> {
+            try {
+                profileService.learnContextLimit(resolved.agentRole(), limit);
+            } catch (Exception e) {
+                log.warn("写回上下文上限失败（不影响本次报错）: {}", e.getMessage());
+            }
+        });
 
-            // 顺手把真实上下文上限学回来 —— 换模型就不用改代码了
-            ContextLimitParser.parse(response.body()).ifPresent(limit -> {
-                try {
-                    profileService.learnContextLimit(resolved.agentRole(), limit);
-                } catch (Exception e) {
-                    log.warn("写回上下文上限失败（不影响本次报错）: {}", e.getMessage());
-                }
-            });
+        throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                "模型服务返回异常状态码 " + statusCode + "：" + detail);
+    }
 
-            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
-                    "模型服务返回异常状态码 " + response.statusCode() + "：" + detail);
+    private String readQuietly(InputStream stream) {
+        try (InputStream in = stream) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
         }
-
-        AgentLlmResponse parsed = parseResponse(response.body());
-        log.debug("[{}] {} -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
-        return parsed;
     }
 
     // ==================== 连接层重试 ====================
@@ -163,7 +328,12 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
      * 生产调用一律走带温度的版本（角色配置里配了温度），这个重载主要给协议转换测试用。
      */
     static String buildBody(String model, List<AgentMessage> messages, List<AgentTool> tools) {
-        return buildBody(model, null, messages, tools);
+        return buildBody(model, null, messages, tools, false);
+    }
+
+    static String buildBody(String model, Double temperature,
+                            List<AgentMessage> messages, List<AgentTool> tools) {
+        return buildBody(model, temperature, messages, tools, false);
     }
 
     /**
@@ -171,10 +341,15 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
      * 这里的每一处细节都很容易错，所以单独抽出来做单元测试。
      */
     static String buildBody(String model, Double temperature,
-                            List<AgentMessage> messages, List<AgentTool> tools) {
+                            List<AgentMessage> messages, List<AgentTool> tools, boolean stream) {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("model", model);
-        body.put("stream", false);
+        body.put("stream", stream);
+        if (stream) {
+            // 流式响应默认不含 usage，要显式索取；服务方不支持时会忽略这个字段，
+            // 那时用量记为 0（不准确但不影响功能）
+            body.putObject("stream_options").put("include_usage", true);
+        }
         if (temperature != null) {
             body.put("temperature", temperature);
         }

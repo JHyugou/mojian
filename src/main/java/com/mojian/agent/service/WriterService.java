@@ -5,14 +5,17 @@ import com.mojian.agent.AgentLoopService;
 import com.mojian.agent.AgentPrompts;
 import com.mojian.agent.AgentResult;
 import com.mojian.agent.AgentRole;
+import com.mojian.agent.AgentRunListener;
 import com.mojian.agent.AgentStep;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.llm.AgentMessage;
+import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.material.ChapterIndex;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.service.ChapterService;
+import com.mojian.generation.sse.TaskEventBroker;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
 import lombok.RequiredArgsConstructor;
@@ -22,19 +25,23 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 /**
- * 写作 Agent 的一次任务：把某一章的蓝图写成正文。
+ * 写作 Agent：把某一章的蓝图写成正文。
  *
  * <h3>和策划 Agent 的最大区别：必备材料</h3>
  * 策划的材料全是"可选"（装不下才裁）；写作有两块<b>必备</b>且永不裁剪：
  * <ol>
  *   <li><b>本章蓝图</b> —— 这次要写什么。缺了它模型只能瞎编</li>
- *   <li><b>本章写作要求</b> —— 这次该怎么写（人称、视角、篇幅、禁忌）。缺了它写出来大概率要返工</li>
+ *   <li><b>本章写作要求</b> —— 这次该怎么写（人称、视角、篇幅、禁忌）。缺了它大概率要返工</li>
  * </ol>
+ * 其余材料（人物、设定、前情摘要、章节原文）走的是和策划同一套取数器 —— 我们全量注入，因为装得下。
  *
- * <p>其余材料（人物、设定、前情摘要、章节原文）走的是和策划同一套取数器 ——
- * 我们全量注入，因为装得下。真正的差异只在"必备"这两块。
+ * <h3>为什么是异步任务</h3>
+ * 写一章要两三分钟。同步接口会让前端干等，而且中途刷新页面就断了。
+ * 改成"启动任务拿到 taskId → 订阅 SSE"之后：正文<b>逐字推给界面</b>，
+ * 刷新页面重连还能拿到已经写好的部分（{@link TaskEventBroker} 会重放缓冲）。
  *
  * <h3>为什么正文不写进草稿表</h3>
  * 见 {@code SaveChapterDraftTool} 的类注释：正文本身就是给作者看和改的东西，
@@ -44,6 +51,10 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class WriterService {
+
+    public static final String STATUS_RUNNING = "RUNNING";
+    public static final String STATUS_SUCCEEDED = "SUCCEEDED";
+    public static final String STATUS_FAILED = "FAILED";
 
     /** 保存动作的痕迹 —— 用来判断这一轮到底有没有产出正文 */
     private static final String SAVE_TOOL = "save_chapter_draft";
@@ -55,14 +66,92 @@ public class WriterService {
     private final ChapterService chapterService;
     private final OutlineService outlineService;
     private final ChapterIndex chapterIndex;
+    private final TaskEventBroker broker;
+    private final ExecutorService agentTaskExecutor;
+
+    // ==================== 异步任务（给界面用） ====================
+
+    /**
+     * 启动一次写作任务，立刻返回任务 id。
+     *
+     * <p>任务 id 就用会话 id —— 会话已经把这次任务的输入、材料、输出都存下来了，
+     * 再发一个 id 只是多一处要同步的状态。
+     */
+    public Long startTask(Long chapterId, String instruction) {
+        Chapter chapter = chapterService.requireById(chapterId);
+        AgentConversation conversation = conversationService.create(chapter.getProjectId(),
+                AgentRole.WRITER, "写「" + titleOf(chapter) + "」");
+        Long taskId = conversation.getId();
+
+        broker.publishStatus(taskId, STATUS_RUNNING);
+        agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+        log.info("写作任务 {} 已提交（第 {} 章）", taskId, chapterId);
+        return taskId;
+    }
+
+    private void runTask(Long taskId, Long chapterId, String instruction) {
+        try {
+            WriterResult result = execute(chapterId, instruction, taskId, taskListener(taskId));
+            broker.publishEvent(taskId, "result",
+                    (result.saved() ? "已写入正文 " + result.charCount() + " 字，版本 "
+                            + result.versionNo() : "未产出正文") + "｜" + result.answer());
+            broker.finish(taskId, STATUS_SUCCEEDED, null);
+        } catch (Exception e) {
+            log.warn("写作任务 {} 失败: {}", taskId, e.getMessage());
+            broker.finish(taskId, STATUS_FAILED, e.getMessage());
+        }
+    }
+
+    /**
+     * 把 Agent 的过程事件转成 SSE 事件。
+     *
+     * <p>{@code delta} 走 broker 的正文缓冲（断线重连能重放已写部分），
+     * 其余过程事件只广播不缓冲 —— 丢了无所谓，不该为了"重连看全过程"把内存变成日志。
+     */
+    private AgentRunListener taskListener(Long taskId) {
+        return new AgentRunListener() {
+            @Override
+            public void onStepStart(int step) {
+                broker.publishEvent(taskId, "progress", "第 " + step + " 步");
+            }
+
+            @Override
+            public void onAssistantDelta(String delta) {
+                broker.publishDelta(taskId, delta);
+            }
+
+            @Override
+            public void onReasoning(String delta) {
+                broker.publishReasoning(taskId, delta);
+            }
+
+            @Override
+            public void onToolCall(String toolName, String arguments) {
+                broker.publishEvent(taskId, "tool-call", toolName);
+            }
+
+            @Override
+            public void onToolResult(String toolName, String result) {
+                broker.publishEvent(taskId, "tool-result", toolName);
+            }
+        };
+    }
+
+    // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
+        return execute(chapterId, instruction, null, AgentRunListener.NOOP);
+    }
+
+    private WriterResult execute(Long chapterId, String instruction, Long existingTaskId,
+                                 AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
 
-        // 1. 写作会话（一次任务一段，便于回看"这一章是怎么写出来的"）
-        AgentConversation conversation = conversationService.create(projectId, AgentRole.WRITER,
-                "写「" + (StringUtils.hasText(chapter.getTitle()) ? chapter.getTitle() : "未命名章") + "」");
+        // 1. 会话（异步任务已提前建好，直接复用）
+        AgentConversation conversation = existingTaskId == null
+                ? conversationService.create(projectId, AgentRole.WRITER, "写「" + titleOf(chapter) + "」")
+                : conversationService.require(existingTaskId);
 
         // 2. 必备材料：本章蓝图 + 本章写作要求（REQUIRED，永不裁）
         List<AgentContextSection> required = new ArrayList<>();
@@ -83,10 +172,10 @@ public class WriterService {
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
         conversationService.append(conversation.getId(), 0, AgentMessage.user(userInput));
 
-        // 5. 跑循环
+        // 5. 跑循环（过程实时回调出去）
         AgentContext context = AgentContext.forChapter(projectId, AgentRole.WRITER,
                 conversation.getId(), chapterId);
-        AgentResult result = agentLoopService.run(context, systemPrompt, userInput, maxSteps());
+        AgentResult result = agentLoopService.run(context, systemPrompt, List.of(), userInput, maxSteps(), listener);
 
         // 6. 回答落库
         conversationService.append(conversation.getId(), result.steps(),
@@ -106,6 +195,8 @@ public class WriterService {
                 updated.getContent() == null ? 0 : updated.getContent().length());
     }
 
+    // ==================== 材料 ====================
+
     /**
      * 本章蓝图 —— 从章节关联的蓝图节点取<b>完整</b>摘要，不截断。
      *
@@ -124,10 +215,7 @@ public class WriterService {
         if (StringUtils.hasText(node.getSummary())) {
             sb.append(node.getSummary().trim());
         }
-        if (sb.isEmpty()) {
-            return null;
-        }
-        return AgentContextSection.required("本章蓝图", sb.toString());
+        return sb.isEmpty() ? null : AgentContextSection.required("本章蓝图", sb.toString());
     }
 
     /** 本章写作要求：风格、人称、篇幅、禁忌等。它和蓝图一样是"这次要干什么"的一部分 */
@@ -141,20 +229,22 @@ public class WriterService {
     /**
      * 不给指令时的默认指令。
      *
-     * <p>带上"与已有章节篇幅相当"是有意为之：篇幅是最容易被模型忽略、
-     * 又最影响成书观感的一项。与其在提示词里写死一个数字，不如按这本书的实际情况算。
+     * <p>带上"与已有章节篇幅相当"是有意为之：篇幅是最容易被模型忽略、又最影响成书观感的一项。
+     * 与其在提示词里写死一个数字，不如按这本书的实际情况算。
      */
     private String defaultInstruction(Chapter chapter, Long projectId) {
         StringBuilder sb = new StringBuilder();
-        sb.append("请写「")
-                .append(StringUtils.hasText(chapter.getTitle()) ? chapter.getTitle().trim() : "本章")
-                .append("」的正文。");
+        sb.append("请写「").append(titleOf(chapter)).append("」的正文。");
 
         int averageChars = averageChapterChars(projectId);
         if (averageChars > 0) {
             sb.append("\n参考篇幅：与本书已有章节相当，约 ").append(averageChars).append(" 字。");
         }
         return sb.toString();
+    }
+
+    private String titleOf(Chapter chapter) {
+        return StringUtils.hasText(chapter.getTitle()) ? chapter.getTitle().trim() : "本章";
     }
 
     private int averageChapterChars(Long projectId) {
@@ -175,7 +265,7 @@ public class WriterService {
 
     /** 写作任务结果 */
     public record WriterResult(Long conversationId, String status, String answer, int steps,
-                               List<AgentStep> trace, com.mojian.agent.llm.TokenUsage usage,
+                               List<AgentStep> trace, TokenUsage usage,
                                String contextSummary, boolean saved, Integer versionNo, int charCount) {
     }
 }

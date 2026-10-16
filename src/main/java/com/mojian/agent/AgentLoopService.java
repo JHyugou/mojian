@@ -74,6 +74,17 @@ public class AgentLoopService {
      */
     public AgentResult run(AgentContext context, String systemPrompt, List<AgentMessage> history,
                            String userInput, int maxSteps) {
+        return run(context, systemPrompt, history, userInput, maxSteps, AgentRunListener.NOOP);
+    }
+
+    /**
+     * 带实时回调的版本 —— 界面靠它做到"边跑边看见"。
+     *
+     * @param listener 过程回调；传 {@link AgentRunListener#NOOP} 等价于不关心过程
+     */
+    public AgentResult run(AgentContext context, String systemPrompt, List<AgentMessage> history,
+                           String userInput, int maxSteps, AgentRunListener listener) {
+        AgentRunListener sink = listener == null ? AgentRunListener.NOOP : listener;
         // messages 就是那个"每次发给模型的包裹"，它会在循环里一条条长大
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.system(systemPrompt));
@@ -87,9 +98,21 @@ public class AgentLoopService {
 
         for (int step = 1; step <= maxSteps; step++) {
             log.debug("[{}] Agent 第 {} 轮，当前包裹 {} 条", context.agentRole(), step, messages.size());
+            sink.onStepStart(step);
 
-            // ① 想：问模型下一步干什么
-            AgentLlmResponse response = llmClient.chat(context, List.copyOf(messages), toolRegistry.all());
+            // ① 想：问模型下一步干什么（流式回调透传下去，界面上能看到字一个个出来）
+            AgentLlmResponse response = llmClient.chat(context, List.copyOf(messages),
+                    toolRegistry.all(), sink.asLlmListener());
+
+            // 自愈：流式解析偶尔会拿到"没有名字的工具调用"（服务方的流式结构和预期不一致时）。
+            // 这种情况绝不能把"工具不存在"这种假错误回传给模型 —— 它只会反复重试，白烧钱又转不出结果。
+            // 退回非流式重试一次才是正解：功能不受影响，只是这一轮用户看不到逐字效果。
+            if (hasNamelessToolCall(response)) {
+                log.warn("[{}] 流式解析得到的工具调用没有名字，本轮退回非流式重试",
+                        context.agentRole());
+                response = llmClient.chat(context, List.copyOf(messages), toolRegistry.all());
+            }
+
             totalUsage = totalUsage.plus(response.usage());
 
             // 出口①：模型不再要求调工具 = 它认为干完了
@@ -104,7 +127,9 @@ public class AgentLoopService {
 
             // ② 做 + ③ 看：一轮可以要求调多个工具，按顺序执行
             for (AgentToolCall call : response.toolCalls()) {
+                sink.onToolCall(call.name(), call.arguments());
                 String result = executeTool(context, call);
+                sink.onToolResult(call.name(), result);
                 // 观察结果回填 —— 模型下一轮就是靠这个判断"刚才那步成不成"
                 messages.add(AgentMessage.tool(call.id(), result));
                 trace.add(new AgentStep(step, call.name(), call.arguments(), result));
@@ -138,6 +163,18 @@ public class AgentLoopService {
             return "错误：工具「" + call.name() + "」执行失败（" + e.getMessage()
                     + "）。请换一种方式，或者直接说明你无法完成。";
         }
+    }
+
+    /**
+     * 是否出现了"没有名字的工具调用"。
+     *
+     * <p>这是个不该存在的状态：模型要求调工具，却没说调哪个。真实成因通常是
+     * 服务方的流式结构和预期不一致（解析没拿到函数名）。识别出来是为了触发自愈重试，
+     * 而不是把"工具不存在"当成模型的错回传给它。
+     */
+    private boolean hasNamelessToolCall(AgentLlmResponse response) {
+        return response.wantsTools() && response.toolCalls().stream()
+                .anyMatch(call -> call.name() == null || call.name().isBlank());
     }
 
     /** 模型有时会返回空的 arguments，那是合法的（等价于无参数） */

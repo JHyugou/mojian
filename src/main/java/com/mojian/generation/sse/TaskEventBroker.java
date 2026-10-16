@@ -79,6 +79,16 @@ public class TaskEventBroker {
         broadcast(taskId, "reasoning", delta);
     }
 
+    /**
+     * 自定义事件（工具调用、阶段变化、结果摘要等）。
+     *
+     * <p>只广播、不缓冲：重连时的关键信息已经由 {@code status} 与 {@code delta} 两个缓冲恢复了，
+     * 中间的过程事件丢了无所谓 —— 不该为了"重连能看全过程"把内存变成无上限的日志。
+     */
+    public void publishEvent(Long taskId, String event, String data) {
+        broadcast(taskId, event, data);
+    }
+
     /** 任务终结（成功/失败）后调用：通知并清理正文缓冲，保留最终状态供晚到订阅者 */
     public void finish(Long taskId, String finalStatus, String errorMessage) {
         synchronized (this) {

@@ -28,4 +28,18 @@ public interface AgentLlmClient {
      * @return 模型这一轮的回答：要么要求调工具，要么给答案
      */
     AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages, List<AgentTool> availableTools);
+
+    /**
+     * 带实时回调的重载：模型吐字时立刻回调，用于"边写边看"。
+     *
+     * <p>默认实现直接退化为非流式调用 —— 这样假客户端（测试替身）不必实现它，
+     * 而"只支持非流式"的实现也仍然能工作。<b>流式是一条优化路径，不是必需能力</b>：
+     * 拿不到流式就退回去，功能不受影响，只是用户要多等一会儿。
+     *
+     * @param listener 实时回调；传 {@link LlmStreamListener#NOOP} 等价于不关心
+     */
+    default AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages,
+                                  List<AgentTool> availableTools, LlmStreamListener listener) {
+        return chat(context, messages, availableTools);
+    }
 }

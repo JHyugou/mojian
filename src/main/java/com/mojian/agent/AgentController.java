@@ -23,8 +23,10 @@ import com.mojian.agent.tool.ToolRegistry;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.service.ChapterService;
 import com.mojian.common.api.ApiResponse;
+import com.mojian.generation.sse.TaskEventBroker;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -60,6 +63,7 @@ public class AgentController {
     private final DraftService draftService;
     private final WriterService writerService;
     private final ChapterService chapterService;
+    private final TaskEventBroker broker;
 
     // ==================== 策划对话 ====================
 
@@ -112,10 +116,40 @@ public class AgentController {
     // ==================== 写作 ====================
 
     /**
-     * 让写作 Agent 写某一章的正文。
+     * 启动一次写作任务，<b>立刻返回任务 id</b>。
      *
-     * <p>它会按【本章蓝图 + 本章写作要求】写，写完通过 save_chapter_draft 落进章节
-     * （自动创建版本快照，可回滚）。
+     * <p>写一章要两三分钟，同步接口会让前端干等、中途刷新还断掉。
+     * 所以拆成"启动任务 → 订阅事件流"两段。
+     */
+    @PostMapping("/writer/chapters/{chapterId}/tasks")
+    public ApiResponse<Map<String, Object>> startWriting(@PathVariable Long chapterId,
+                                                         @RequestBody(required = false) WriterRunRequest request) {
+        String instruction = request == null ? null : request.instruction();
+        Long taskId = writerService.startTask(chapterId, instruction);
+        return ApiResponse.ok(Map.of("taskId", taskId));
+    }
+
+    /**
+     * 订阅写作任务的事件流（复用墨笺既有的 {@code TaskEventBroker}）。
+     *
+     * <p>事件类型：
+     * <ul>
+     *   <li>{@code status} —— RUNNING / SUCCEEDED / FAILED；订阅时会立即回放当前状态</li>
+     *   <li>{@code delta} —— <b>正文增量</b>。订阅时也会回放已写好的部分，所以刷新页面不丢字</li>
+     *   <li>{@code reasoning} —— 思维链增量</li>
+     *   <li>{@code progress} / {@code tool-call} / {@code tool-result} —— 过程进展</li>
+     *   <li>{@code result} / {@code end} —— 结果摘要与结束</li>
+     * </ul>
+     */
+    @GetMapping(value = "/writer/tasks/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter writingEvents(@PathVariable Long taskId) {
+        return broker.subscribe(taskId);
+    }
+
+    /**
+     * 同步写作（调试用，会一直阻塞到写完，约两三分钟）。
+     *
+     * <p>保留了它是因为排查问题时"一次调用看完整结果"比"订阅事件流"省事得多。
      */
     @PostMapping("/writer/chapters/{chapterId}/write")
     public ApiResponse<WriterService.WriterResult> write(@PathVariable Long chapterId,
