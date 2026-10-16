@@ -43,6 +43,8 @@ class AgentLoopServiceTest {
         private AgentLlmResponse fallback;
         private List<AgentMessage> lastMessages = List.of();
         private List<AgentTool> lastTools = List.of();
+        private AgentContext lastContext;
+        final List<AgentContext> contexts = new ArrayList<>();
         private int callCount = 0;
 
         FakeLlm then(AgentLlmResponse response) {
@@ -57,10 +59,12 @@ class AgentLoopServiceTest {
         }
 
         @Override
-        public AgentLlmResponse chat(List<AgentMessage> messages, List<AgentTool> tools) {
+        public AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages, List<AgentTool> tools) {
             callCount++;
             lastMessages = List.copyOf(messages);
             lastTools = List.copyOf(tools);
+            lastContext = context;
+            contexts.add(context);
             if (!script.isEmpty()) {
                 return script.poll();
             }
@@ -212,6 +216,24 @@ class AgentLoopServiceTest {
 
         assertThat(llm.lastTools).extracting(AgentTool::name)
                 .containsExactly("查人物卡", "查设定");
+    }
+
+    @Test
+    @DisplayName("会话 id 在整次运行中保持不变：服务端 prompt 缓存命中的前提")
+    void 会话id贯穿整次运行() {
+        FakeTool 查人物卡 = FakeTool.returning("查人物卡", "结果");
+        FakeLlm llm = new FakeLlm()
+                .then(call("c1", "查人物卡", "{}"))
+                .then(call("c2", "查人物卡", "{}"))
+                .then(AgentLlmResponse.answer("好了"));
+
+        AgentContext context = AgentContext.of(1001L);
+        service(llm, 查人物卡).run(context, "系统提示词", "问题");
+
+        // 三轮模型调用都带着同一个会话 id —— 服务端才认得出这是同一段对话，才谈得上缓存
+        assertThat(llm.contexts).hasSize(3);
+        assertThat(llm.contexts).allMatch(c -> c.sessionId().equals(context.sessionId()));
+        assertThat(llm.contexts).allMatch(c -> c.projectId().equals(1001L));
     }
 
     @Test

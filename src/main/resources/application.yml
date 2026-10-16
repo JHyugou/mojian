@@ -39,6 +39,11 @@ mojian:
     # 太短会把"正在等首字"的任务误杀
     read-timeout-seconds: 900
 
+  # Agent 循环（AgentLoopService）：模型自己决定调什么工具、要不要继续
+  agent:
+    # 最大步数 —— 第一道刹车，防止模型转圈停不下来
+    max-steps: ${AGENT_MAX_STEPS:10}
+
 logging:
   level:
     com.mojian: info

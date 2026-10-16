@@ -1,5 +1,7 @@
 package com.mojian.agent.tool;
 
+import org.springframework.stereotype.Component;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -8,10 +10,12 @@ import java.util.Optional;
 /**
  * 工具登记处 —— 负责回答两个问题："有哪些工具能用"、"某个名字对应哪个工具"。
  *
- * <p>设计要点：这里不做任何 Spring 注解，构造函数直接接收工具列表。
- * 好处是单元测试可以一行代码塞进假工具，不需要启动 Spring 容器。
- * 接进 Spring 时只需要在装配层把容器里所有 AgentTool 收集起来传进来。
+ * <p>Spring 会把容器里所有 {@link AgentTool} 实现自动注入进来，
+ * 所以<b>新增一个工具只需要写一个类加 @Component，不用改这里</b>。
+ *
+ * <p>构造函数直接接收工具列表（而不是自己去扫描），单元测试里一行代码就能塞进假工具。
  */
+@Component
 public class ToolRegistry {
 
     private final Map<String, AgentTool> tools = new LinkedHashMap<>();

@@ -1,5 +1,6 @@
 package com.mojian.agent.llm;
 
+import com.mojian.agent.AgentContext;
 import com.mojian.agent.tool.AgentTool;
 
 import java.util.List;
@@ -20,9 +21,11 @@ import java.util.List;
 public interface AgentLlmClient {
 
     /**
+     * @param context        本次运行的上下文；其中 {@code sessionId} 会作为请求头发给服务方，
+     *                       用于 prompt 缓存路由（命中缓存后读取单价大幅下降）
      * @param messages       完整的对话消息列表（每轮都要整份发过去）
      * @param availableTools 这次允许模型使用的工具（说明书）
      * @return 模型这一轮的回答：要么要求调工具，要么给答案
      */
-    AgentLlmResponse chat(List<AgentMessage> messages, List<AgentTool> availableTools);
+    AgentLlmResponse chat(AgentContext context, List<AgentMessage> messages, List<AgentTool> availableTools);
 }

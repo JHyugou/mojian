@@ -67,7 +67,7 @@ public class AgentLoopService {
             log.debug("Agent 第 {} 轮，当前包裹 {} 条", step, messages.size());
 
             // ① 想：问模型下一步干什么
-            AgentLlmResponse response = llmClient.chat(List.copyOf(messages), toolRegistry.all());
+            AgentLlmResponse response = llmClient.chat(context, List.copyOf(messages), toolRegistry.all());
 
             // 出口①：模型不再要求调工具 = 它认为干完了
             if (!response.wantsTools()) {

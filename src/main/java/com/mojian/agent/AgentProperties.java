@@ -1,12 +1,18 @@
 package com.mojian.agent;
 
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
 /**
- * Agent 循环的参数。
+ * Agent 循环参数（配置前缀 {@code mojian.agent}）。
  *
- * <p>故意先做成普通 POJO（不加 Spring 注解），等接入 Spring 时再补
- * {@code @ConfigurationProperties(prefix = "mojian.agent")}。
- * 这样核心逻辑可以先独立测透，不被框架牵着走。
+ * <p>参数外置的意义：不用改代码就能调整 Agent 的行为边界。
+ * 出问题时第一反应往往是"把步数调小一点先止血"，这不该需要重新发版。
  */
+@Data
+@Component
+@ConfigurationProperties(prefix = "mojian.agent")
 public class AgentProperties {
 
     /**
@@ -16,12 +22,4 @@ public class AgentProperties {
      * 没人拦它就是一直烧钱、永远不结束。
      */
     private int maxSteps = 10;
-
-    public int getMaxSteps() {
-        return maxSteps;
-    }
-
-    public void setMaxSteps(int maxSteps) {
-        this.maxSteps = maxSteps;
-    }
 }
