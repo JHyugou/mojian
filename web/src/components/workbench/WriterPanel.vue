@@ -55,7 +55,7 @@
     </section>
 
     <!-- ==================== 改写意见 ==================== -->
-    <section class="wr-advice">
+    <section v-if="tab === 'text'" class="wr-advice">
       <textarea
         v-model="advice"
         class="mj-textarea wr-advice-input"
@@ -83,16 +83,47 @@
       <span v-if="error" class="wr-error">{{ error }}</span>
     </section>
 
-    <!-- ==================== 正文 ==================== -->
-    <div ref="bodyEl" class="wr-body mj-scroll">
-      <div v-if="!text && !running" class="wr-empty">
-        <div class="mj-title mj-title-sm">还没有正文</div>
-        <p class="mj-muted">点上面的按钮，Agent 会按本章蓝图与写作要求来写。</p>
-        <p class="mj-muted">写好的正文会直接存进这一章，并自动留一个可回滚的版本。</p>
-      </div>
+    <!-- ==================== 正文 / 版本 / 记忆 ==================== -->
+    <!--
+      把「版本对比与回滚」「章节记忆」挂在这里，是为了补回删掉「章节创作」页后的入口缺口。
+      功能一直在后端，只是原本只有那一页能进 —— 不能因为换了界面就让作者失去它们。
+    -->
+    <nav class="wr-tabs">
+      <button
+        v-for="t in tabs"
+        :key="t.key"
+        class="wr-tab"
+        :class="{ active: tab === t.key }"
+        @click="tab = t.key"
+      >
+        {{ t.label }}
+      </button>
+    </nav>
 
-      <!-- 逐字流出来的正文。光标只在"还在写"时显示 -->
-      <div v-else class="wr-text" :class="{ 'mj-caret': running }">{{ text }}</div>
+    <div ref="bodyEl" class="wr-body mj-scroll">
+      <template v-if="tab === 'text'">
+        <div v-if="!text && !running" class="wr-empty">
+          <div class="mj-title mj-title-sm">还没有正文</div>
+          <p class="mj-muted">点上面的按钮，Agent 会按本章蓝图与写作要求来写。</p>
+          <p class="mj-muted">写好的正文会直接存进这一章，并自动留一个可回滚的版本。</p>
+        </div>
+
+        <!-- 逐字流出来的正文。光标只在"还在写"时显示 -->
+        <div v-else class="wr-text" :class="{ 'mj-caret': running }">{{ text }}</div>
+      </template>
+
+      <VersionPanel
+        v-else-if="tab === 'versions' && chapter"
+        :key="'v-' + chapter.id"
+        :chapter-id="String(chapter.id)"
+        @refreshed="reload"
+      />
+
+      <MemoryPanel
+        v-else-if="tab === 'memory' && chapter"
+        :key="'m-' + chapter.id"
+        :chapter-id="String(chapter.id)"
+      />
     </div>
   </div>
 </template>
@@ -101,6 +132,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { getChapter } from '../../api/chapter'
 import { setWritingRequirement, startWritingTask, subscribeWritingTask } from '../../api/agent'
+import VersionPanel from '../VersionPanel.vue'
+import MemoryPanel from '../MemoryPanel.vue'
 
 const props = defineProps({
   projectId: { type: [Number, String], required: true },
@@ -122,6 +155,13 @@ const statusText = ref('')
 const progress = ref([])
 const error = ref('')
 const bodyEl = ref(null)
+const tab = ref('text')
+
+const tabs = [
+  { key: 'text', label: '正文' },
+  { key: 'versions', label: '版本' },
+  { key: 'memory', label: '章节记忆' }
+]
 
 let source = null
 
@@ -150,22 +190,37 @@ watch(
     error.value = ''
     statusText.value = ''
     advice.value = ''
+    tab.value = 'text'
     full.value = null
     text.value = ''
     requirement.value = ''
     if (!id) return
     try {
-      // 章节列表刻意不返回正文大字段，所以这里单独取一次
-      const detail = await getChapter(id)
-      full.value = detail
-      text.value = detail.content || ''
-      requirement.value = detail.writingRequirement || ''
+      await loadChapter(id)
     } catch (e) {
       error.value = e.message
     }
   },
   { immediate: true }
 )
+
+async function loadChapter(id) {
+  // 章节列表刻意不返回正文大字段，所以这里单独取一次
+  const detail = await getChapter(id)
+  full.value = detail
+  text.value = detail.content || ''
+  requirement.value = detail.writingRequirement || ''
+}
+
+/** 版本回滚之后重新取一次正文 —— 否则界面上还停在回滚前的内容 */
+async function reload() {
+  if (!props.chapter?.id) return
+  try {
+    await loadChapter(props.chapter.id)
+  } catch (e) {
+    error.value = e.message
+  }
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -248,14 +303,7 @@ async function start() {
         running.value = false
         source = null
         // 流结束后重新取一次章节：拿版本号与最终字数（以库里的为准）
-        try {
-          full.value = await getChapter(props.chapter.id)
-          if (full.value?.content) {
-            text.value = full.value.content
-          }
-        } catch (e) {
-          console.warn('刷新章节失败', e)
-        }
+        await reload()
       }
     })
   } catch (e) {
@@ -351,6 +399,31 @@ async function start() {
 }
 
 .wr-error { color: var(--color-danger); font-size: 13px; }
+
+/* ---------- 页签 ---------- */
+.wr-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 26px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-panel);
+}
+
+.wr-tab {
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-muted);
+  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.wr-tab:hover { color: var(--color-brown-deep); }
+.wr-tab.active {
+  color: var(--color-brown-deep);
+  border-bottom-color: var(--color-brown);
+}
 
 /* ---------- 正文 ---------- */
 .wr-body {

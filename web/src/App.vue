@@ -8,17 +8,15 @@ const projectStore = useProjectStore()
 const messageStore = useMessageStore()
 
 const navItems = [
-  // 创作工作台放在最前：它是新的主入口（对话式策划 + 写作）。
-  // 旧页面全部保留，重构期间旧功能不能废，验收通过后再逐页替换。
+  // 创作工作台是新主入口（对话式策划 + 流式写作）。
+  // 原来的「章节创作」与「AI 助手」已被它的写作/策划两个模式取代，故移除。
   { path: '/workbench', label: '创作工作台', num: '壹' },
   { path: '/', label: '创作项目', num: '貳' },
   { path: '/characters', label: '人物档案', num: '叁' },
   { path: '/settings', label: '故事设定库', num: '肆' },
   { path: '/outline', label: '剧情蓝图', num: '伍' },
-  { path: '/chapters', label: '章节创作', num: '陆' },
-  { path: '/book', label: '成书', num: '柒' },
-  { path: '/chat', label: 'AI 助手', num: '捌' },
-  { path: '/ai-settings', label: '模型接入', num: '玖' }
+  { path: '/book', label: '成书', num: '陆' },
+  { path: '/ai-settings', label: '模型接入', num: '柒' }
 ]
 </script>
 
@@ -70,8 +68,9 @@ const navItems = [
         <RouterView />
       </main>
 
+      <!-- 工作台自带右栏，外壳的上下文栏就不重复了 -->
       <aside
-        v-if="$route.path !== '/chapters' && $route.path !== '/workbench'"
+        v-if="$route.path !== '/workbench'"
         class="app-context"
         :class="{ collapsed: !contextOpen }"
         aria-label="上下文辅助"

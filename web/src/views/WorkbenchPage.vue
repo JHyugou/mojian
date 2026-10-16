@@ -61,8 +61,24 @@
         <template v-else>
           <div class="wb-side-head">
             <span class="mj-title mj-title-sm">章节目录</span>
-            <span class="mj-muted">{{ chapters.length }} 章</span>
+            <div class="wb-side-head-right">
+              <span class="mj-muted">{{ chapters.length }} 章</span>
+              <button class="wb-icon-btn" title="新建章节" @click="toggleNewChapter">＋</button>
+            </div>
           </div>
+
+          <!-- 新建章节：原来在「章节创作」页里，那一页被工作台取代后挪到这里 -->
+          <div v-if="creatingChapter" class="wb-new-row mj-fade">
+            <input
+              v-model="newChapterTitle"
+              class="mj-input"
+              placeholder="章节标题，回车创建"
+              @keydown.enter="createNewChapter"
+              @keydown.esc="toggleNewChapter"
+            />
+          </div>
+          <p v-if="sideError" class="wb-side-error">{{ sideError }}</p>
+
           <div class="wb-left-list mj-scroll">
             <button
               v-for="(c, i) in chapters"
@@ -151,7 +167,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useProjectStore } from '../stores/project'
-import { listChapters } from '../api/chapter'
+import { createChapter, listChapters } from '../api/chapter'
 import { listCharacters } from '../api/character'
 import { listSettings } from '../api/setting'
 import { getOutlineTree } from '../api/outline'
@@ -208,6 +224,33 @@ const nodeTypeLabel = (type) => NODE_LABELS[type] || type || '节点'
 function pickChapter(chapter) {
   activeChapter.value = chapter
   mode.value = 'writer'
+}
+
+const creatingChapter = ref(false)
+const newChapterTitle = ref('')
+const sideError = ref('')
+
+function toggleNewChapter() {
+  creatingChapter.value = !creatingChapter.value
+  newChapterTitle.value = ''
+  sideError.value = ''
+}
+
+async function createNewChapter() {
+  const title = newChapterTitle.value.trim()
+  if (!title) return
+  try {
+    const created = await createChapter(projectId.value, { title, status: 'DRAFT' })
+    chapters.value = [...chapters.value, created]
+    // 新建完直接切过去写：作者点"新建"多半就是想马上写这一章
+    activeChapter.value = created
+    mode.value = 'writer'
+    creatingChapter.value = false
+    newChapterTitle.value = ''
+    sideError.value = ''
+  } catch (e) {
+    sideError.value = e.message || '新建章节失败'
+  }
 }
 
 function pickOutlineNode(node) {
@@ -355,6 +398,32 @@ onMounted(async () => {
 }
 
 .wb-empty-hint { padding: 16px 10px; font-size: 12px; line-height: 1.9; }
+
+.wb-side-head-right { display: flex; align-items: center; gap: 6px; }
+
+.wb-icon-btn {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
+  color: var(--color-brown-deep);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  transition: border-color var(--dur) var(--ease-out);
+}
+.wb-icon-btn:hover { border-color: var(--color-brown); }
+
+.wb-new-row { padding: 0 8px 8px; }
+.wb-side-error {
+  padding: 0 12px 8px;
+  font-size: 12px;
+  color: var(--color-danger);
+}
 
 /* 蓝图节点：按层级缩进，卷/段/章用不同类型标签区分 */
 .wb-outline-item {
