@@ -153,7 +153,8 @@ public class WriterService {
                 ? conversationService.create(projectId, AgentRole.WRITER, "写「" + titleOf(chapter) + "」")
                 : conversationService.require(existingTaskId);
 
-        // 2. 必备材料：本章蓝图 + 本章写作要求（REQUIRED，永不裁）
+        // 2. 必备材料：本章蓝图 + 本章写作要求（改稿时再加"现有稿"）。全部 REQUIRED，永不裁
+        boolean revising = StringUtils.hasText(chapter.getContent());
         List<AgentContextSection> required = new ArrayList<>();
         AgentContextSection blueprint = blueprintSection(chapter);
         if (blueprint != null) {
@@ -163,10 +164,16 @@ public class WriterService {
         if (requirement != null) {
             required.add(requirement);
         }
+        if (revising) {
+            // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
+            required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
+        }
 
-        // 3. 组装（全量材料 + 必备材料）
-        AgentContextAssembly materials = agentContextService.assemble(AgentRole.WRITER, projectId, required);
-        String systemPrompt = AgentPrompts.writer(materials.text());
+        // 3. 组装（全量材料 + 必备材料）。排除当前章：它已作为"本章现有稿"单独注入，
+        //    再以"前文原文"的名义出现一遍既是重复（一章五千字），也会让模型分不清哪份算数
+        AgentContextAssembly materials = agentContextService.assemble(
+                AgentRole.WRITER, projectId, required, chapterId);
+        String systemPrompt = AgentPrompts.writer(materials.text(), revising);
 
         // 4. 本轮指令落库
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
@@ -234,8 +241,15 @@ public class WriterService {
      */
     private String defaultInstruction(Chapter chapter, Long projectId) {
         StringBuilder sb = new StringBuilder();
-        sb.append("请写「").append(titleOf(chapter)).append("」的正文。");
+        if (StringUtils.hasText(chapter.getContent())) {
+            // 改稿但用户没写具体意见：给一个温和的默认动作，而不是让它自由发挥
+            sb.append("这是「").append(titleOf(chapter))
+                    .append("」的现有稿。请通读一遍，在不改动剧情与关键节点的前提下润色文字：")
+                    .append("该紧的地方收紧，该有画面的地方写实，去掉空泛的形容。");
+            return sb.toString();
+        }
 
+        sb.append("请写「").append(titleOf(chapter)).append("」的正文。");
         int averageChars = averageChapterChars(projectId);
         if (averageChars > 0) {
             sb.append("\n参考篇幅：与本书已有章节相当，约 ").append(averageChars).append(" 字。");

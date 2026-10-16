@@ -49,9 +49,22 @@ public class AgentContextService {
      */
     public AgentContextAssembly assemble(String agentRole, Long projectId,
                                          List<AgentContextSection> extraSections) {
+        return assemble(agentRole, projectId, extraSections, null);
+    }
+
+    /**
+     * 按角色预算装填，并可排除某一章。
+     *
+     * @param excludeChapterId 改稿时排除当前章：它已作为"本章现有稿"单独注入，
+     *                         不该再以"前文原文"的名义出现一遍
+     */
+    public AgentContextAssembly assemble(String agentRole, Long projectId,
+                                         List<AgentContextSection> extraSections,
+                                         Long excludeChapterId) {
         AgentContextBudget budget = budgetOf(agentRole);
 
-        List<AgentContextSection> sections = new ArrayList<>(materialLoader.loadAll(projectId));
+        List<AgentContextSection> sections = new ArrayList<>(
+                materialLoader.loadAll(projectId, excludeChapterId));
         if (extraSections != null && !extraSections.isEmpty()) {
             sections.addAll(extraSections);
         }
@@ -62,7 +75,7 @@ public class AgentContextService {
     }
 
     public AgentContextAssembly assemble(String agentRole, Long projectId) {
-        return assemble(agentRole, projectId, List.of());
+        return assemble(agentRole, projectId, List.of(), null);
     }
 
     /** 该角色这次可用的预算（不解析密钥，只读配置 —— 用于展示与预估） */

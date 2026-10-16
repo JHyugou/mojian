@@ -128,6 +128,18 @@ public final class AgentPrompts {
      * @param materials 组装好的材料（含【本章蓝图】【本章写作要求】）
      */
     public static String writer(String materials) {
+        return writer(materials, false);
+    }
+
+    /**
+     * 写作 Agent 的系统提示词。
+     *
+     * @param revising true 表示改稿：资料里会有【本章现有稿】，用户这轮是提修改意见，
+     *                 而不是要重写整章。<b>这两种情况的规矩必须分开写</b> ——
+     *                 不区分的话，模型会把"把开头改陡一点"理解成"重写一遍"，
+     *                 于是你让它改一句，它还你一整章新内容，之前满意的部分全丢了。
+     */
+    public static String writer(String materials, boolean revising) {
         return """
                 你是「墨笺」的写作助手，负责把这一章的蓝图写成正文。
 
@@ -144,6 +156,8 @@ public final class AgentPrompts {
                    也不要分小标题 —— 正文就是正文。
                 7. 写完后调用 save_chapter_draft 保存，不要只在回复里贴出来。
 
+                %s
+
                 【文体要求】
                 - 用简体中文写。叙事为主，对话自然，避免书面语腔调堆砌。
                 - 描写服务于信息：写景写物要有用处（埋伏笔、推进情绪、交代处境），
@@ -155,6 +169,33 @@ public final class AgentPrompts {
                 【写完之后】
                 用一两句话向作者说明：这一章你写了什么、哪里做了自由发挥、有没有需要他确认的地方。
                 不要复述正文。
-                """.formatted(materials == null ? "（本章还没有材料）" : materials);
+                """.formatted(materials == null ? "（本章还没有材料）" : materials,
+                revising ? REVISION_RULES : FIRST_DRAFT_RULES);
     }
+
+    /** 首写：从零按蓝图写 */
+    private static final String FIRST_DRAFT_RULES = """
+            【本次是首写】
+            资料里没有【本章现有稿】，说明这一章还没写过。按蓝图从零写出来。
+            """;
+
+    /**
+     * 改稿：在现有稿上按用户意见改。
+     *
+     * <p>这一段是"迭代式写作"能不能成立的关键。用户说「把开头改陡一点」时，
+     * 他要的是改一处，而不是换一整章。
+     */
+    private static final String REVISION_RULES = """
+            【本次是改稿，不是重写】
+            资料里有【本章现有稿】，那是当前版本。用户这轮说的话是<b>修改意见</b>，
+            不是重新命题。
+
+            所以：
+            1. <b>只在意见涉及的地方改</b>。意见没提到的段落尽量保持原样 ——
+               哪怕你觉得换个写法更好也不要动，作者已经读过并且认可了那些部分。
+            2. 除非用户明确说"重写""推倒重来""换一种写法"，否则不要另起炉灶。
+            3. 改完要检查连贯性：改了一处，前后文接不接得上。
+            4. 保存时仍要提交<b>完整的整章正文</b>（含没改的部分）——
+               保存是整章覆盖，只提交改动片段会把其余部分抹掉。
+            """;
 }

@@ -88,12 +88,23 @@ public class AgentMaterialLoader {
      * <p>数量上不设限、也不做相关性筛选 —— 那是组装器在超预算时才该做的事。
      */
     public List<AgentContextSection> loadAll(Long projectId) {
+        return loadAll(projectId, null);
+    }
+
+    /**
+     * 取全部材料，但排除某一章。
+     *
+     * <p><b>为什么需要排除</b>：改稿时，"本章现有稿"会作为必备材料单独注入。
+     * 如果这里再把同一章的正文当"前文原文"注入一遍，同一段文字会挂着两个标题
+     * 出现在上下文里 —— 既浪费 token（一章五千字），也会让模型搞不清哪份才算数。
+     */
+    public List<AgentContextSection> loadAll(Long projectId, Long excludeChapterId) {
         List<AgentContextSection> sections = new ArrayList<>();
         addIfPresent(sections, memorySection(projectId));
         addIfPresent(sections, outlineSection(projectId));
         addIfPresent(sections, characterSection(projectId));
         addIfPresent(sections, settingSection(projectId));
-        sections.addAll(chapterSections(projectId));
+        sections.addAll(chapterSections(projectId, excludeChapterId));
         log.debug("取数完成：项目 {} 共 {} 块材料，合计约 {} token",
                 projectId, sections.size(),
                 sections.stream().mapToInt(AgentContextSection::estimateTokens).sum());
@@ -102,7 +113,7 @@ public class AgentMaterialLoader {
 
     /** 只要最近 N 章的正文（写作 Agent 的"近章原文"策略会用到） */
     public List<AgentContextSection> loadRecentChapterTexts(Long projectId, int count) {
-        List<AgentContextSection> all = chapterSections(projectId);
+        List<AgentContextSection> all = chapterSections(projectId, null);
         return all.size() <= count ? all : all.subList(0, count);
     }
 
@@ -194,15 +205,22 @@ public class AgentMaterialLoader {
     /**
      * 每章一块。返回顺序是<b>离当前最近的在前</b>（第 N 章、第 N-1 章……），
      * 且优先级随距离递增 —— 于是组装器的"严格优先级裁剪"天然会从最远的章节开始砍。
+     *
+     * @param excludeChapterId 排除某章（改稿时用：那一章会作为"本章现有稿"单独注入，
+     *                         不能再以"前文原文"的名义出现一遍）
      */
-    private List<AgentContextSection> chapterSections(Long projectId) {
+    private List<AgentContextSection> chapterSections(Long projectId, Long excludeChapterId) {
         List<Chapter> chapters = chapterIndex.ordered(projectId);
         List<AgentContextSection> sections = new ArrayList<>();
 
-        // orderedChapters 是正序（第 1 章在前），从后往前生成，最近的一章先入列
+        // orderedChapters 是正序（第 1 章在前），从后往前生成，最近的一章先入列。
+        // distance 按"在结果里的位置"算，而不是按原始序号 —— 否则排除一章之后优先级会出现空洞
+        int distance = 0;
         for (int i = chapters.size() - 1; i >= 0; i--) {
             Chapter chapter = chapters.get(i);
-            int distance = chapters.size() - 1 - i;
+            if (excludeChapterId != null && excludeChapterId.equals(chapter.getId())) {
+                continue;
+            }
             String label = "第 " + (i + 1) + " 章"
                     + (StringUtils.hasText(chapter.getTitle()) ? "｜" + chapter.getTitle().trim() : "");
             String content = StringUtils.hasText(chapter.getContent())
@@ -210,6 +228,7 @@ public class AgentMaterialLoader {
                     : "（本章尚未开写）";
             sections.add(AgentContextSection.optional("原文", label, content,
                     PRIORITY_CHAPTER_BASE + distance, CHAPTER_POLICY));
+            distance++;
         }
         return sections;
     }
