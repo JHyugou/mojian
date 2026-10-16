@@ -8,10 +8,12 @@ import com.mojian.agent.dto.PlannerChatRequest;
 import com.mojian.agent.dto.PlannerChatResponse;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextBudget;
+import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.ConversationService;
+import com.mojian.agent.service.DraftService;
 import com.mojian.agent.service.PlannerService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
@@ -50,6 +52,7 @@ public class AgentController {
     private final PlannerService plannerService;
     private final ConversationService conversationService;
     private final AgentProfileService profileService;
+    private final DraftService draftService;
 
     // ==================== 策划对话 ====================
 
@@ -97,6 +100,38 @@ public class AgentController {
                                                      @RequestBody AgentProfileUpdateRequest request) {
         return ApiResponse.ok(profileService.toVo(
                 profileService.update(role.toUpperCase(), request)));
+    }
+
+    // ==================== 草稿（人工确认） ====================
+
+    /**
+     * 某会话的草稿。
+     *
+     * <p>{@code pendingOnly=true} 就是界面上的"待确认"列表。
+     */
+    @GetMapping("/conversations/{conversationId}/drafts")
+    public ApiResponse<List<AgentDraft>> drafts(@PathVariable Long conversationId,
+                                                @RequestParam(defaultValue = "false") boolean pendingOnly) {
+        return ApiResponse.ok(pendingOnly
+                ? draftService.listPending(conversationId)
+                : draftService.listByConversation(conversationId));
+    }
+
+    /**
+     * 确认草稿 —— <b>到这一步才真正写入人物 / 设定 / 蓝图表</b>。
+     *
+     * <p>在这之前，Agent 的所有产出都只躺在 {@code agent_draft} 里，
+     * 不可能影响用户的书。这是"人工确认"能真正生效的关键。
+     */
+    @PostMapping("/drafts/{draftId}/accept")
+    public ApiResponse<AgentDraft> acceptDraft(@PathVariable Long draftId) {
+        return ApiResponse.ok(draftService.accept(draftId));
+    }
+
+    /** 放弃草稿 */
+    @PostMapping("/drafts/{draftId}/reject")
+    public ApiResponse<AgentDraft> rejectDraft(@PathVariable Long draftId) {
+        return ApiResponse.ok(draftService.reject(draftId));
     }
 
     // ==================== 调试与可观测性 ====================

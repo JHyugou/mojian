@@ -6,6 +6,8 @@ import com.mojian.agent.context.ContextSectionPolicy;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.entity.ChapterMemory;
 import com.mojian.chapter.mapper.ChapterMemoryMapper;
+import com.mojian.outline.entity.PlotOutline;
+import com.mojian.outline.mapper.PlotOutlineMapper;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
 import com.mojian.world.setting.entity.SettingEntry;
@@ -16,9 +18,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 取数器 —— 决定 Agent"睁眼看到的世界"。
@@ -56,6 +61,8 @@ public class AgentMaterialLoader {
 
     /** 前情摘要：连续性优先 */
     public static final int PRIORITY_MEMORY = 10;
+    /** 已有蓝图：策划必须先知道"已经规划到哪了"，否则会重复规划或前后矛盾 */
+    public static final int PRIORITY_OUTLINE = 15;
     /** 人物档案 */
     public static final int PRIORITY_CHARACTER = 20;
     /** 世界观设定 */
@@ -66,10 +73,14 @@ public class AgentMaterialLoader {
     /** 章节正文单块上限：真遇到超长章节不整段丢弃，先截断（组装器也认同这个策略） */
     private static final ContextSectionPolicy CHAPTER_POLICY = ContextSectionPolicy.TRUNCATE_TO_FIT;
 
+    /** 已有蓝图里每个节点摘要的最大字数（见 {@link #summarize}） */
+    private static final int OUTLINE_SUMMARY_LIMIT = 200;
+
     private final CharacterService characterService;
     private final SettingService settingService;
     private final ChapterIndex chapterIndex;
     private final ChapterMemoryMapper chapterMemoryMapper;
+    private final PlotOutlineMapper plotOutlineMapper;
 
     /**
      * 取该项目的<b>全部</b>可注入材料。
@@ -78,9 +89,10 @@ public class AgentMaterialLoader {
      */
     public List<AgentContextSection> loadAll(Long projectId) {
         List<AgentContextSection> sections = new ArrayList<>();
+        addIfPresent(sections, memorySection(projectId));
+        addIfPresent(sections, outlineSection(projectId));
         addIfPresent(sections, characterSection(projectId));
         addIfPresent(sections, settingSection(projectId));
-        addIfPresent(sections, memorySection(projectId));
         sections.addAll(chapterSections(projectId));
         log.debug("取数完成：项目 {} 共 {} 块材料，合计约 {} token",
                 projectId, sections.size(),
@@ -203,6 +215,89 @@ public class AgentMaterialLoader {
     }
 
     // ==================== 取数细节 ====================
+
+    // ==================== 已有蓝图 ====================
+
+    /**
+     * 已有蓝图树（缩进渲染）。
+     *
+     * <p>策划 Agent 必须先知道"已经规划到哪了"：否则它会重复规划已经定好的部分，
+     * 或者新加的节点和已有结构前后矛盾。这是最容易漏、后果也最直接的一类材料。
+     */
+    private AgentContextSection outlineSection(Long projectId) {
+        List<PlotOutline> nodes = plotOutlineMapper.selectList(
+                new LambdaQueryWrapper<PlotOutline>().eq(PlotOutline::getProjectId, projectId));
+        if (nodes.isEmpty()) {
+            return null;
+        }
+
+        Map<Long, List<PlotOutline>> children = new HashMap<>();
+        List<PlotOutline> roots = new ArrayList<>();
+        for (PlotOutline node : nodes) {
+            if (node.getParentId() == null) {
+                roots.add(node);
+            } else {
+                children.computeIfAbsent(node.getParentId(), k -> new ArrayList<>()).add(node);
+            }
+        }
+        sortByOrder(roots);
+        children.values().forEach(this::sortByOrder);
+
+        StringBuilder sb = new StringBuilder();
+        Set<Long> visited = new HashSet<>();
+        for (PlotOutline root : roots) {
+            appendOutlineNode(sb, root, 0, children, visited);
+        }
+        // 父节点缺失的孤儿节点也要出现，不能让它们凭空消失
+        for (PlotOutline node : nodes) {
+            if (!visited.contains(node.getId())) {
+                appendOutlineNode(sb, node, 0, children, visited);
+            }
+        }
+        return AgentContextSection.optional("蓝图", "已有蓝图", sb.toString().trim(),
+                PRIORITY_OUTLINE, ContextSectionPolicy.DROP_IF_NOT_FIT);
+    }
+
+    private void appendOutlineNode(StringBuilder sb, PlotOutline node, int depth,
+                                   Map<Long, List<PlotOutline>> children, Set<Long> visited) {
+        if (!visited.add(node.getId())) {
+            return; // 数据成环时保护：宁可少渲染，也不要死循环
+        }
+        sb.append("  ".repeat(depth)).append("■ ").append(node.getName() == null ? "未命名" : node.getName());
+        if (StringUtils.hasText(node.getNodeType())) {
+            sb.append("（").append(node.getNodeType()).append("）");
+        }
+        sb.append('\n');
+        if (StringUtils.hasText(node.getSummary())) {
+            sb.append("  ".repeat(depth + 1)).append(summarize(node.getSummary())).append('\n');
+        }
+        for (PlotOutline child : children.getOrDefault(node.getId(), List.of())) {
+            appendOutlineNode(sb, child, depth + 1, children, visited);
+        }
+    }
+
+    /**
+     * 蓝图摘要截断到 {@value #OUTLINE_SUMMARY_LIMIT} 字。
+     *
+     * <p><b>这条限制是真实数据逼出来的</b>：策划 Agent 产出的蓝图细节可以写到六千字
+     * （地点、各自动机、三段冲突、钩子、写作提示…），而"已有蓝图"是随材料常驻的。
+     * 按那个长度，100 章就是 60 万字，足以单独撑爆上下文。
+     *
+     * <p>分层的道理：<b>策划只需要知道"规划到哪了"，不需要重读每一章的完整方案</b>
+     * （那是写作环节的事，届时由写作 Agent 按章取完整内容）。
+     */
+    private String summarize(String summary) {
+        String trimmed = summary.trim();
+        return trimmed.length() <= OUTLINE_SUMMARY_LIMIT
+                ? trimmed
+                : trimmed.substring(0, OUTLINE_SUMMARY_LIMIT) + "……（完整内容见该节点的写作要求）";
+    }
+
+    private void sortByOrder(List<PlotOutline> nodes) {
+        nodes.sort(Comparator
+                .comparing((PlotOutline n) -> n.getSortOrder() == null ? 0 : n.getSortOrder())
+                .thenComparing(n -> n.getId() == null ? 0L : n.getId()));
+    }
 
     /** 一次查全部记忆，避免 N 次查库（章节多起来时差别很明显） */
     private Map<Long, String> memoriesByChapter(List<Long> chapterIds) {

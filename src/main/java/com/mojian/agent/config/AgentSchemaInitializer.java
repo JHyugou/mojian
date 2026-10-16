@@ -103,6 +103,32 @@ public class AgentSchemaInitializer {
             """;
 
     /**
+     * Agent 起草的变更草案 —— 人工确认机制的载体。
+     *
+     * <p>为什么要有这张独立表：Agent 循环是"一口气跑完"的，没有暂停/恢复，
+     * 所以"等用户确认再执行"不能靠循环停住。做法是让工具把产出写进这张表，
+     * 用户点确认后才由确认接口写进业务表 —— <b>没确认的东西绝不污染业务数据</b>。
+     */
+    private static final String AGENT_DRAFT_DDL = """
+            CREATE TABLE IF NOT EXISTS agent_draft (
+                id              BIGINT       NOT NULL,
+                conversation_id BIGINT       NOT NULL,
+                project_id      BIGINT       NOT NULL,
+                draft_type      VARCHAR(20)  NOT NULL COMMENT 'CHARACTER / SETTING / BLUEPRINT',
+                status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / ACCEPTED / REJECTED',
+                title           VARCHAR(200) NOT NULL COMMENT '展示用标题',
+                payload_json    MEDIUMTEXT   NOT NULL COMMENT '草稿内容（JSON，按类型字段不同）',
+                agent_reason    TEXT         DEFAULT NULL COMMENT 'Agent 为什么起草它',
+                applied_id      BIGINT       DEFAULT NULL COMMENT '确认后写入的业务记录 id',
+                created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_agent_draft_conv (conversation_id, status),
+                KEY idx_agent_draft_project (project_id)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Agent 变更草案'
+            """;
+
+    /**
      * 模型调用用量流水 —— 让花销可见。
      *
      * <p>为什么要有：额度是硬上限，用完之后服务直接不可用。没有流水，
@@ -162,6 +188,7 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(AGENT_MESSAGE_LOG_DDL);
         jdbcTemplate.execute(AGENT_PLAN_OPTION_DDL);
         jdbcTemplate.execute(AGENT_USAGE_LOG_DDL);
+        jdbcTemplate.execute(AGENT_DRAFT_DDL);
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段
