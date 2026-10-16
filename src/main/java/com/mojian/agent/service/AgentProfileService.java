@@ -1,7 +1,9 @@
 package com.mojian.agent.service;
 
 import com.mojian.agent.AgentRole;
+import com.mojian.agent.context.AgentContextBudget;
 import com.mojian.agent.entity.AgentProfile;
+import com.mojian.agent.llm.ModelContextWindow;
 import com.mojian.agent.mapper.AgentProfileMapper;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.crypto.LocalSecretCipher;
@@ -93,8 +95,36 @@ public class AgentProfileService {
                 profile.getModel(),
                 profile.getTemperature() == null ? 0.8d : profile.getTemperature().doubleValue(),
                 profile.getMaxSteps() == null ? 10 : profile.getMaxSteps(),
-                profile.getContextLimit() == null ? 131_072 : profile.getContextLimit(),
+                resolveContextLimit(profile),
                 profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens());
+    }
+
+    /**
+     * 上下文上限的取值顺序：<b>存储值（学到的/手工配的）→ 实测对照表 → 保守默认</b>。
+     *
+     * <p>值为 0 表示"未知"。这个语义是必需的：如果数据库默认就写一个保守值（比如 131072），
+     * 系统会永远撞不到真实的墙，也就永远学不到真实上限 —— 保守值变成自我实现的预言。
+     * 之前正是这样：真实上限是 1M，界面却已经显示"上下文占用 79%，该启用检索了"。
+     */
+    private int resolveContextLimit(AgentProfile profile) {
+        Integer stored = profile.getContextLimit();
+        if (stored != null && stored > 0) {
+            return stored;
+        }
+        int fromTable = ModelContextWindow.of(profile.getModel());
+        log.debug("{} 的上下文上限未知，按对照表取 {}（模型 {}，实测过={}）",
+                profile.getRole(), fromTable, profile.getModel(),
+                ModelContextWindow.measured(profile.getModel()));
+        return fromTable;
+    }
+
+    /**
+     * 该角色这次可用的上下文预算（不解析密钥，只读配置 —— 用于展示、预估与组装上下文）。
+     */
+    public AgentContextBudget budgetOf(String role) {
+        AgentProfile profile = require(role);
+        int reserve = profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens();
+        return AgentContextBudget.of(resolveContextLimit(profile), reserve);
     }
 
     /**

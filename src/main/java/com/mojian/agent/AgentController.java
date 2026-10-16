@@ -2,15 +2,20 @@ package com.mojian.agent;
 
 import com.mojian.agent.dto.AgentChatRequest;
 import com.mojian.agent.dto.AgentChatResponse;
+import com.mojian.agent.context.AgentContextAssembly;
+import com.mojian.agent.context.AgentContextBudget;
+import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
 import com.mojian.common.api.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -30,6 +35,7 @@ public class AgentController {
 
     private final AgentLoopService agentLoopService;
     private final ToolRegistry toolRegistry;
+    private final AgentContextService agentContextService;
 
     @PostMapping("/chat")
     public ApiResponse<AgentChatResponse> chat(@Valid @RequestBody AgentChatRequest request) {
@@ -46,5 +52,28 @@ public class AgentController {
         return ApiResponse.ok(toolRegistry.all().stream()
                 .map(tool -> Map.of("name", tool.name(), "description", tool.description()))
                 .toList());
+    }
+
+    /**
+     * 上下文装填情况 —— 界面上的"上下文用量 xx%"就用它。
+     *
+     * <p>只返回报表不返回正文：材料正文可能几万字，调试接口不该把它整个吐回浏览器。
+     * 报表里有"装了什么、裁了什么、用了多少"，排查" Agent 为什么忘了前文"时先看这里。
+     */
+    @GetMapping("/projects/{projectId}/context-report")
+    public ApiResponse<Map<String, Object>> contextReport(@PathVariable Long projectId,
+                                                          @RequestParam(defaultValue = "PLANNER") String role) {
+        AgentContextAssembly assembly = agentContextService.assemble(role, projectId);
+        AgentContextBudget budget = agentContextService.budgetOf(role);
+
+        return ApiResponse.ok(Map.of(
+                "role", role,
+                "contextLimit", budget.contextLimitTokens(),
+                "usableTokens", budget.usableTokens(),
+                "usedTokens", assembly.report().usedTokens(),
+                "usagePercent", Math.round(assembly.report().usageRatio() * 1000) / 10.0,
+                "keptSections", assembly.report().keptTitles(),
+                "trimmedSections", assembly.report().trimmedTitles(),
+                "summary", assembly.report().summary()));
     }
 }

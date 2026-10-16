@@ -36,7 +36,7 @@ public class AgentSchemaInitializer {
                 model                 VARCHAR(100) NOT NULL COMMENT '该角色使用的模型',
                 temperature           DECIMAL(3,2) NOT NULL DEFAULT 0.80,
                 max_steps             INT          NOT NULL DEFAULT 10 COMMENT '最大步数（第一道刹车）',
-                context_limit         INT          NOT NULL DEFAULT 131072 COMMENT '模型上下文上限，可由超限错误自动学习',
+                context_limit         INT          NOT NULL DEFAULT 0 COMMENT '上下文上限；0=未知（查实测对照表），撞墙后自动学习',
                 reserve_output_tokens INT          NOT NULL DEFAULT 8192 COMMENT '输出与固定开销预留',
                 base_url              VARCHAR(300) DEFAULT NULL COMMENT '留空则复用 llm_settings',
                 api_key_cipher        VARCHAR(600) DEFAULT NULL COMMENT '留空则复用 llm_settings',
@@ -130,14 +130,27 @@ public class AgentSchemaInitializer {
     /** 默认配置：策划用便宜快模型求稳，写作先用同一个模型（成本优先，后续可用评测数据换） */
     private static final String SEED_PROFILES = """
             INSERT INTO agent_profile (id, role, model, temperature, max_steps, context_limit, reserve_output_tokens)
-            SELECT 1, 'PLANNER', 'deepseek-v4.1-flash', 0.60, 10, 131072, 8192
+            SELECT 1, 'PLANNER', 'deepseek-v4.1-flash', 0.60, 10, 0, 8192
             WHERE NOT EXISTS (SELECT 1 FROM agent_profile WHERE role = 'PLANNER')
             """;
 
     private static final String SEED_WRITER = """
             INSERT INTO agent_profile (id, role, model, temperature, max_steps, context_limit, reserve_output_tokens)
-            SELECT 2, 'WRITER', 'deepseek-v4.1-flash', 0.85, 6, 131072, 16384
+            SELECT 2, 'WRITER', 'deepseek-v4.1-flash', 0.85, 6, 0, 16384
             WHERE NOT EXISTS (SELECT 1 FROM agent_profile WHERE role = 'WRITER')
+            """;
+
+    /**
+     * 把"旧默认值"当作"未知"。
+     *
+     * <p>曾经 {@code context_limit} 默认写 131072，结果造成一个死锁：预算被锁在 131K，
+     * 系统永远发不出超限请求，也就永远学不到真实的 1M —— 界面上真实占用 8.6 万却显示 79%，
+     * 还触发了"该启用检索"的误报警。现在 0 表示未知，取值改为"存储值 → 实测对照表 → 保守默认"。
+     *
+     * <p>把 131072 重置为 0 是安全的：即使某个模型真的就是 128K，查表兜底也会给出同样的值。
+     */
+    private static final String MIGRATE_CONTEXT_LIMIT = """
+            UPDATE agent_profile SET context_limit = 0 WHERE context_limit = 131072
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -164,6 +177,7 @@ public class AgentSchemaInitializer {
 
         jdbcTemplate.execute(SEED_PROFILES);
         jdbcTemplate.execute(SEED_WRITER);
+        jdbcTemplate.execute(MIGRATE_CONTEXT_LIMIT);
 
         log.info("Agent 表结构初始化完成（agent_profile / conversation / message_log / plan_option / usage_log）");
     }
