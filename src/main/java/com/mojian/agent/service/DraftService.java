@@ -9,6 +9,7 @@ import com.mojian.agent.mapper.AgentDraftMapper;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.exception.BusinessException;
 import com.mojian.outline.dto.OutlineNodeSaveRequest;
+import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
 import com.mojian.world.character.dto.CharacterSaveRequest;
 import com.mojian.world.character.entity.CharacterProfile;
@@ -50,6 +51,20 @@ public class DraftService {
     @Transactional
     public AgentDraft draft(Long conversationId, Long projectId, String draftType,
                             String title, Map<String, Object> payload, String reason) {
+        return draft(conversationId, projectId, draftType, title, payload, reason, null);
+    }
+
+    /**
+     * 起草一份变更草案。
+     *
+     * @param targetId 要修改的对象 id；<b>为空表示新增</b>。
+     *                 用"有没有 targetId"区分新增与修改，而不是再加类型字段：
+     *                 两种情况要展示的东西、用户做的判断完全一样，
+     *                 区别只在确认时是 INSERT 还是 UPDATE。
+     */
+    @Transactional
+    public AgentDraft draft(Long conversationId, Long projectId, String draftType,
+                            String title, Map<String, Object> payload, String reason, Long targetId) {
         AgentDraft draft = new AgentDraft();
         draft.setConversationId(conversationId);
         draft.setProjectId(projectId);
@@ -58,8 +73,9 @@ public class DraftService {
         draft.setTitle(title);
         draft.setPayloadJson(writeJson(payload));
         draft.setAgentReason(reason);
+        draft.setTargetId(targetId);
         draftMapper.insert(draft);
-        log.info("起草 {}「{}」（会话 {}）", draftType, title, conversationId);
+        log.info("起草{}{}「{}」（会话 {}）", targetId == null ? "" : "修改", draftType, title, conversationId);
         return draft;
     }
 
@@ -84,24 +100,38 @@ public class DraftService {
 
     /**
      * 用户确认：把草稿写进业务表，并记下写入后的记录 id（便于从草稿跳到正式数据）。
+     *
+     * <p>带 {@code targetId} 的草稿走"修改"分支：它写的是<b>已有记录</b>，
+     * 而不是新插一条 —— 两者绝不能混，弄错就会凭空多出一份重复数据。
      */
     @Transactional(rollbackFor = Exception.class)
     public AgentDraft accept(Long draftId) {
         AgentDraft draft = require(draftId);
         requirePending(draft);
 
-        Long appliedId = switch (draft.getDraftType() == null ? "" : draft.getDraftType()) {
-            case DraftType.CHARACTER -> applyCharacter(draft);
-            case DraftType.SETTING -> applySetting(draft);
-            case DraftType.BLUEPRINT -> applyBlueprint(draft);
-            default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
-                    "未知的草稿类型: " + draft.getDraftType());
-        };
+        boolean revising = draft.getTargetId() != null;
+        Long appliedId;
+        if (revising) {
+            appliedId = switch (draft.getDraftType() == null ? "" : draft.getDraftType()) {
+                case DraftType.BLUEPRINT -> applyBlueprintRevision(draft);
+                default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
+                        "暂时不支持修改这类内容：" + draft.getDraftType());
+            };
+        } else {
+            appliedId = switch (draft.getDraftType() == null ? "" : draft.getDraftType()) {
+                case DraftType.CHARACTER -> applyCharacter(draft);
+                case DraftType.SETTING -> applySetting(draft);
+                case DraftType.BLUEPRINT -> applyBlueprint(draft);
+                default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
+                        "未知的草稿类型: " + draft.getDraftType());
+            };
+        }
 
         draft.setStatus(DraftStatus.ACCEPTED);
         draft.setAppliedId(appliedId);
         draftMapper.updateById(draft);
-        log.info("草稿 {}「{}」已确认，写入业务记录 {}", draft.getDraftType(), draft.getTitle(), appliedId);
+        log.info("草稿 {}「{}」已确认{}，业务记录 {}",
+                draft.getDraftType(), draft.getTitle(), revising ? "（修改）" : "", appliedId);
         return draft;
     }
 
@@ -165,8 +195,30 @@ public class DraftService {
         return outlineService.create(draft.getProjectId(), request).getId();
     }
 
-    // ==================== JSON 出入 ====================
+    /**
+     * 修改已有的蓝图节点。
+     *
+     * <p>草稿里只放"Agent 想改成什么样"。凡是他没提到的字段，一律沿用节点原值 ——
+     * 因为 {@code OutlineService.update} 是属性全量覆盖，漏传哪个字段哪个字段就被清空。
+     * 这个坑本项目已经踩过一次（角色配置的 baseUrl"清除"没生效），不重蹈。
+     */
+    private Long applyBlueprintRevision(AgentDraft draft) {
+        PlotOutline node = outlineService.requireById(draft.getTargetId());
+        Map<String, String> payload = payloadOf(draft);
 
+        OutlineNodeSaveRequest request = new OutlineNodeSaveRequest();
+        request.setName(firstNonBlank(payload.get("name"), node.getName()));
+        request.setNodeType(firstNonBlank(payload.get("nodeType"), node.getNodeType()));
+        request.setSummary(firstNonBlank(payload.get("summary"), node.getSummary()));
+        request.setParentId(node.getParentId());
+        request.setSortOrder(node.getSortOrder());
+        request.setStatus(node.getStatus());
+        request.setMainCharacters(node.getMainCharacters());
+        outlineService.update(node.getId(), request);
+        return node.getId();
+    }
+
+    // ==================== JSON 出入 ====================
     private String writeJson(Map<String, Object> payload) {
         try {
             return MAPPER.writeValueAsString(payload == null ? Map.of() : payload);

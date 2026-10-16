@@ -146,6 +146,81 @@ class DraftServiceTest {
         assertThat(accepted.getAppliedId()).isEqualTo(node.getId());
     }
 
+    // ==================== 修改已有内容（引用式改稿的落点） ====================
+
+    @Test
+    @DisplayName("⭐ 修改草稿确认后改的是原节点，不会凭空多出一个重复节点")
+    void 修改蓝图不新增节点() {
+        Long projectId = newProject();
+
+        AgentDraft created = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一章",
+                Map.of("name", "第一章", "nodeType", "CHAPTER", "summary", "原来的内容"), "初始规划");
+        Long nodeId = draftService.accept(created.getId()).getAppliedId();
+        assertThat(nodeId).isNotNull();
+
+        AgentDraft revision = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一章",
+                Map.of("name", "第一章", "nodeType", "CHAPTER", "summary", "改成白天"), "用户要求改",
+                nodeId);
+
+        // 确认之前，蓝图不该有任何变化。
+        // 注意摘要里会带上【决策理由】（新增时有意为之：让理由跟着蓝图传下去），
+        // 所以这里断言的是"包含原内容且不含新内容"，而不是全等
+        OutlineNodeVO before = outlineService.tree(projectId).get(0);
+        assertThat(before.getSummary())
+                .as("未确认时不能改")
+                .contains("原来的内容")
+                .doesNotContain("改成白天");
+
+        draftService.accept(revision.getId());
+
+        List<OutlineNodeVO> after = outlineService.tree(projectId);
+        assertThat(after).as("修改不能变成新增").hasSize(1);
+        assertThat(after.get(0).getId()).isEqualTo(nodeId);
+        assertThat(after.get(0).getSummary()).isEqualTo("改成白天");
+    }
+
+    @Test
+    @DisplayName("修改时没提到的字段保持原样（update 是属性全量覆盖，漏传会被清空）")
+    void 修改保留未提及字段() {
+        Long projectId = newProject();
+
+        AgentDraft created = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一卷",
+                Map.of("name", "第一卷", "nodeType", "VOLUME", "summary", "卷概要"), "初始");
+        Long nodeId = draftService.accept(created.getId()).getAppliedId();
+
+        // 草稿里只带 summary，且故意不带 name / nodeType
+        AgentDraft revision = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一卷",
+                Map.of("summary", "改过的卷概要"), "只改概要", nodeId);
+        draftService.accept(revision.getId());
+
+        OutlineNodeVO node = outlineService.tree(projectId).get(0);
+        assertThat(node.getName()).as("name 没被提到，必须保留").isEqualTo("第一卷");
+        assertThat(node.getNodeType()).as("nodeType 没被提到，必须保留").isEqualTo("VOLUME");
+        assertThat(node.getSummary()).isEqualTo("改过的卷概要");
+    }
+
+    @Test
+    @DisplayName("草稿能区分新增与修改（targetId 为空=新增）")
+    void 新增与修改可区分() {
+        Long projectId = newProject();
+
+        AgentDraft fresh = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "甲",
+                Map.of("name", "甲", "nodeType", "CHAPTER", "summary", "内容"), null);
+        assertThat(fresh.getTargetId()).isNull();
+        draftService.accept(fresh.getId());
+
+        AgentDraft created2 = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "乙",
+                Map.of("name", "乙", "nodeType", "CHAPTER", "summary", "内容"), null);
+        Long nodeId = draftService.accept(created2.getId()).getAppliedId();
+
+        AgentDraft revised = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "乙",
+                Map.of("name", "乙", "nodeType", "CHAPTER", "summary", "新内容"), null, nodeId);
+        assertThat(revised.getTargetId()).isEqualTo(nodeId);
+
+        draftService.accept(revised.getId());
+        assertThat(outlineService.tree(projectId)).as("一新增一修改，共两个节点").hasSize(2);
+    }
+
     // ==================== 细节 ====================
 
     @Test

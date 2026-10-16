@@ -41,6 +41,16 @@ public class AgentDraft extends BaseEntity {
     /** 草稿内容（JSON）。不同类型字段不同，所以用 JSON 而不是一堆列 */
     private String payloadJson;
 
+    /**
+     * 要修改的对象 id；<b>为空表示新增</b>。
+     *
+     * <p>为什么用"有没有 targetId"来区分新增和修改，而不是再加一个类型字段：
+     * 这两种情况要填的内容、要展示的东西、用户做的判断都完全一样
+     * （"Agent 想这么改，你同意吗"），区别只在确认时是 INSERT 还是 UPDATE。
+     * 多一个字段就多一处要同步的状态。
+     */
+    private Long targetId;
+
     /** Agent 为什么起草它 —— 可追溯，也是"双 Agent 信息损耗"的一种补偿 */
     private String agentReason;
 

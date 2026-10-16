@@ -98,18 +98,39 @@
     </section>
 
     <!-- ========== 输入区 ========== -->
-    <footer class="pl-input">
-      <textarea
-        v-model="draftMessage"
-        class="mj-textarea"
-        rows="2"
-        placeholder="说说你的想法…（Enter 发送，Shift+Enter 换行）"
-        @keydown.enter.exact.prevent="send"
-      ></textarea>
-      <div class="pl-input-side">
-        <button class="mj-btn mj-btn-primary" :disabled="sending || !draftMessage.trim()" @click="send">
-          {{ sending ? '思考中…' : '发送' }}
+    <footer class="pl-input-wrap">
+      <!-- 引用条：从右栏蓝图里框选进来的原文。
+           它会被组装进消息最前面，模型由此知道"你说的是哪一段"。 -->
+      <div v-if="citations.length" class="pl-cites mj-rise">
+        <div v-for="(c, i) in citations" :key="i" class="pl-cite">
+          <span class="pl-cite-label">引用 · {{ c.nodeName }}</span>
+          <span class="pl-cite-text">{{ preview(c.text) }}</span>
+          <button class="pl-cite-x" title="移除这条引用" @click="$emit('remove-citation', i)">×</button>
+        </div>
+        <button class="mj-btn mj-btn-text pl-cite-clear" @click="$emit('clear-citations')">
+          全部清除
         </button>
+      </div>
+
+      <div class="pl-input">
+        <textarea
+          v-model="draftMessage"
+          class="mj-textarea"
+          rows="2"
+          :placeholder="citations.length
+            ? '说说这段要怎么改，比如：把这里改成白天，并加上他手上的旧伤（Enter 发送）'
+            : '说说你的想法…（Enter 发送，Shift+Enter 换行）'"
+          @keydown.enter.exact.prevent="send"
+        ></textarea>
+        <div class="pl-input-side">
+          <button
+            class="mj-btn mj-btn-primary"
+            :disabled="sending || (!draftMessage.trim() && !citations.length)"
+            @click="send"
+          >
+            {{ sending ? '思考中…' : '发送' }}
+          </button>
+        </div>
       </div>
     </footer>
   </div>
@@ -127,8 +148,12 @@ import {
 } from '../../api/agent'
 
 const props = defineProps({
-  projectId: { type: [Number, String], required: true }
+  projectId: { type: [Number, String], required: true },
+  /** 从蓝图分屏框选进来的引用（原文 + 所属节点），由工作台统一持有 */
+  citations: { type: Array, default: () => [] }
 })
+
+const emit = defineEmits(['remove-citation', 'clear-citations'])
 
 const messages = ref([])
 const draftMessage = ref('')
@@ -156,6 +181,34 @@ const DRAFT_LABELS = {
 
 const toolLabel = (name) => TOOL_LABELS[name] || name
 const draftTypeLabel = (type) => DRAFT_LABELS[type] || type
+const preview = (text) => (text.length > 40 ? text.slice(0, 40) + '…' : text)
+
+/**
+ * 组装这一轮真正发出去的消息。
+ *
+ * <p>引用必须<b>放在最前面并标明出处</b>：模型是靠这段文字知道"你说的是哪一段"的。
+ * 用 {@code >} 逐行引用而不是直接拼接，是为了让它在长消息里一眼能看出
+ * "哪部分是被引用的原文、哪部分是用户的要求" —— 这两者混在一起最容易改错地方。
+ */
+function buildMessage() {
+  const text = draftMessage.value.trim()
+  if (!props.citations.length) {
+    return text
+  }
+  const quoted = props.citations
+    .map((c) => {
+      const body = String(c.text)
+        .split('\n')
+        .map((line) => '> ' + line)
+        .join('\n')
+      return `【引用 · 蓝图节点「${c.nodeName}」】\n${body}`
+    })
+    .join('\n\n')
+
+  return text
+    ? `${quoted}\n\n${text}`
+    : `${quoted}\n\n请针对上面引用的内容，给出修改方案。`
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -169,10 +222,13 @@ watch(messages, scrollToBottom, { deep: true })
 
 async function send() {
   const text = draftMessage.value.trim()
-  if (!text || sending.value) return
+  if ((!text && !props.citations.length) || sending.value) return
 
-  messages.value.push({ role: 'user', text })
+  // 存的是真正发出去的那份（含引用），这样回看对话时能看出"当时引用的是哪一段"
+  const outgoing = buildMessage()
+  messages.value.push({ role: 'user', text: outgoing })
   draftMessage.value = ''
+  emit('clear-citations')
   sending.value = true
   error.value = ''
   phase.value = '正在读你的资料…'
@@ -182,7 +238,7 @@ async function send() {
   const timer = setTimeout(() => { phase.value = '正在梳理走向…' }, 8000)
 
   try {
-    const data = await plannerChat(props.projectId, conversationId.value, text)
+    const data = await plannerChat(props.projectId, conversationId.value, outgoing)
     conversationId.value = data.conversationId
     messages.value.push({
       role: 'assistant',
@@ -392,12 +448,63 @@ async function discardDraft(draft) {
 .pl-draft-actions { display: flex; gap: 8px; margin-top: 12px; }
 
 /* ---------- 输入区 ---------- */
+.pl-input-wrap {
+  border-top: 1px solid var(--color-line);
+  background: var(--color-panel);
+}
+
+/* 引用条：一眼能看出"这一条来自哪个蓝图节点" */
+.pl-cites {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 26px 0;
+}
+
+.pl-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 460px;
+  padding: 5px 8px 5px 10px;
+  border: 1px solid var(--color-brown-soft);
+  border-left: 2px solid var(--color-brown);
+  border-radius: var(--radius-s);
+  background: var(--color-paper-warm);
+  font-size: 12px;
+}
+
+.pl-cite-label {
+  color: var(--color-brown-deep);
+  white-space: nowrap;
+}
+
+.pl-cite-text {
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pl-cite-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color var(--dur) var(--ease-out);
+}
+.pl-cite-x:hover { color: var(--color-danger); }
+
+.pl-cite-clear { font-size: 12px; }
+
 .pl-input {
   display: flex;
   gap: 10px;
-  padding: 14px 26px 18px;
-  border-top: 1px solid var(--color-line);
-  background: var(--color-panel);
+  padding: 12px 26px 18px;
 }
 
 .pl-input-side { display: flex; align-items: flex-end; }

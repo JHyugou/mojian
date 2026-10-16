@@ -118,6 +118,7 @@ public class AgentSchemaInitializer {
                 status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / ACCEPTED / REJECTED',
                 title           VARCHAR(200) NOT NULL COMMENT '展示用标题',
                 payload_json    MEDIUMTEXT   NOT NULL COMMENT '草稿内容（JSON，按类型字段不同）',
+                target_id       BIGINT       DEFAULT NULL COMMENT '要修改的对象 id；为空表示新增',
                 agent_reason    TEXT         DEFAULT NULL COMMENT 'Agent 为什么起草它',
                 applied_id      BIGINT       DEFAULT NULL COMMENT '确认后写入的业务记录 id',
                 created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -201,6 +202,11 @@ public class AgentSchemaInitializer {
         dropColumnIfExists("agent_message_log", "tool_name");
         dropColumnIfExists("agent_message_log", "tool_arguments");
         dropColumnIfExists("agent_message_log", "tool_result");
+
+        // 草稿的「修改」语义：此前草稿只会新增，现在也要支持"改已有的东西"
+        // （例如按用户的划词引用修改某个蓝图节点）。target_id 为空=新增，非空=修改它。
+        addColumnIfMissing("agent_draft", "target_id",
+                "BIGINT DEFAULT NULL COMMENT '要修改的对象 id；为空表示新增' AFTER payload_json");
 
         jdbcTemplate.execute(SEED_PROFILES);
         jdbcTemplate.execute(SEED_WRITER);

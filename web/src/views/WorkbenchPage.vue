@@ -105,6 +105,9 @@
             v-if="mode === 'planner'"
             key="planner"
             :project-id="projectId"
+            :citations="citations"
+            @remove-citation="removeCitation"
+            @clear-citations="citations = []"
           />
           <WriterPanel
             v-else
@@ -116,49 +119,70 @@
         </Transition>
       </main>
 
-      <!-- 右：资料与用量 -->
-      <aside class="wb-right">
-        <div class="wb-side-head">
-          <span class="mj-title mj-title-sm">本书资料</span>
-        </div>
+      <!-- 右：可切换分屏。
+           「资料」看本书家底与上下文用量；「蓝图」是完整蓝图浏览器，
+           在那里框选文字右键即可把原文引用到对话里。
+           蓝图模式下加宽 —— 浏览和框选需要宽度。 -->
+      <aside class="wb-right" :class="{ 'is-wide': rightTab === 'outline' }">
+        <nav class="wb-right-tabs">
+          <button
+            v-for="t in rightTabs"
+            :key="t.key"
+            class="wb-right-tab"
+            :class="{ active: rightTab === t.key }"
+            @click="rightTab = t.key"
+          >
+            {{ t.label }}
+          </button>
+        </nav>
 
-        <div class="wb-stats">
-          <div v-for="s in stats" :key="s.label" class="wb-stat">
-            <span class="wb-stat-num">{{ s.value }}</span>
-            <span class="mj-muted">{{ s.label }}</span>
-          </div>
-        </div>
+        <div class="wb-right-body mj-scroll">
+          <template v-if="rightTab === 'info'">
+            <div class="wb-side-head">
+              <span class="mj-title mj-title-sm">本书资料</span>
+            </div>
 
-        <hr class="mj-hr-scroll wb-hr" />
+            <div class="wb-stats">
+              <div v-for="s in stats" :key="s.label" class="wb-stat">
+                <span class="wb-stat-num">{{ s.value }}</span>
+                <span class="mj-muted">{{ s.label }}</span>
+              </div>
+            </div>
 
-        <div class="wb-side-head">
-          <span class="mj-title mj-title-sm">上下文</span>
+            <hr class="mj-hr-scroll wb-hr" />
+
+            <div class="wb-side-head">
+              <span class="mj-title mj-title-sm">上下文</span>
+            </div>
+            <div v-if="report" class="wb-report">
+              <div class="wb-report-bar">
+                <div
+                  class="wb-report-fill"
+                  :style="{ width: Math.min(report.usagePercent, 100) + '%' }"
+                ></div>
+              </div>
+              <p class="mj-muted wb-report-text">
+                {{ report.usedTokens }} / {{ report.usableTokens }} token
+              </p>
+              <p class="mj-muted wb-report-text">
+                装入 {{ report.keptSections?.length || 0 }} 段{{
+                  report.trimmedSections?.length ? `，裁掉 ${report.trimmedSections.length} 段` : ''
+                }}
+              </p>
+              <!-- 到 80% 就该启用检索了；这件事应该由数据提醒，不该靠人凭感觉判断 -->
+              <p v-if="report.usagePercent > 80" class="wb-warn">
+                上下文已用到 {{ report.usagePercent }}%。<br />
+                再写下去就该启用检索了 —— 现在还是全部塞进去（更准，但空间有限）。
+              </p>
+              <p v-else class="mj-muted wb-report-text">
+                装得下就全塞，不做检索 —— 筛选必然丢东西。
+              </p>
+            </div>
+            <div v-else class="mj-muted wb-report-text">正在读取…</div>
+          </template>
+
+          <OutlineBrowser v-else :nodes="outlineTree" @cite="addCitation" />
         </div>
-        <div v-if="report" class="wb-report">
-          <div class="wb-report-bar">
-            <div
-              class="wb-report-fill"
-              :style="{ width: Math.min(report.usagePercent, 100) + '%' }"
-            ></div>
-          </div>
-          <p class="mj-muted wb-report-text">
-            {{ report.usedTokens }} / {{ report.usableTokens }} token
-          </p>
-          <p class="mj-muted wb-report-text">
-            装入 {{ report.keptSections?.length || 0 }} 段{{
-              report.trimmedSections?.length ? `，裁掉 ${report.trimmedSections.length} 段` : ''
-            }}
-          </p>
-          <!-- 到 80% 就该启用检索了；这件事应该由数据提醒，不该靠人凭感觉判断 -->
-          <p v-if="report.usagePercent > 80" class="wb-warn">
-            上下文已用到 {{ report.usagePercent }}%。<br />
-            再写下去就该启用检索了 —— 现在还是全部塞进去（更准，但空间有限）。
-          </p>
-          <p v-else class="mj-muted wb-report-text">
-            装得下就全塞，不做检索 —— 筛选必然丢东西。
-          </p>
-        </div>
-        <div v-else class="mj-muted wb-report-text">正在读取…</div>
       </aside>
     </div>
   </div>
@@ -174,6 +198,7 @@ import { getOutlineTree } from '../api/outline'
 import { getContextReport } from '../api/agent'
 import PlannerPanel from '../components/workbench/PlannerPanel.vue'
 import WriterPanel from '../components/workbench/WriterPanel.vue'
+import OutlineBrowser from '../components/workbench/OutlineBrowser.vue'
 
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentId)
@@ -184,6 +209,34 @@ const modes = [
 ]
 
 const mode = ref('planner')
+const rightTab = ref('info')
+const rightTabs = [
+  { key: 'info', label: '资料' },
+  { key: 'outline', label: '蓝图' }
+]
+
+/**
+ * 待发送的引用（从蓝图分屏框选进来的原文）。
+ *
+ * <p>放在工作台这一层而不是策划面板里：引用来自右栏、要进到中栏的输入框，
+ * 状态得由它们共同的父级持有。
+ */
+const citations = ref([])
+
+function addCitation(citation) {
+  // 同一条不要重复加，否则输入框上会挂一排一样的引用
+  if (citations.value.some((c) => c.nodeId === citation.nodeId && c.text === citation.text)) {
+    return
+  }
+  citations.value = [...citations.value, citation]
+  // 引用是为了跟策划 Agent 说话，顺手切回去，省掉一次点击
+  mode.value = 'planner'
+}
+
+function removeCitation(index) {
+  citations.value = citations.value.filter((_, i) => i !== index)
+}
+
 const chapters = ref([])
 const activeChapter = ref(null)
 const outlineTree = ref([])
@@ -459,9 +512,43 @@ onMounted(async () => {
 .wb-right {
   width: 264px;
   border-left: 1px solid var(--color-line);
-  padding: 14px 16px 20px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   flex-shrink: 0;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+/* 蓝图浏览器需要宽度：浏览长文本、框选一段，窄栏做不了这两件事 */
+.wb-right.is-wide { width: 440px; }
+
+.wb-right-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--color-line);
+  flex-shrink: 0;
+}
+
+.wb-right-tab {
+  padding: 7px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-muted);
+  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.wb-right-tab:hover { color: var(--color-brown-deep); }
+.wb-right-tab.active {
+  color: var(--color-brown-deep);
+  border-bottom-color: var(--color-brown);
+}
+
+.wb-right-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px 20px;
 }
 
 /* ---------- 侧栏通用 ---------- */
