@@ -27,12 +27,20 @@ public final class ModelContextWindow {
     /**
      * 已实测的模型上限。
      *
-     * <p>{@code deepseek-v4.1-flash = 1_048_576}：
-     * 2026-10-16 实测，发 200 万汉字被拒，错误信息明确回报
-     * {@code This model's maximum context length is 1048576 tokens}。
+     * <p>两家服务商给的是同一个底层模型、同样的 1M 窗口，但<b>模型名不同</b>，
+     * 所以两个名字都要登记 —— 否则换供应商时对照表落空，预算退回保守值 131K，
+     * 界面会误报"上下文占用 92%"（实际只有 9%）。
+     *
+     * <ul>
+     *   <li>{@code deepseek-v4.1-flash}（OpenCode Go）：2026-10-16 实测，
+     *       发 200 万汉字被拒，回报 {@code This model's maximum context length is 1048576 tokens}</li>
+     *   <li>{@code deepseek-ai/DeepSeek-V4.1-Flash}（硅基流动）：同日实测，
+     *       回报 {@code max_prompt_tokens (1048576) limit}</li>
+     * </ul>
      */
     private static final Map<String, Integer> MEASURED = Map.of(
-            "deepseek-v4.1-flash", 1_048_576
+            "deepseek-v4.1-flash", 1_048_576,
+            "deepseek-ai/DeepSeek-V4.1-Flash", 1_048_576
     );
 
     private ModelContextWindow() {

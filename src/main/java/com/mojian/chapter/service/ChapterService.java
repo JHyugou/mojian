@@ -68,6 +68,22 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
     }
 
     /**
+     * 单独更新本章写作要求（风格、人称、篇幅、禁忌等）。
+     *
+     * <p>为什么不并进 {@code ChapterSaveRequest}：那个 DTO 走
+     * {@code BeanUtils.copyProperties} 全量覆盖，新加一个可空字段会在前端
+     * 提交其他字段时把写作要求清空 —— 那是个静默数据丢失的坑。
+     * 单独一个端点最安全，语义也更清楚。
+     */
+    @Transactional
+    public Chapter updateWritingRequirement(Long chapterId, String requirement) {
+        Chapter chapter = requireById(chapterId);
+        chapter.setWritingRequirement(requirement);
+        updateById(chapter);
+        return chapter;
+    }
+
+    /**
      * 成书（FR-020）：按创建顺序装配全书全文，供阅读视图与导出。
      * 与 list() 不同，这里需要正文大字段。
      * 草稿（status=DRAFT）章节不收录成书。

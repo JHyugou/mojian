@@ -6,6 +6,8 @@ import com.mojian.agent.dto.AgentProfileUpdateRequest;
 import com.mojian.agent.dto.AgentProfileVO;
 import com.mojian.agent.dto.PlannerChatRequest;
 import com.mojian.agent.dto.PlannerChatResponse;
+import com.mojian.agent.dto.WriterRunRequest;
+import com.mojian.agent.dto.WritingRequirementRequest;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextBudget;
 import com.mojian.agent.entity.AgentDraft;
@@ -15,8 +17,11 @@ import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.DraftService;
 import com.mojian.agent.service.PlannerService;
+import com.mojian.agent.service.WriterService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
+import com.mojian.chapter.entity.Chapter;
+import com.mojian.chapter.service.ChapterService;
 import com.mojian.common.api.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +58,8 @@ public class AgentController {
     private final ConversationService conversationService;
     private final AgentProfileService profileService;
     private final DraftService draftService;
+    private final WriterService writerService;
+    private final ChapterService chapterService;
 
     // ==================== 策划对话 ====================
 
@@ -100,6 +107,33 @@ public class AgentController {
                                                      @RequestBody AgentProfileUpdateRequest request) {
         return ApiResponse.ok(profileService.toVo(
                 profileService.update(role.toUpperCase(), request)));
+    }
+
+    // ==================== 写作 ====================
+
+    /**
+     * 让写作 Agent 写某一章的正文。
+     *
+     * <p>它会按【本章蓝图 + 本章写作要求】写，写完通过 save_chapter_draft 落进章节
+     * （自动创建版本快照，可回滚）。
+     */
+    @PostMapping("/writer/chapters/{chapterId}/write")
+    public ApiResponse<WriterService.WriterResult> write(@PathVariable Long chapterId,
+                                                         @RequestBody(required = false) WriterRunRequest request) {
+        String instruction = request == null ? null : request.instruction();
+        return ApiResponse.ok(writerService.write(chapterId, instruction));
+    }
+
+    /**
+     * 设置本章写作要求。
+     *
+     * <p>单独一个端点，不并进章节保存接口：后者是全量属性覆盖，
+     * 加一个可空字段会在前端提交其他字段时把写作要求静默清空。
+     */
+    @PutMapping("/chapters/{chapterId}/writing-requirement")
+    public ApiResponse<Chapter> updateWritingRequirement(@PathVariable Long chapterId,
+                                                         @RequestBody WritingRequirementRequest request) {
+        return ApiResponse.ok(chapterService.updateWritingRequirement(chapterId, request.requirement()));
     }
 
     // ==================== 草稿（人工确认） ====================

@@ -37,6 +37,15 @@ class ContextLimitParserTest {
     }
 
     @Test
+    @DisplayName("硅基流动的措辞也能解析（换供应商不必改代码）")
+    void 硅基流动格式() {
+        String real = "{\"code\":20015,\"message\":\"number of input tokens (1500030) has exceeded "
+                + "max_prompt_tokens (1048576) limit.\",\"data\":null}";
+
+        assertThat(ContextLimitParser.parse(real)).hasValue(1_048_576);
+    }
+
+    @Test
     @DisplayName("大小写与空格变化也能解析")
     void 大小写不敏感() {
         assertThat(ContextLimitParser.parse("Maximum Context Length Is 32768 tokens.")).hasValue(32_768);

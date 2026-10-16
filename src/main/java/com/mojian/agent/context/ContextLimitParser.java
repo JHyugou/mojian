@@ -27,8 +27,25 @@ public final class ContextLimitParser {
      * 那样 "maximum context" 和 "length" 之间会夹着换行。
      * （这个坑是被一条失败的单元测试抓出来的，不是猜的。）
      */
-    private static final Pattern MAX_CONTEXT = Pattern.compile(
-            "maximum\\s+context\\s+length\\s+is\\s+(\\d+)\\s*tokens", Pattern.CASE_INSENSITIVE);
+    /**
+     * 各家上报上限的措辞不一样，所以按顺序尝试多种格式。
+     *
+     * <p>目前已知两种（都是 2026-10-16 实测的原文）：
+     * <ul>
+     *   <li>OpenCode Go：{@code This model's maximum context length is 1048576 tokens.}</li>
+     *   <li>硅基流动：{@code number of input tokens (1500030) has exceeded max_prompt_tokens (1048576) limit.}</li>
+     * </ul>
+     *
+     * <p>用 {@code \s+} 而不是空格：服务商可能把错误 JSON 格式化成多行，
+     * 那样关键词之间会夹着换行。（这个坑是被一条失败的单元测试抓出来的，不是猜的。）
+     *
+     * <p><b>多支持一种格式就少一次"换供应商后要改代码"。</b>
+     * 将来遇到第三种措辞，在这里加一行即可。
+     */
+    private static final Pattern[] LIMIT_PATTERNS = {
+            Pattern.compile("maximum\\s+context\\s+length\\s+is\\s+(\\d+)\\s*tokens", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("max_prompt_tokens\\s*\\(\\s*(\\d+)\\s*\\)", Pattern.CASE_INSENSITIVE),
+    };
 
     private ContextLimitParser() {
     }
@@ -41,15 +58,20 @@ public final class ContextLimitParser {
         if (errorText == null || errorText.isBlank()) {
             return OptionalInt.empty();
         }
-        Matcher matcher = MAX_CONTEXT.matcher(errorText);
-        if (!matcher.find()) {
-            return OptionalInt.empty();
+        for (Pattern pattern : LIMIT_PATTERNS) {
+            Matcher matcher = pattern.matcher(errorText);
+            if (!matcher.find()) {
+                continue;
+            }
+            try {
+                int limit = Integer.parseInt(matcher.group(1));
+                if (limit > 0) {
+                    return OptionalInt.of(limit);
+                }
+            } catch (NumberFormatException e) {
+                // 数字大到溢出：换下一种格式继续试，而不是直接放弃
+            }
         }
-        try {
-            int limit = Integer.parseInt(matcher.group(1));
-            return limit > 0 ? OptionalInt.of(limit) : OptionalInt.empty();
-        } catch (NumberFormatException e) {
-            return OptionalInt.empty();
-        }
+        return OptionalInt.empty();
     }
 }

@@ -16,10 +16,14 @@ import java.util.UUID;
  *                       模型、温度、步数、上下文预算<b>全都按角色取</b>
  * @param conversationId 本次运行挂在哪个持久会话上；工具（如 propose_plot_options）
  *                       要靠它把结果写回正确的地方。可为 null（无会话的一次性运行）
+ * @param chapterId      写作任务的目标章节。策划任务为 null。
+ *                       写作工具（save_chapter_draft）靠它知道该写进哪一章 ——
+ *                       模型不该、也无法提供这个 id
  * @param sessionId      发给服务方的会话标识，用于 prompt 缓存路由。
  *                       <b>它的取值方式直接影响账单</b>：见 {@link #ofConversation}
  */
-public record AgentContext(Long projectId, String agentRole, Long conversationId, String sessionId) {
+public record AgentContext(Long projectId, String agentRole, Long conversationId,
+                           Long chapterId, String sessionId) {
 
     public AgentContext {
         if (agentRole == null || agentRole.isBlank()) {
@@ -29,7 +33,7 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
 
     /** 一次性运行（没有持久会话，比如调试接口）：每次分配新的 sessionId */
     public static AgentContext of(Long projectId, String agentRole) {
-        return new AgentContext(projectId, agentRole, null, "mojian-run-" + UUID.randomUUID());
+        return new AgentContext(projectId, agentRole, null, null, "mojian-run-" + UUID.randomUUID());
     }
 
     /**
@@ -41,7 +45,15 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
      * 用会话 id 派生，多轮对话里那段不变的材料前缀就能一直命中缓存。
      */
     public static AgentContext ofConversation(Long projectId, String agentRole, Long conversationId) {
-        return new AgentContext(projectId, agentRole, conversationId, "mojian-conv-" + conversationId);
+        return new AgentContext(projectId, agentRole, conversationId, null,
+                "mojian-conv-" + conversationId);
+    }
+
+    /** 写作运行的上下文：绑定到具体章节 */
+    public static AgentContext forChapter(Long projectId, String agentRole,
+                                          Long conversationId, Long chapterId) {
+        return new AgentContext(projectId, agentRole, conversationId, chapterId,
+                "mojian-chapter-" + chapterId);
     }
 
     public Long requireProjectId() {
@@ -57,6 +69,14 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
             throw new IllegalStateException("本次运行没有关联会话，无法写回结果");
         }
         return conversationId;
+    }
+
+    /** 写正文的工具靠它取目标章节 */
+    public Long requireChapterId() {
+        if (chapterId == null) {
+            throw new IllegalStateException("本次运行没有指定目标章节");
+        }
+        return chapterId;
     }
 
     public boolean hasConversation() {
