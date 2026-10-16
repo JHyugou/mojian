@@ -54,21 +54,32 @@ public class AgentLoopService {
 
     /** 用全局默认步数运行（不区分角色时的兜底） */
     public AgentResult run(AgentContext context, String systemPrompt, String userInput) {
-        return run(context, systemPrompt, userInput, properties.getMaxSteps());
+        return run(context, systemPrompt, List.of(), userInput, properties.getMaxSteps());
+    }
+
+    /** 指定步数、不带历史 */
+    public AgentResult run(AgentContext context, String systemPrompt, String userInput, int maxSteps) {
+        return run(context, systemPrompt, List.of(), userInput, maxSteps);
     }
 
     /**
      * 跑一轮完整的 Agent 对话。
      *
      * @param context      业务上下文（项目 id、角色、会话 id），由调用方注入
-     * @param systemPrompt 系统提示词（规矩）
+     * @param systemPrompt 系统提示词（规矩，策划 Agent 的材料也注在里面）
+     * @param history      之前几轮的消息（来自会话持久化）。它们排在系统提示词之后、
+     *                     本轮用户输入之前 —— 顺序就是模型理解对话的顺序，不能乱
      * @param userInput    用户这次的问题
      * @param maxSteps     最大步数 —— 由调用方按角色传入（策划与写作需要的步数不一样）
      */
-    public AgentResult run(AgentContext context, String systemPrompt, String userInput, int maxSteps) {
+    public AgentResult run(AgentContext context, String systemPrompt, List<AgentMessage> history,
+                           String userInput, int maxSteps) {
         // messages 就是那个"每次发给模型的包裹"，它会在循环里一条条长大
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.system(systemPrompt));
+        if (history != null && !history.isEmpty()) {
+            messages.addAll(history);
+        }
         messages.add(AgentMessage.user(userInput));
 
         List<AgentStep> trace = new ArrayList<>();

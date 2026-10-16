@@ -2,6 +2,8 @@ package com.mojian.agent.service;
 
 import com.mojian.agent.AgentRole;
 import com.mojian.agent.context.AgentContextBudget;
+import com.mojian.agent.dto.AgentProfileUpdateRequest;
+import com.mojian.agent.dto.AgentProfileVO;
 import com.mojian.agent.entity.AgentProfile;
 import com.mojian.agent.llm.ModelContextWindow;
 import com.mojian.agent.mapper.AgentProfileMapper;
@@ -12,6 +14,7 @@ import com.mojian.settings.service.LlmSettingsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -45,6 +48,71 @@ public class AgentProfileService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Agent 角色配置不存在: " + role);
         }
         return profile;
+    }
+
+    /**
+     * 更新角色配置（设置页用）。
+     *
+     * <p>字段语义见 {@link AgentProfileUpdateRequest}：null=不变，空串=清除覆盖。
+     * 密钥用本机密钥加密后落库，明文不出这个方法的栈帧。
+     */
+    @Transactional
+    public AgentProfile update(String role, AgentProfileUpdateRequest request) {
+        AgentProfile profile = require(role);
+
+        if (StringUtils.hasText(request.model())) {
+            profile.setModel(request.model().trim());
+        }
+        if (request.temperature() != null) {
+            profile.setTemperature(request.temperature());
+        }
+        if (request.maxSteps() != null) {
+            profile.setMaxSteps(request.maxSteps());
+        }
+        if (request.contextLimit() != null) {
+            profile.setContextLimit(request.contextLimit());
+        }
+        if (request.baseUrl() != null) {
+            profile.setBaseUrl(StringUtils.hasText(request.baseUrl()) ? request.baseUrl().trim() : null);
+        }
+        if (request.apiKey() != null) {
+            profile.setApiKeyCipher(StringUtils.hasText(request.apiKey())
+                    ? cipher.encrypt(request.apiKey().trim()) : null);
+        }
+
+        profileMapper.updateById(profile);
+        log.info("更新角色配置 {}：模型={}，接口地址={}，密钥={}", role, profile.getModel(),
+                StringUtils.hasText(profile.getBaseUrl()) ? profile.getBaseUrl() : "（沿用全局设置）",
+                StringUtils.hasText(profile.getApiKeyCipher()) ? "（本角色单独配置）" : "（沿用全局设置）");
+        return profile;
+    }
+
+    /** 对外视图：密钥只出掩码，完整值不出后端 */
+    public AgentProfileVO toVo(AgentProfile profile) {
+        boolean ownKey = StringUtils.hasText(profile.getApiKeyCipher());
+        boolean ownUrl = StringUtils.hasText(profile.getBaseUrl());
+        LlmSettingsService.Effective global = llmSettingsService.effective();
+
+        return new AgentProfileVO(
+                profile.getRole(),
+                profile.getModel(),
+                profile.getTemperature(),
+                profile.getMaxSteps() == null ? 10 : profile.getMaxSteps(),
+                resolveContextLimit(profile),
+                profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens(),
+                ownUrl ? profile.getBaseUrl() : (global == null ? null : global.baseUrl()),
+                ownUrl ? "PROFILE" : "GLOBAL",
+                ownKey || (global != null && StringUtils.hasText(global.apiKey())),
+                ownKey ? "（本角色单独配置）" : mask(global == null ? null : global.apiKey()));
+    }
+
+    private String mask(String key) {
+        if (!StringUtils.hasText(key)) {
+            return null;
+        }
+        return key.length() <= 8
+                ? "****"
+                : key.substring(0, 4) + "****" + key.substring(key.length() - 4);
     }
 
     /**

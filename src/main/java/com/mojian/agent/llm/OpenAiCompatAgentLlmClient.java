@@ -13,6 +13,7 @@ import com.mojian.common.exception.BusinessException;
 import com.mojian.generation.llm.LlmProperties;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -48,6 +49,11 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
 
     static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** 连接层失败的重试次数。这类失败几乎都是瞬时的，重试往往就好 */
+    private static final int CONNECT_RETRY_TIMES = 3;
+    /** 退避基数：第 n 次重试前等 n × 这个毫秒数 */
+    private static final long RETRY_BACKOFF_MILLIS = 1_500;
+
     private final LlmProperties properties;
     private final AgentProfileService profileService;
     private final HttpClient httpClient;
@@ -79,13 +85,7 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
                         StandardCharsets.UTF_8))
                 .build();
 
-        HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            log.warn("Agent 模型连接失败: {}", e.getMessage());
-            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型服务连接失败，请稍后重试");
-        }
+        HttpResponse<String> response = sendWithRetry(request);
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             // 必须把服务方返回的内容带上：只报一个状态码，排查时只能靠猜
@@ -110,6 +110,50 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         AgentLlmResponse parsed = parseResponse(response.body());
         log.debug("[{}] {} -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
         return parsed;
+    }
+
+    // ==================== 连接层重试 ====================
+
+    /**
+     * 发送请求，对<b>连接层</b>故障做重试。
+     *
+     * <p>为什么只重试连接层：HTTP 状态码（400/402/429）是服务方明确表达了意图，
+     * 重试没有意义、甚至有害（对 429 重试只会更糟）；
+     * 而"握手中断""读到一半 EOF""连接超时"是瞬时故障，重试往往就好了。
+     *
+     * <p>这条不是理论：真实排查中遇到的两次失败
+     * （{@code EOF reached while reading}、{@code Remote host terminated the handshake}）
+     * 都属于这一类，而且当时服务方对 <b>最小请求</b>也同样连不上。
+     * 对用户来说，这类重试应该是完全无感的。
+     */
+    private HttpResponse<String> sendWithRetry(HttpRequest request) {
+        IOException last = null;
+        for (int attempt = 1; attempt <= CONNECT_RETRY_TIMES; attempt++) {
+            try {
+                return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                last = e;
+                log.warn("Agent 模型连接失败（第 {}/{} 次）: {}",
+                        attempt, CONNECT_RETRY_TIMES, e.getMessage());
+                if (attempt < CONNECT_RETRY_TIMES) {
+                    sleepQuietly(RETRY_BACKOFF_MILLIS * attempt);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型调用被中断");
+            }
+        }
+        throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                "连不上模型服务（已重试 " + CONNECT_RETRY_TIMES + " 次）："
+                        + (last == null ? "未知错误" : last.getMessage()));
+    }
+
+    private void sleepQuietly(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ==================== 协议转换（可独立测试，不需要联网） ====================
