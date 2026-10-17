@@ -14,6 +14,15 @@
         >
           写作要求
         </button>
+        <!-- 长期记忆是优点，但得给作者一个重置的出口 -->
+        <button
+          v-if="messages.length"
+          class="mj-btn mj-btn-text wr-clear-btn"
+          title="清空它记住的对话（不影响正文与蓝图）"
+          @click="clearMemory"
+        >
+          清空记忆
+        </button>
       </header>
 
       <!-- 写作要求：和蓝图一起作为必备材料，永不裁剪 -->
@@ -153,6 +162,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getChapter } from '../../api/chapter'
 import {
+  clearWriterHistory,
   getWriterConversation,
   setWritingRequirement,
   startWritingTask,
@@ -270,6 +280,25 @@ async function loadConversation() {
   } catch (e) {
     // 会话读不到不该让整页打不开
     console.warn('读取写作会话失败', e)
+  }
+}
+
+/**
+ * 清空它记住的对话。
+ *
+ * 只清历史消息，不动正文、蓝图和写作要求 —— 作者想重置的通常是
+ * "别再说我早先提过的那些要求了"，而不是想丢掉写好的稿子。
+ */
+async function clearMemory() {
+  if (!props.projectId) return
+  if (!window.confirm('清空写作 Agent 记住的对话？\n\n正文、蓝图、写作要求都不会受影响，只是让它忘掉此前聊过的内容。')) {
+    return
+  }
+  try {
+    await clearWriterHistory(props.projectId)
+    messages.value = []
+  } catch (e) {
+    error.value = e.message
   }
 }
 
@@ -468,6 +497,8 @@ async function start() {
 
 .wr-req-toggle { margin-left: auto; font-size: 12px; }
 .wr-req-toggle.is-on { color: var(--color-brown-deep); }
+
+.wr-clear-btn { font-size: 12px; }
 
 .wr-req {
   padding: 12px 18px;

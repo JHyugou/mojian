@@ -55,6 +55,11 @@ export function getWriterConversation(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/conversation`)
 }
 
+/** 清空写作会话的历史（保留会话）—— 让它忘掉此前说过的话 */
+export function clearWriterHistory(projectId) {
+  return http.delete(`/agent/writer/projects/${projectId}/conversation/messages`)
+}
+
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
 export function startWritingTask(chapterId, instruction) {
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction })

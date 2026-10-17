@@ -28,6 +28,7 @@ import com.mojian.generation.sse.TaskEventBroker;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -134,6 +135,19 @@ public class AgentController {
         return ApiResponse.ok(Map.of(
                 "conversationId", conversation.getId(),
                 "messages", messages));
+    }
+
+    /**
+     * 清空写作会话的历史（保留会话本身）。
+     *
+     * <p>长期记忆是优点，但作者需要能重置它 —— 比如大方向改了、
+     * 或早先说过某条偏好不再适用。
+     */
+    @DeleteMapping("/writer/projects/{projectId}/conversation/messages")
+    public ApiResponse<Void> clearWriterHistory(@PathVariable Long projectId) {
+        AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
+        conversationService.clearMessages(conversation.getId());
+        return ApiResponse.ok();
     }
 
     /**

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.mojian.agent.AgentRole;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentMessageLog;
@@ -154,6 +155,20 @@ public class ConversationService {
     }
 
     /**
+     * 清空一段会话的历史消息（保留会话本身）。
+     *
+     * <p>长期会话的记忆是优点，但作者需要能重置它 —— 比如大方向改了、
+     * 或早先说过的某条偏好不再适用。没有这个出口，唯一办法就是重建项目。
+     */
+    @Transactional
+    public void clearMessages(Long conversationId) {
+        require(conversationId);
+        messageLogMapper.delete(Wrappers.<AgentMessageLog>lambdaQuery()
+                .eq(AgentMessageLog::getConversationId, conversationId));
+        log.info("已清空会话 {} 的历史消息", conversationId);
+    }
+
+    /**
      * 只取"人话"的历史：用户的指令 + 助手的文本回答。
      *
      * <p><b>为什么必须成对跳过，而不是简单过滤</b>：
@@ -165,8 +180,7 @@ public class ConversationService {
      * <p>模型因此"不记得"某次具体查了什么。这没关系 —— 它需要时能再查一次，
      * 而真正需要长期记住的是用户的偏好与约束，那些都在文本里。
      */
-    public List<AgentMessage> loadTextHistory(Long conversationId) {
-        List<AgentMessage> history = new ArrayList<>();
+    public List<AgentMessage> loadTextHistory(Long conversationId) {        List<AgentMessage> history = new ArrayList<>();
         for (AgentMessageLog record : messageLogMapper.selectByConversation(conversationId)) {
             if (AgentMessage.ROLE_TOOL.equals(record.getRole())) {
                 continue;
