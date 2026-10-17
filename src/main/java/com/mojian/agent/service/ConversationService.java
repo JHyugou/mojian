@@ -70,6 +70,11 @@ public class ConversationService {
         return conversationMapper.selectByProject(projectId, agentRole);
     }
 
+    /** 全部项目下的会话，最近用过的在前 —— 左侧工作区树用 */
+    public List<AgentConversation> listAll(String agentRole) {
+        return conversationMapper.selectAll(agentRole);
+    }
+
     private String deriveTitle(String firstUserMessage) {
         if (!StringUtils.hasText(firstUserMessage)) {
             return "新会话";
@@ -152,6 +157,26 @@ public class ConversationService {
             return conversation;
         }
         return create(projectId, AgentRole.WRITER, WRITER_TITLE);
+    }
+
+    /**
+     * 删除一段会话（连同它的消息与方案）。
+     *
+     * <p>工作区树会越积越长 —— 试验性的对话、走过的死胡同、重复的尝试，
+     * 没有删除出口的话它们会永久占着位置，把真正要用的那几段埋掉。
+     *
+     * <p>注意：写作会话是长期复用的那一段，删掉它等于重置记忆；
+     * 下次写作会重新建一段空的（正文、蓝图都不受影响）。
+     */
+    @Transactional
+    public void delete(Long conversationId) {
+        require(conversationId);
+        messageLogMapper.delete(Wrappers.<AgentMessageLog>lambdaQuery()
+                .eq(AgentMessageLog::getConversationId, conversationId));
+        planOptionMapper.delete(Wrappers.<AgentPlanOption>lambdaQuery()
+                .eq(AgentPlanOption::getConversationId, conversationId));
+        conversationMapper.deleteById(conversationId);
+        log.info("已删除会话 {}（含其消息与方案）", conversationId);
     }
 
     /**

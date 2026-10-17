@@ -208,21 +208,36 @@ public class AgentController {
     // ==================== 会话（项目与对话解耦） ====================
 
     /**
-     * 某项目下某个角色的会话列表（最近用过的在前）。
+     * 会话列表。
      *
-     * <p>项目与会话解耦：一个项目可以有很多段对话，作者对某轮不满意时可以新开一段，
-     * 也可以回到之前某一段继续。
+     * <p><b>不传 projectId 就返回全部</b> —— 左侧的工作区树是"所有项目 + 各自的会话"，
+     * 按项目逐个请求既慢又要等 N 次往返。
+     *
+     * @param projectId 可选：只看某个项目的
+     * @param role      可选：只看策划或只看写作
      */
     @GetMapping("/conversations")
     public ApiResponse<List<Map<String, Object>>> conversations(
-            @RequestParam Long projectId,
-            @RequestParam(defaultValue = AgentRole.PLANNER) String role) {
-        return ApiResponse.ok(conversationService.list(projectId, role).stream()
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(required = false) String role) {
+        List<AgentConversation> all = projectId == null
+                ? conversationService.listAll(role)
+                : conversationService.list(projectId, role);
+        return ApiResponse.ok(all.stream()
                 .map(c -> Map.<String, Object>of(
                         "id", c.getId(),
+                        "projectId", c.getProjectId() == null ? 0L : c.getProjectId(),
+                        "role", c.getAgentRole() == null ? "" : c.getAgentRole(),
                         "title", c.getTitle() == null ? "未命名对话" : c.getTitle(),
                         "updatedAt", c.getUpdatedAt() == null ? "" : c.getUpdatedAt().toString()))
                 .toList());
+    }
+
+    /** 删除一段会话（连同它的消息）—— 工作区树不能只增不减 */
+    @DeleteMapping("/conversations/{conversationId}")
+    public ApiResponse<Void> deleteConversation(@PathVariable Long conversationId) {
+        conversationService.delete(conversationId);
+        return ApiResponse.ok();
     }
 
     /** 一段会话的"人话"历史（用户的指令 + 助手的回答），用于界面上回看 */

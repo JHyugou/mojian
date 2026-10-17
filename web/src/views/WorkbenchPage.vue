@@ -7,26 +7,7 @@
         <span class="mj-muted wb-brand-sub">创作工作台</span>
       </div>
 
-      <!-- 项目选择。项目与对话解耦：换项目等于换一本书，
-           它下面各自的对话、人物、设定、蓝图都跟着切 -->
-      <div class="wb-project">
-        <button class="wb-project-current" @click="projectMenuOpen = !projectMenuOpen">
-          <span>{{ projectStore.current?.name || '选择项目' }}</span>
-          <span class="wb-project-caret">▾</span>
-        </button>
-        <div v-if="projectMenuOpen" class="wb-project-menu mj-fade">
-          <button
-            v-for="p in projects"
-            :key="p.id"
-            class="wb-project-item"
-            :class="{ active: p.id === projectId }"
-            @click="switchProject(p)"
-          >
-            {{ p.name }}
-          </button>
-          <div v-if="!projects.length" class="wb-project-empty mj-muted">还没有项目</div>
-        </div>
-      </div>
+      <!-- 项目与会话的选择统一在左栏工作区树里，这里不再重复放一个下拉 -->
 
       <nav class="wb-modes">
         <button
@@ -69,9 +50,12 @@
             v-if="mode === 'planner'"
             key="planner"
             :project-id="projectId"
+            :conversation-id="route.query.conv"
+            :fresh-token="route.query.fresh"
             :citations="citations"
             @remove-citation="removeCitation"
             @clear-citations="citations = []"
+            @conversation-changed="onConversationChanged"
           />
           <WriterPanel
             v-else
@@ -189,9 +173,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/project'
-import { listProjects } from '../api/project'
 import { createChapter, listChapters } from '../api/chapter'
 import { listCharacters } from '../api/character'
 import { listSettings } from '../api/setting'
@@ -203,29 +187,27 @@ import ResourceBrowser from '../components/workbench/ResourceBrowser.vue'
 
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentId)
+const route = useRoute()
+const router = useRouter()
 
 const modes = [
   { key: 'planner', label: '策划', hint: '管人物、设定、剧情走向' },
   { key: 'writer', label: '写作', hint: '把蓝图写成正文' }
 ]
 
-const mode = ref('planner')
-const projects = ref([])
-const projectMenuOpen = ref(false)
+/** 打开哪一段对话由 URL 决定（左栏工作区树点进来的），所以模式也从 URL 读初始值 */
+const mode = ref(route.query.mode === 'writer' ? 'writer' : 'planner')
 
-/** 换项目 = 换一本书，下面所有内容都要重取 */
-async function switchProject(project) {
-  projectMenuOpen.value = false
-  if (project.id === projectId.value) return
-  projectStore.select(project)
-  // 清掉旧书的状态，避免换项目瞬间还显示着上一本的章节/人物
-  chapters.value = []
-  activeChapter.value = null
-  outlineTree.value = []
-  characters.value = []
-  settings.value = []
-  reports.value = { PLANNER: null, WRITER: null }
-  await loadAll()
+/**
+ * 新开的对话落库后，把 URL 上的会话换成它。
+ *
+ * 用 replace 而不是 push：这是"同一件事的后续"，
+ * 按返回键应该回到进来之前，而不是回到"还没有会话"的那一瞬。
+ */
+function onConversationChanged(conversationId) {
+  const query = { ...route.query, conv: conversationId }
+  delete query.fresh
+  router.replace({ path: '/workbench', query })
 }
 
 const rightTab = ref('info')
@@ -431,15 +413,11 @@ async function loadAll() {
   }
 }
 
-onMounted(async () => {
-  // 项目列表：工作台自己就能换项目，不必回项目页
-  try {
-    projects.value = (await listProjects()) || []
-  } catch (e) {
-    console.warn('读取项目列表失败', e)
-  }
-  await loadAll()
-})
+onMounted(loadAll)
+
+// 左栏换项目（或换会话）后要重取这本书的资料。
+// 面板本身用 :key 绑项目 id，换书会重新挂载，所以它们的状态不用在这里清。
+watch(projectId, () => loadAll())
 </script>
 
 <style scoped>

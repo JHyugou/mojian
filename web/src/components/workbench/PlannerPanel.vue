@@ -168,11 +168,15 @@ import { buildCitedMessage, citationPreview } from '../../utils/citation'
 
 const props = defineProps({
   projectId: { type: [Number, String], required: true },
+  /** 从左侧工作区树点进来的会话 id；为空表示续最近那段 */
+  conversationId: { type: [String, Number], default: null },
+  /** 有值表示"新开一段"（值本身只为触发变化，没有别的含义） */
+  freshToken: { type: [String, Number], default: null },
   /** 从蓝图分屏框选进来的引用（原文 + 所属节点），由工作台统一持有 */
   citations: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['remove-citation', 'clear-citations'])
+const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed'])
 
 const messages = ref([])
 const draftMessage = ref('')
@@ -186,12 +190,44 @@ const scrollEl = ref(null)
 const conversationTitle = ref('新对话')
 
 /**
- * 进来先续上最近那段对话。
+ * 载入哪一段对话，由左栏工作区树通过 query 决定：
+ *   ?conv=<id>  续那一段
+ *   ?fresh=<ts> 新开一段
+ *   都没有      续最近那段（刷新页面的默认行为）
  *
  * 刷新页面不该等于"重新开始"—— 策划的上下文是整本书的思路，
  * 每次刷新都从零开始，谈过的东西就白谈了。
  */
-onMounted(loadLatestConversation)
+watch(
+  () => [props.conversationId, props.freshToken],
+  async ([id, token]) => {
+    if (token) {
+      newConversation()
+      return
+    }
+    if (id) {
+      await loadConversationById(id)
+      return
+    }
+    await loadLatestConversation()
+  },
+  { immediate: true }
+)
+
+async function loadConversationById(id) {
+  try {
+    const list = (await listConversations(props.projectId, 'PLANNER')) || []
+    const target = list.find((c) => String(c.id) === String(id))
+    conversationId.value = id
+    conversationTitle.value = target?.title || '对话'
+    const history = (await getConversationMessages(id)) || []
+    messages.value = history.map((m) => ({ role: m.role, text: m.content }))
+    await refreshSide()
+    scrollToBottom()
+  } catch (e) {
+    console.warn('读取指定对话失败', e)
+  }
+}
 
 async function loadLatestConversation() {
   if (!props.projectId) return
@@ -288,6 +324,8 @@ async function send() {
     if (wasNew) {
       // 标题由后端从首条消息派生，这里跟随一下，免得切走再回来标题不一样
       conversationTitle.value = outgoing.replace(/\s+/g, ' ').slice(0, 20)
+      // 通知外层把 URL 上的会话换成新的，好让左侧工作区树高亮对得上
+      emit('conversation-changed', data.conversationId)
     }
     messages.value.push({
       role: 'assistant',

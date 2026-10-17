@@ -44,6 +44,11 @@ export function getConversationMessages(conversationId) {
   return http.get(`/agent/conversations/${conversationId}/messages`)
 }
 
+/** 删除一段会话（连同它的消息） */
+export function deleteConversation(conversationId) {
+  return http.delete(`/agent/conversations/${conversationId}`)
+}
+
 // ==================== 草稿（人工确认） ====================
 
 /** pendingOnly=true 就是"待确认"列表 */
