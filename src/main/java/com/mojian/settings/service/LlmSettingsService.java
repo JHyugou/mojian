@@ -1,11 +1,14 @@
 package com.mojian.settings.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.crypto.LocalSecretCipher;
 import com.mojian.common.exception.BusinessException;
 import com.mojian.generation.llm.LlmProperties;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
 import com.mojian.settings.entity.LlmSettings;
+import com.mojian.settings.llm.LlmProviderPreset;
 import com.mojian.settings.mapper.LlmSettingsMapper;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.annotation.PostConstruct;
@@ -14,6 +17,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 模型接入设置服务：设置页配置的存取与"当前生效模型配置"的唯一裁决点。
@@ -32,6 +44,8 @@ public class LlmSettingsService {
 
     /** 全局唯一配置行 id */
     public static final long SINGLETON_ID = 1L;
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String ENSURE_TABLE_DDL = """
             CREATE TABLE IF NOT EXISTS llm_settings (
@@ -166,6 +180,107 @@ public class LlmSettingsService {
         mapper.deleteById(SINGLETON_ID);
         log.info("模型接入配置已清除，恢复默认（环境变量/演示模式）");
         return status();
+    }
+
+    // ==================== 厂家预设与模型列表 ====================
+
+    /** 内置的服务商预设 */
+    public List<LlmProviderPreset.Preset> providers() {
+        return LlmProviderPreset.PRESETS;
+    }
+
+    /**
+     * 拉取服务商的可用模型列表。
+     *
+     * <p><b>为什么不让预设写死模型名</b>：模型上下线很快，写死的名字过一阵
+     * 就成了"看着对但调不通"的错误答案，而作者会以为是自己 Key 的问题。
+     * 直接问服务商要，既不会过期，也顺带验证了 Key —— 拉不到列表本身就说明 Key 不对。
+     *
+     * <p>不过不保证每个服务商都实现了 {@code GET /models}，所以拉不到时
+     * 前端会退回"手动输入模型名"，而不是把这个流程卡死。
+     */
+    public List<String> fetchModels(String baseUrl, String apiKey) {
+        if (!StringUtils.hasText(baseUrl)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写接口地址");
+        }
+        String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
+        if (!StringUtils.hasText(key)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写 API Key");
+        }
+
+        String url = baseUrl.trim().replaceAll("/+$", "") + "/models";
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + key)
+                    // 自报家门：有些网关会按 UA 拒绝通用 SDK 的名字
+                    .header("User-Agent", "mojian-agent/0.1")
+                    .GET()
+                    .build();
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "接口地址格式不对：" + baseUrl);
+        }
+
+        HttpResponse<String> response;
+        try {
+            response = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(llmProperties.getConnectTimeoutSeconds()))
+                    .build()
+                    .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "拉取模型列表被中断");
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "连不上 " + url + "：" + e.getMessage());
+        }
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "拉取模型列表失败（HTTP " + response.statusCode() + "）："
+                            + StringUtils.trimWhitespace(abbreviate(response.body(), 200)));
+        }
+
+        List<String> ids = parseModelIds(response.body());
+        log.info("从 {} 拉到 {} 个模型", url, ids.size());
+        return ids;
+    }
+
+    /**
+     * 解析 {@code GET /models} 的返回。
+     *
+     * <p>标准结构是 {@code {"data":[{"id":"..."}]}}，但各家略有出入（有的多套一层、
+     * 有的直接把 id 放顶层）。这里顺着几种常见结构找一遍，找不到就返回空列表 ——
+     * 让前端退回手动输入，而不是因为解析不出就整个流程卡死。
+     */
+    private List<String> parseModelIds(String body) {
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            JsonNode data = root.has("data") ? root.get("data") : root;
+            List<String> ids = new ArrayList<>();
+            if (data.isArray()) {
+                for (JsonNode node : data) {
+                    JsonNode id = node.has("id") ? node.get("id") : node.get("name");
+                    if (id != null && id.isTextual() && StringUtils.hasText(id.asText())) {
+                        ids.add(id.asText().trim());
+                    }
+                }
+            }
+            return ids.stream().distinct().sorted().toList();
+        } catch (Exception e) {
+            log.warn("解析模型列表失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private String abbreviate(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replaceAll("\\s+", " ").trim();
+        return flat.length() <= max ? flat : flat.substring(0, max) + "…";
     }
 
     private String storedPlainKey() {

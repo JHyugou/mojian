@@ -2,11 +2,14 @@ package com.mojian.settings.controller;
 
 import com.mojian.common.api.ApiResponse;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
+import com.mojian.settings.llm.LlmProviderPreset;
 import com.mojian.settings.service.LlmSettingsService;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * 模型接入设置接口（FR-019）。
@@ -40,5 +43,24 @@ public class LlmSettingsController {
     @DeleteMapping("/settings/llm")
     public ApiResponse<LlmSettingsStatusVO> reset() {
         return ApiResponse.ok(settingsService.reset());
+    }
+
+    // ==================== 厂家预设与模型列表 ====================
+
+    /** 内置的服务商预设（地址、控制台链接、说明） */
+    @GetMapping("/settings/llm/providers")
+    public ApiResponse<List<LlmProviderPreset.Preset>> providers() {
+        return ApiResponse.ok(settingsService.providers());
+    }
+
+    /**
+     * 拉取某个服务商的可用模型列表。
+     *
+     * <p>比"预设里写死模型名"可靠：模型上下线很快，写死的名字过一阵就成了
+     * "看着对但调不通"的错误答案，而作者会以为是自己 Key 的问题。
+     */
+    @PostMapping("/settings/llm/models")
+    public ApiResponse<List<String>> models(@RequestBody LlmSettingsSaveRequest request) {
+        return ApiResponse.ok(settingsService.fetchModels(request.getBaseUrl(), request.getApiKey()));
     }
 }

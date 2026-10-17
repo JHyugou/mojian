@@ -1,9 +1,24 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import Icon from '../components/Icon.vue'
 import { useMessageStore } from '../stores/message'
-import { getAiStatus, saveAiConfig, testAiConnection, resetAiConfig } from '../api/aiConfig'
+import {
+  getAiStatus,
+  saveAiConfig,
+  testAiConnection,
+  resetAiConfig,
+  listProviders,
+  fetchModels
+} from '../api/aiConfig'
 
+/**
+ * 模型接入。
+ *
+ * 交互照主流客户端：**选厂家 → 填 Key → 选模型**，而不是让人手填接口地址。
+ * 手填地址是件不友好的事 —— 那个地址长得像密码，还得记住后缀是 /v1 还是 /v4，
+ * 填错一个字符的表现是"连不上"，而报错不会告诉你少了个斜杠。
+ */
 const message = useMessageStore()
 
 const status = ref(null)
@@ -13,19 +28,47 @@ const testing = ref(false)
 const showResetConfirm = ref(false)
 const resetting = ref(false)
 
+const providers = ref([])
+const selectedProvider = ref(null)
+
+/** 服务商返回的模型列表；为空时退回手动输入 */
+const models = ref([])
+const fetchingModels = ref(false)
+/** 手动输入模式：拉不到列表（服务商没实现 /models）或作者想自己填时用 */
+const manualModel = ref(false)
+
 // apiKey 输入留空 = 沿用已存密钥；填了值 = 替换
 const form = reactive({ baseUrl: '', model: '', apiKey: '' })
+
+const hasStoredKey = computed(() => status.value?.mode === 'LIVE' && status.value?.source === 'DB')
+const canFetchModels = computed(() => Boolean(form.baseUrl.trim()))
 
 async function load() {
   loading.value = true
   try {
-    status.value = await getAiStatus()
-    if (status.value?.mode === 'LIVE' && status.value.source === 'DB') {
-      form.baseUrl = status.value.baseUrl || ''
-      form.model = status.value.model || ''
+    const [statusResult, providerResult] = await Promise.allSettled([
+      getAiStatus(),
+      listProviders()
+    ])
+    if (statusResult.status === 'fulfilled') {
+      status.value = statusResult.value
+      if (hasStoredKey.value) {
+        form.baseUrl = status.value.baseUrl || ''
+        form.model = status.value.model || ''
+        // 反查当前用的是哪个预设，好把卡片高亮对上
+        selectedProvider.value =
+          providers.value.find((p) => p.baseUrl && p.baseUrl === form.baseUrl) || null
+      }
+    } else {
+      message.error(statusResult.reason?.message || '读取配置失败')
     }
-  } catch (e) {
-    message.error(e.message)
+    if (providerResult.status === 'fulfilled') {
+      providers.value = providerResult.value || []
+      // 预设到手后再补一次高亮（上面那次可能因为预设还没到而落空）
+      if (!selectedProvider.value && form.baseUrl) {
+        selectedProvider.value = providers.value.find((p) => p.baseUrl === form.baseUrl) || null
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -33,12 +76,82 @@ async function load() {
 
 onMounted(load)
 
+function chooseProvider(provider) {
+  selectedProvider.value = provider
+  if (provider.baseUrl) {
+    form.baseUrl = provider.baseUrl
+  } else {
+    // 自定义：清空让他自己填，但保留已填的值免得误删
+    form.baseUrl = form.baseUrl && !providers.value.some((p) => p.baseUrl === form.baseUrl)
+      ? form.baseUrl
+      : ''
+  }
+  /*
+   * 先用预设里登记的模型填上，而不是清空。
+   *
+   * 理由是实测出来的：不是每家都实现了 GET /models（OpenCode Go 就返回 404），
+   * 所以"先留空、等拉取"会让这些厂家的用户面对一个空下拉，以为坏了。
+   * 预设里的名字是验证过的，先给出来；想拉最新的随时点「获取可用模型」。
+   */
+  models.value = provider.models || []
+  manualModel.value = models.value.length === 0
+  form.model = models.value.length ? models.value[0] : ''
+}
+
+/**
+ * 拉取可用模型。
+ *
+ * 顺带当"Key 体检"用：拉不到通常就是 Key 不对或地址写错，
+ * 而这个反馈比"保存后调不通"早得多、也清楚得多。
+ */
+async function loadModels() {
+  if (!canFetchModels.value) {
+    message.error('请先填写或选择一个接口地址')
+    return
+  }
+  fetchingModels.value = true
+  try {
+    const list = await fetchModels({
+      baseUrl: form.baseUrl.trim(),
+      apiKey: form.apiKey.trim() || null
+    })
+    models.value = list || []
+    if (!models.value.length) {
+      // 服务商没实现 /models（实测 OpenCode Go 就是 404）。
+      // 退回预设里登记的模型，别让作者面对一个空下拉
+      const fallback = selectedProvider.value?.models || []
+      models.value = fallback
+      manualModel.value = fallback.length === 0
+      message.info(
+        fallback.length
+          ? '这一家没有提供模型列表，已用内置的常用模型'
+          : '这一家没有提供模型列表，请手动填写模型名称'
+      )
+      if (fallback.length) {
+        form.model = fallback[0]
+      }
+    } else {
+      manualModel.value = false
+      if (!models.value.includes(form.model)) {
+        form.model = models.value[0]
+      }
+      message.success(`拿到 ${models.value.length} 个可用模型`)
+    }
+  } catch (e) {
+    manualModel.value = true
+    message.error(e.message)
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
 function validate() {
   if (!form.baseUrl.trim()) return '接口地址不能为空'
-  if (!/^https?:\/\/\S+$/.test(form.baseUrl.trim())) return '接口地址需以 http(s):// 开头，如 https://api.deepseek.com'
-  if (!form.model.trim()) return '模型名称不能为空'
-  const editingStoredKey = status.value?.mode === 'LIVE' && status.value?.source === 'DB'
-  if (!editingStoredKey && !form.apiKey.trim()) return '请填写 API Key'
+  if (!/^https?:\/\/\S+$/.test(form.baseUrl.trim())) {
+    return '接口地址需以 http(s):// 开头'
+  }
+  if (!form.model.trim()) return '请选择或填写模型名称'
+  if (!hasStoredKey.value && !form.apiKey.trim()) return '请填写 API Key'
   return null
 }
 
@@ -78,7 +191,7 @@ async function runTest() {
       model: form.model.trim(),
       apiKey: form.apiKey.trim() || null
     })
-    message.success(`连接成功，模型回复：${reply}`)
+    message.success(`连接成功：${reply}`)
   } catch (e) {
     message.error(e.message)
   } finally {
@@ -86,13 +199,15 @@ async function runTest() {
   }
 }
 
-async function confirmReset() {
+async function doReset() {
   resetting.value = true
   try {
     status.value = await resetAiConfig()
     form.baseUrl = ''
     form.model = ''
     form.apiKey = ''
+    models.value = []
+    selectedProvider.value = null
     showResetConfirm.value = false
     message.success('已恢复演示模式')
   } catch (e) {
@@ -104,175 +219,318 @@ async function confirmReset() {
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-head">
-      <div>
-        <h1 class="page-title">模型接入</h1>
-        <p class="page-hint">绑定任意 OpenAI 兼容的模型服务；不绑定时使用内置演示文风</p>
-      </div>
-      <span
-        v-if="status"
-        class="mode-badge"
-        :class="status.mode === 'LIVE' ? 'mode-live' : 'mode-demo'"
-      >
-        {{ status.mode === 'LIVE' ? `已接入 · ${status.model}` : '演示模式' }}
-      </span>
-    </div>
+  <div class="ai-page">
+    <header class="ai-head">
+      <h1 class="ai-title">模型接入</h1>
+      <p class="ai-sub">选择服务商，填入 API Key 即可。任何 OpenAI 兼容的服务都能接。</p>
+    </header>
 
-    <div class="card ai-card">
-      <div class="section-title">接口配置</div>
-
-      <div class="field">
-        <label class="field-label">接口地址 Base URL</label>
-        <input
-          v-model.trim="form.baseUrl"
-          class="form-input"
-          placeholder="如 https://api.deepseek.com"
-        />
-        <p class="field-tip">OpenAI 兼容服务地址，常见后缀 /v1 以服务商文档为准</p>
+    <!-- ========== 选服务商 ========== -->
+    <section class="ai-card">
+      <div class="ai-card-head">
+        <span class="ai-card-title">选择服务商</span>
+        <span class="ai-muted">选中会自动填好接口地址</span>
       </div>
 
-      <div class="field">
-        <label class="field-label">模型名称</label>
-        <input
-          v-model.trim="form.model"
-          class="form-input"
-          placeholder="如 deepseek-chat、moonshot-v1-32k、glm-4"
-        />
+      <div class="ai-providers">
+        <button
+          v-for="p in providers"
+          :key="p.id"
+          class="ai-provider"
+          :class="{ active: selectedProvider?.id === p.id }"
+          @click="chooseProvider(p)"
+        >
+          <span class="ai-provider-name">{{ p.name }}</span>
+          <span class="ai-provider-desc">{{ p.description }}</span>
+        </button>
       </div>
 
-      <div class="field">
-        <label class="field-label">API Key</label>
+      <!-- 选中后把"去哪儿申请 Key"直接给出来，省得作者去搜 -->
+      <p v-if="selectedProvider?.consoleUrl" class="ai-console">
+        申请 API Key：
+        <a :href="selectedProvider.consoleUrl" target="_blank" rel="noreferrer">
+          {{ selectedProvider.consoleUrl }}
+        </a>
+      </p>
+    </section>
+
+    <!-- ========== 连接配置 ========== -->
+    <section class="ai-card">
+      <div class="ai-card-head">
+        <span class="ai-card-title">连接配置</span>
+      </div>
+
+      <label class="ai-field">
+        <span class="ai-label">接口地址 Base URL</span>
+        <input v-model="form.baseUrl" class="ai-input" placeholder="https://…/v1" />
+        <span class="ai-hint">选服务商后自动填好；自定义服务请自己填，通常以 /v1 结尾</span>
+      </label>
+
+      <label class="ai-field">
+        <span class="ai-label">API Key</span>
         <input
-          v-model.trim="form.apiKey"
-          class="form-input"
+          v-model="form.apiKey"
+          class="ai-input"
           type="password"
-          autocomplete="new-password"
-          :placeholder="status?.apiKeyMasked ? `已保存 ${status.apiKeyMasked}，留空则不修改` : '在模型服务商后台创建，形如 sk-…'"
+          :placeholder="hasStoredKey
+            ? `已保存 ${status?.apiKeyMask || ''}，留空表示沿用`
+            : '粘贴你的 API Key'"
         />
-        <p class="field-tip">密钥经 AES-GCM 加密存入本机数据库，界面只显示掩码；换机器需重新填写</p>
+        <span class="ai-hint">密钥经 AES-GCM 加密存入本机数据库；界面与日志里只出现掩码</span>
+      </label>
+
+      <div class="ai-field">
+        <div class="ai-label-row">
+          <span class="ai-label">模型</span>
+          <button
+            class="ai-mini-btn"
+            :disabled="!canFetchModels || fetchingModels"
+            @click="loadModels"
+          >
+            <Icon name="search" :size="12" />
+            {{ fetchingModels ? '获取中…' : '获取可用模型' }}
+          </button>
+          <button class="ai-mini-btn" @click="manualModel = !manualModel">
+            {{ manualModel ? '改用列表选择' : '手动填写' }}
+          </button>
+        </div>
+
+        <!-- 有列表就下拉选；没有（或作者要手填）就输入框。
+             不给"只能手填"也不给"只能选" —— 不是每家都实现了 /models -->
+        <select v-if="!manualModel && models.length" v-model="form.model" class="ai-input">
+          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+        </select>
+        <input
+          v-else
+          v-model="form.model"
+          class="ai-input"
+          placeholder="例如 deepseek-v4.1-flash"
+        />
+        <span class="ai-hint">
+          {{ models.length
+            ? (selectedProvider?.models?.length && models === selectedProvider.models
+                ? '这是内置的常用模型；想拉最新列表就点「获取可用模型」'
+                : `从服务商拿到 ${models.length} 个可用模型`)
+            : '点「获取可用模型」从服务商拉取；也可以直接手填' }}
+        </span>
       </div>
 
-      <div class="actions">
-        <button class="btn btn-primary" type="button" :disabled="saving" @click="submit">
+      <div class="ai-actions">
+        <button class="ai-btn primary" :disabled="saving" @click="submit">
           {{ saving ? '保存中…' : '保存并启用' }}
         </button>
-        <button class="btn btn-secondary" type="button" :disabled="testing" @click="runTest">
+        <button class="ai-btn" :disabled="testing" @click="runTest">
           {{ testing ? '测试中…' : '测试连接' }}
         </button>
-        <button
-          v-if="status?.source === 'DB'"
-          class="btn btn-danger"
-          type="button"
-          @click="showResetConfirm = true"
-        >
-          恢复演示模式
-        </button>
+        <button class="ai-btn danger" @click="showResetConfirm = true">恢复演示模式</button>
       </div>
-    </div>
+    </section>
 
-    <div class="card help-card">
-      <div class="section-title">说明</div>
-      <ul class="help-list">
-        <li>保存后立即生效，正在进行的生成会用旧配置完成，下一次任务启用新配置。</li>
-        <li>「测试连接」会向服务商发送一次极短的验证请求，消耗可忽略的 token。</li>
-        <li>恢复演示模式不会删除你的任何创作数据，仅回到内置示例文风。</li>
+    <!-- ========== 说明 ========== -->
+    <section class="ai-card">
+      <div class="ai-card-head">
+        <span class="ai-card-title">说明</span>
+      </div>
+      <ul class="ai-notes">
+        <li>保存后立即生效；正在进行的生成会用旧配置跑完，下一次任务用新配置。</li>
+        <li>
+          「获取可用模型」会向服务商要一次模型列表 ——
+          它同时也是一次 <b>Key 体检</b>：拉不到通常就是 Key 或地址不对。
+        </li>
+        <li>「恢复演示模式」不会删除你的任何创作数据，只是回到内置示例文风。</li>
         <li>密钥永不进入日志与生成快照；数据库泄露也无法直接读出明文。</li>
       </ul>
-    </div>
+    </section>
 
     <ConfirmDialog
-      :visible="showResetConfirm"
+      v-if="showResetConfirm"
       title="恢复演示模式"
-      message="将清除界面保存的接口配置（含加密密钥），AI 生成回到内置演示文风。确定继续吗？"
-      confirm-text="清除并恢复"
-      danger
+      message="将清除界面里配置的模型接入信息，回到内置演示文风。你的创作数据不受影响。"
+      confirm-text="确认恢复"
       :loading="resetting"
-      @close="showResetConfirm = false"
-      @confirm="confirmReset"
+      @confirm="doReset"
+      @cancel="showResetConfirm = false"
     />
   </div>
 </template>
 
 <style scoped>
-.page {
-  padding: 20px 24px;
-  overflow-y: auto;
+.ai-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 24px 60px;
 }
 
-.page-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
+.ai-head { margin-bottom: 20px; }
+.ai-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  color: var(--color-brown-deep);
+  letter-spacing: 0.06em;
 }
-
-.mode-badge {
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  padding: 5px 14px;
-  border-radius: var(--radius-s);
-  border: 1px solid var(--color-line);
-}
-
-.mode-live {
-  color: #2c6e56;
-  background: rgba(44, 110, 86, 0.10);
-  border-color: rgba(44, 110, 86, 0.38);
-}
-
-.mode-demo {
-  color: var(--color-muted);
-  background: var(--color-dai);
-}
+.ai-sub { margin-top: 6px; font-size: 13px; color: var(--color-muted); }
 
 .ai-card {
-  max-width: 640px;
-  padding: 20px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
 }
 
-.help-card {
-  max-width: 640px;
-  padding: 20px;
-}
-
-.section-title {
-  font-size: 15px;
-  font-weight: 600;
+.ai-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
   margin-bottom: 14px;
+}
+
+.ai-card-title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  color: var(--color-brown-deep);
+  letter-spacing: 0.06em;
+}
+
+.ai-muted { font-size: 12px; color: var(--color-muted); }
+
+/* ---------- 服务商卡片 ---------- */
+.ai-providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.ai-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 13px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-paper-warm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out);
+}
+.ai-provider:hover { border-color: var(--color-brown); transform: translateY(-1px); }
+.ai-provider.active {
+  border-color: var(--color-brown);
+  background: var(--color-panel);
+}
+
+.ai-provider-name {
+  font-family: var(--font-serif);
+  font-size: 14px;
   color: var(--color-ink);
 }
+.ai-provider.active .ai-provider-name { color: var(--color-brown-deep); }
 
-.field {
-  margin-bottom: 14px;
-}
+.ai-provider-desc { font-size: 11px; line-height: 1.6; color: var(--color-muted); }
 
-.field-label {
-  display: block;
-  font-size: 13px;
+.ai-console {
+  margin-top: 12px;
+  font-size: 12px;
   color: var(--color-muted);
+}
+.ai-console a { color: var(--color-brown); text-decoration: none; }
+.ai-console a:hover { text-decoration: underline; }
+
+/* ---------- 表单 ---------- */
+.ai-field { display: block; margin-bottom: 16px; }
+
+.ai-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 6px;
 }
 
-.field-tip {
+.ai-label {
+  display: block;
   font-size: 12px;
+  letter-spacing: 0.06em;
   color: var(--color-muted);
-  opacity: 0.8;
-  margin-top: 5px;
 }
+.ai-label-row .ai-label { margin-bottom: 0; }
 
-.actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.help-list {
-  margin: 0;
-  padding-left: 18px;
+.ai-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-paper);
+  font-family: var(--font-sans);
   font-size: 13px;
+  color: var(--color-ink);
+  transition: border-color var(--dur) var(--ease-out);
+}
+.ai-input:focus { outline: none; border-color: var(--color-brown); }
+
+.ai-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--color-muted);
+}
+
+.ai-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--color-brown-deep);
+  transition: border-color var(--dur) var(--ease-out);
+}
+.ai-mini-btn:hover:not(:disabled) { border-color: var(--color-brown); }
+.ai-mini-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- 按钮 ---------- */
+.ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 4px;
+}
+
+.ai-btn {
+  padding: 8px 18px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-ink);
+  transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out);
+}
+.ai-btn:hover:not(:disabled) { border-color: var(--color-brown); }
+.ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ai-btn.primary {
+  border-color: var(--color-brown);
+  background: var(--color-brown);
+  color: #fff;
+}
+.ai-btn.primary:hover:not(:disabled) { background: var(--color-brown-deep); }
+
+.ai-btn.danger { color: var(--color-danger); }
+.ai-btn.danger:hover:not(:disabled) { border-color: var(--color-danger); }
+
+/* ---------- 说明 ---------- */
+.ai-notes {
+  padding-left: 18px;
+  font-size: 12px;
   line-height: 2;
   color: var(--color-muted);
 }
+.ai-notes li::marker { color: var(--color-brown); }
 </style>
