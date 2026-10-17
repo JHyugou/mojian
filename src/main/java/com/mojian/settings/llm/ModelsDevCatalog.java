@@ -60,6 +60,8 @@ public class ModelsDevCatalog {
 
     /** api 地址（已去掉结尾斜杠）→ 该地址下的模型 */
     private volatile Map<String, List<ModelInfo>> byApi = Map.of();
+    /** 域名 → 该域名下的模型。用于"路径不完全一致但确实是同一家"的情况 */
+    private volatile Map<String, List<ModelInfo>> byHost = Map.of();
     private volatile Instant loadedAt = Instant.EPOCH;
 
     /**
@@ -88,6 +90,13 @@ public class ModelsDevCatalog {
     /**
      * 查某个接口地址下的可用模型。
      *
+     * <p><b>两级匹配，缺一不可</b>：先按完整地址精确匹配；不中再按<b>域名</b>匹配。
+     *
+     * <p>第二级是被真实情况逼出来的：目录里 DeepSeek 记的是
+     * {@code https://api.deepseek.com}，而用户习惯（以及大多数客户端文档）写的是
+     * {@code https://api.deepseek.com/v1} —— 路径上一个 {@code /v1} 的差异，
+     * 就让整个目录对这家失效了，表现成"别的厂家都能查，就它查不到"。
+     *
      * @return 匹配不到就返回空列表 —— 调用方会退回"问服务商"或"用预设里的"
      */
     public List<ModelInfo> modelsFor(String baseUrl) {
@@ -97,7 +106,33 @@ public class ModelsDevCatalog {
         if (isStale()) {
             refresh();
         }
-        return byApi.getOrDefault(normalize(baseUrl), List.of());
+        String normalized = normalize(baseUrl);
+
+        List<ModelInfo> exact = byApi.get(normalized);
+        if (exact != null && !exact.isEmpty()) {
+            return exact;
+        }
+
+        String host = hostOf(normalized);
+        if (host == null) {
+            return List.of();
+        }
+        List<ModelInfo> sameHost = byHost.get(host);
+        if (sameHost != null && !sameHost.isEmpty()) {
+            log.debug("按域名匹配到模型目录：{} → {}", baseUrl, host);
+            return sameHost;
+        }
+        return List.of();
+    }
+
+    /** 取域名；取不到返回 null */
+    private String hostOf(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            return StringUtils.hasText(host) ? host.toLowerCase() : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private boolean isStale() {
@@ -139,10 +174,23 @@ public class ModelsDevCatalog {
                 log.warn("模型目录解析后为空，保留原有缓存");
                 return;
             }
+
+            // 同时建一份按域名的索引，供"路径不完全一致"时兜底
+            Map<String, List<ModelInfo>> byHostIndex = new LinkedHashMap<>();
+            parsed.forEach((api, models) -> {
+                String host = hostOf(api);
+                // 同一域名有多个条目时保留模型多的那个 —— 那通常是主入口
+                if (host != null && byHostIndex.getOrDefault(host, List.of()).size() < models.size()) {
+                    byHostIndex.put(host, models);
+                }
+            });
+
             byApi = parsed;
+            byHost = byHostIndex;
             loadedAt = Instant.now();
-            log.info("模型目录已更新：{} 个服务商地址，{} 个模型",
-                    parsed.size(), parsed.values().stream().mapToInt(List::size).sum());
+            log.info("模型目录已更新：{} 个接口地址 / {} 个域名，共 {} 个模型",
+                    parsed.size(), byHostIndex.size(),
+                    parsed.values().stream().mapToInt(List::size).sum());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {

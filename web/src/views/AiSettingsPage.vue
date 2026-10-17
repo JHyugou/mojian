@@ -45,6 +45,52 @@ const form = reactive({ baseUrl: '', model: '', apiKey: '' })
 const hasStoredKey = computed(() => status.value?.mode === 'LIVE' && status.value?.source === 'DB')
 const canFetchModels = computed(() => Boolean(form.baseUrl.trim()))
 
+/** 掩码字段名是 apiKeyMasked（写成 apiKeyMask 会静默拿到 undefined，界面上就是一片空白） */
+const keyMask = computed(() => status.value?.apiKeyMasked || '')
+
+function hostOf(url) {
+  try {
+    return new URL(url).host.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 密钥状态：三种，而不是两种。
+ *
+ * <p>原来只有"没配过"和"配过"两种，于是出现一个很坑的情况：
+ * 已存的是 OpenCode Go 的密钥，用户切到 DeepSeek 官方，
+ * 界面照样说「已保存，留空表示沿用」—— 而那个密钥连不上 DeepSeek。
+ * 他会以为是自己 Key 填错了，实际上是被界面误导了。
+ */
+const keyState = computed(() => {
+  if (!hasStoredKey.value) return 'none'
+  const stored = (status.value?.baseUrl || '').replace(/\/+$/, '')
+  const current = (form.baseUrl || '').replace(/\/+$/, '')
+  if (!current) return 'same'
+  if (stored === current) return 'same'
+  // 路径不完全一致（/v1 的有无）不算换家，按域名判断
+  const storedHost = hostOf(stored)
+  return storedHost && storedHost === hostOf(current) ? 'same' : 'different'
+})
+
+const storedHost = computed(() => hostOf(status.value?.baseUrl || '') || status.value?.baseUrl || '')
+
+const keyPlaceholder = computed(() => {
+  if (keyState.value === 'none') return '粘贴你的 API Key'
+  if (keyState.value === 'same') return `已保存 ${keyMask.value}，留空表示沿用`
+  return `换了一家，需要填它自己的 API Key`
+})
+
+const keyHint = computed(() => {
+  if (keyState.value === 'different') {
+    return `已保存的是 ${storedHost.value} 的密钥（${keyMask.value}）。`
+      + '它与当前选择的服务商不是同一家，留空会沿用旧密钥 —— 多半连不上。'
+  }
+  return '密钥经 AES-GCM 加密存入本机数据库；界面与日志里只出现掩码'
+})
+
 async function load() {
   loading.value = true
   try {
@@ -282,16 +328,20 @@ async function doReset() {
       </label>
 
       <label class="ai-field">
-        <span class="ai-label">API Key</span>
+        <span class="ai-label-row">
+          <span class="ai-label">API Key</span>
+          <span v-if="keyState === 'none'" class="ai-key-badge">未配置</span>
+          <span v-else-if="keyState === 'same'" class="ai-key-badge ok">已配置</span>
+          <span v-else class="ai-key-badge warn">需重新填写</span>
+        </span>
         <input
           v-model="form.apiKey"
           class="ai-input"
+          :class="{ 'is-warn': keyState === 'different' }"
           type="password"
-          :placeholder="hasStoredKey
-            ? `已保存 ${status?.apiKeyMask || ''}，留空表示沿用`
-            : '粘贴你的 API Key'"
+          :placeholder="keyPlaceholder"
         />
-        <span class="ai-hint">密钥经 AES-GCM 加密存入本机数据库；界面与日志里只出现掩码</span>
+        <span class="ai-hint" :class="{ 'is-warn': keyState === 'different' }">{{ keyHint }}</span>
       </label>
 
       <div class="ai-field">
@@ -508,6 +558,21 @@ async function doReset() {
   line-height: 1.7;
   color: var(--color-muted);
 }
+.ai-hint.is-warn { color: var(--color-danger); }
+
+/* 密钥状态徽标：三种状态要一眼分得出来 */
+.ai-key-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  background: var(--color-paper-warm);
+  color: var(--color-muted);
+}
+.ai-key-badge.ok { background: rgba(107, 142, 35, 0.12); color: #5a7a1e; }
+.ai-key-badge.warn { background: rgba(163, 63, 48, 0.1); color: var(--color-danger); }
+
+.ai-input.is-warn { border-color: var(--color-danger); }
 
 /* 选中模型的上下文与价格：用小标签排一行，不抢标题但看得见 */
 .ai-model-meta {
