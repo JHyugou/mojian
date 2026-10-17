@@ -101,10 +101,37 @@
           <div class="pl-draft-head">
             <span class="mj-tag mj-tag-brown">{{ draftTypeLabel(draft.draftType) }}</span>
             <span class="mj-title mj-title-sm">{{ draft.title }}</span>
+            <button class="pl-draft-toggle" @click="toggleDraft(draft.id)">
+              {{ opened.has(draft.id)
+                ? '收起内容'
+                : `查看内容（${draftLength(draft)} 字）` }}
+            </button>
           </div>
+
+          <!--
+            草稿内容默认收起（它可能很长，全展开会把列表撑爆），
+            但**必须能展开** —— 让用户在看不到内容的情况下点"采纳"，
+            等于让他闭着眼睛签字。他事后发现"这不是我写的"，
+            感觉就像模型在编，其实是自己没看见。
+          -->
+          <div v-if="opened.has(draft.id)" class="pl-draft-body mj-fade">
+            <div
+              v-for="(value, key) in payloadOf(draft)"
+              :key="key"
+              class="pl-draft-field"
+            >
+              <span class="pl-draft-key">{{ fieldLabel(key) }}</span>
+              <div class="pl-draft-value">
+                <MarkdownText :text="value" />
+              </div>
+            </div>
+          </div>
+
           <p v-if="draft.agentReason" class="pl-draft-reason">
-            <span class="mj-muted">理由：</span>{{ draft.agentReason }}
+            <span class="pl-draft-key">为什么起草它</span>
+            <span>{{ draft.agentReason }}</span>
           </p>
+
           <div class="pl-draft-actions">
             <button class="mj-btn mj-btn-primary" @click="confirmDraft(draft)">确认采纳</button>
             <button class="mj-btn mj-btn-text" @click="discardDraft(draft)">放弃</button>
@@ -285,6 +312,59 @@ const DRAFT_LABELS = {
 const toolLabel = (name) => TOOL_LABELS[name] || name
 const draftTypeLabel = (type) => DRAFT_LABELS[type] || type
 const preview = citationPreview
+
+// ==================== 草稿内容 ====================
+
+/** 展开的草稿 id */
+const opened = ref(new Set())
+
+function toggleDraft(id) {
+  const next = new Set(opened.value)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  opened.value = next
+}
+
+/** 草稿内容存在 payloadJson 里（不同草稿类型字段不同，所以没有固定列） */
+function payloadOf(draft) {
+  if (!draft.payloadJson) return {}
+  try {
+    return JSON.parse(draft.payloadJson)
+  } catch (e) {
+    // 内容坏了不该让整块打不开，退回原文
+    return { raw: draft.payloadJson }
+  }
+}
+
+/**
+ * 把字段名翻成人话。
+ *
+ * 直接显示 name / roleIdentity / triggerKeywords 这种键名，
+ * 作者得先在脑子里翻译一遍才知道那是什么 —— 审核的每一秒都该花在内容上。
+ */
+const FIELD_LABELS = {
+  name: '姓名',
+  title: '名称',
+  roleIdentity: '身份',
+  description: '设定全文',
+  content: '内容',
+  tags: '标签',
+  triggerKeywords: '触发词',
+  summary: '概要',
+  detail: '详细走向',
+  nodeType: '节点类型',
+  raw: '内容'
+}
+const fieldLabel = (key) => FIELD_LABELS[key] || key
+
+/** 草稿内容总字数。作者据此判断值不值得点开 —— "查看内容"三个字太含糊了 */
+function draftLength(draft) {
+  const payload = payloadOf(draft)
+  return Object.values(payload).reduce((sum, value) => sum + String(value || '').length, 0)
+}
 
 /**
  * 组装这一轮真正发出去的消息。
@@ -550,8 +630,43 @@ async function discardDraft(draft) {
 
 .pl-draft-head { display: flex; align-items: center; gap: 8px; }
 
+.pl-draft-toggle {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-brown);
+  padding: 2px 4px;
+  transition: color var(--dur) var(--ease-out);
+}
+.pl-draft-toggle:hover { color: var(--color-brown-deep); text-decoration: underline; }
+
+/* 草稿内容区：限高可滚。它是"待审阅的全文"，不该把整个列表推到屏幕外 */
+.pl-draft-body {
+  margin-top: 10px;
+  padding: 12px;
+  border-left: 2px solid var(--color-brown-soft);
+  background: var(--color-paper-warm);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.pl-draft-field + .pl-draft-field { margin-top: 12px; }
+
+.pl-draft-key {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-brown-deep);
+  margin-bottom: 4px;
+}
+
+.pl-draft-value { font-size: 13px; line-height: 1.8; }
+
 .pl-draft-reason {
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 13px;
   line-height: 1.75;
 }
