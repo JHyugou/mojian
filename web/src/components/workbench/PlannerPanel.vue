@@ -132,6 +132,22 @@
             <span>{{ draft.agentReason }}</span>
           </p>
 
+          <!--
+            内容体检。
+            模型会产生一类"低级错误"：中英混杂（真实案例：把"正规"写成了 state）、
+            重复句子、没写完的占位符。这类错误的特点是
+            ——写的人看不见，读的人一眼就撞上。
+            作者是最后一道关，但不该靠肉眼逐字检查几千字的草稿。
+          -->
+          <div v-if="(draftLints[draft.id] || []).length" class="pl-draft-lint">
+            <div v-for="(issue, i) in draftLints[draft.id]" :key="i" class="pl-lint-item">
+              <span class="pl-lint-label">⚠ {{ issue.label }}</span>
+              <span class="pl-lint-detail">{{ issue.detail }}</span>
+            </div>
+            <!-- 发现问题的当下就该能顺手让它改，不该让作者自己组织语言 -->
+            <button class="pl-lint-fix" @click="askFix(draft)">让 Agent 改这些</button>
+          </div>
+
           <div class="pl-draft-actions">
             <button class="mj-btn mj-btn-primary" @click="confirmDraft(draft)">确认采纳</button>
             <button class="mj-btn mj-btn-text" @click="discardDraft(draft)">放弃</button>
@@ -182,7 +198,7 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   acceptDraft,
   getConversationMessages,
@@ -194,6 +210,7 @@ import {
   selectPlanOption
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
+import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import { useLibraryStore } from '../../stores/library'
 import MarkdownText from '../MarkdownText.vue'
 
@@ -364,6 +381,25 @@ const fieldLabel = (key) => FIELD_LABELS[key] || key
 function draftLength(draft) {
   const payload = payloadOf(draft)
   return Object.values(payload).reduce((sum, value) => sum + String(value || '').length, 0)
+}
+
+/**
+ * 所有待确认草稿的体检结果。
+ *
+ * 用 computed 而不是在模板里调函数：模板里的函数每次重渲染都会跑一遍，
+ * 而体检要逐字扫全文 —— 草稿多的时候会把界面拖卡。
+ */
+const draftLints = computed(() => {
+  const result = {}
+  for (const draft of drafts.value) {
+    result[draft.id] = lintDraft(payloadOf(draft))
+  }
+  return result
+})
+
+/** 把体检发现填进输入框，作者改不改、怎么改都由他定 */
+function askFix(draft) {
+  draftMessage.value = buildFixRequest(draft.title, draftLints.value[draft.id] || [])
 }
 
 /**
@@ -670,6 +706,39 @@ async function discardDraft(draft) {
   font-size: 13px;
   line-height: 1.75;
 }
+
+/* ---------- 内容体检 ---------- */
+.pl-draft-lint {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-gold);
+  border-radius: var(--radius-s);
+  background: rgba(184, 134, 11, 0.05);
+}
+
+.pl-lint-item {
+  font-size: 12px;
+  line-height: 1.75;
+  color: #8a6608;
+}
+.pl-lint-item + .pl-lint-item { margin-top: 4px; }
+
+.pl-lint-label { font-weight: 700; margin-right: 6px; }
+
+.pl-lint-detail { word-break: break-word; }
+
+.pl-lint-fix {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-gold);
+  border-radius: var(--radius-s);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: #8a6608;
+  transition: background var(--dur) var(--ease-out);
+}
+.pl-lint-fix:hover { background: rgba(184, 134, 11, 0.12); }
 
 .pl-draft-actions { display: flex; gap: 8px; margin-top: 12px; }
 
