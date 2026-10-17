@@ -8,6 +8,8 @@ import com.mojian.chapter.entity.ChapterMemory;
 import com.mojian.chapter.mapper.ChapterMemoryMapper;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.mapper.PlotOutlineMapper;
+import com.mojian.project.entity.StoryProject;
+import com.mojian.project.service.ProjectService;
 import com.mojian.world.character.entity.CharacterProfile;
 import com.mojian.world.character.service.CharacterService;
 import com.mojian.world.setting.entity.SettingEntry;
@@ -78,6 +80,7 @@ public class AgentMaterialLoader {
 
     private final CharacterService characterService;
     private final SettingService settingService;
+    private final ProjectService projectService;
     private final ChapterIndex chapterIndex;
     private final ChapterMemoryMapper chapterMemoryMapper;
     private final PlotOutlineMapper plotOutlineMapper;
@@ -100,6 +103,10 @@ public class AgentMaterialLoader {
      */
     public List<AgentContextSection> loadAll(Long projectId, Long excludeChapterId) {
         List<AgentContextSection> sections = new ArrayList<>();
+        // 概况放最前：书名、题材、文风、写作规则 —— 这是"这本书是什么"，
+        // 比任何细节都更该先看到。漏了它，Agent 就会在完全不知道题材的情况下
+        // 追问"你要写玄幻还是都市"，而作者明明已经在项目里填过了。
+        addIfPresent(sections, projectSection(projectId));
         addIfPresent(sections, memorySection(projectId));
         addIfPresent(sections, outlineSection(projectId));
         addIfPresent(sections, characterSection(projectId));
@@ -109,6 +116,36 @@ public class AgentMaterialLoader {
                 projectId, sections.size(),
                 sections.stream().mapToInt(AgentContextSection::estimateTokens).sum());
         return sections;
+    }
+
+    /**
+     * 本书概况：书名、题材、整体文风、简介、项目级写作规则。
+     *
+     * <p>这一块定为 <b>REQUIRED</b>：它只有几百字，却决定了后面所有判断的底色。
+     * 宁可裁掉几章原文，也不能让 Agent 不知道自己在写什么题材的书。
+     */
+    private AgentContextSection projectSection(Long projectId) {
+        StoryProject project = projectService.requireById(projectId);
+        StringBuilder sb = new StringBuilder();
+        appendLine(sb, "书名", project.getName());
+        appendLine(sb, "题材", project.getGenre());
+        appendLine(sb, "整体文风", project.getStyle());
+        appendLine(sb, "简介", project.getIntro());
+        // 写作规则是"必须遵守"的，措辞上把它和其余信息区分开 ——
+        // 模型对"设定"和"要求"的处理方式不一样
+        if (StringUtils.hasText(project.getWritingRules())) {
+            sb.append("【本书写作规则（必须遵守）】\n").append(project.getWritingRules().trim()).append('\n');
+        }
+        if (sb.isEmpty()) {
+            return null;
+        }
+        return AgentContextSection.required("本书概况", sb.toString().trim());
+    }
+
+    private void appendLine(StringBuilder sb, String label, String value) {
+        if (StringUtils.hasText(value)) {
+            sb.append(label).append('：').append(value.trim()).append('\n');
+        }
     }
 
     /** 只要最近 N 章的正文（写作 Agent 的"近章原文"策略会用到） */

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/project'
 import { listProjects, updateProject } from '../api/project'
@@ -300,6 +300,17 @@ onMounted(() => {
   document.addEventListener('mousedown', onPointerDown, true)
   document.addEventListener('keydown', onKeydown)
 })
+
+/*
+ * 跟着路由刷新。
+ *
+ * 有些变化是"外面"发生的，树自己看不见：
+ *   - 在项目页新建了项目
+ *   - 新开一段对话并发出第一条消息（会说落库，会话 id 才写进 URL）
+ * 这些都会改变 fullPath，所以监听它是最省心也最可靠的做法 ——
+ * 比在每个可能改数据的地方都记得喊一声 reload 靠谱得多。
+ */
+watch(() => route.fullPath, () => reload())
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onPointerDown, true)

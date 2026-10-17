@@ -203,9 +203,21 @@ class AgentMaterialLoaderTest {
     }
 
     @Test
-    @DisplayName("空项目：不报错、返回空列表（Agent 面对新书不能崩）")
+    @DisplayName("空项目：不报错。概况（书名）仍在，其余内容类材料为空")
     void 空项目安全() {
-        assertThat(loader.loadAll(newProject())).isEmpty();
+        List<AgentContextSection> all = loader.loadAll(newProject());
+
+        // 概况是"这本书是什么"，只要项目存在就有（书名至少有一个）。
+        // 它必须是 REQUIRED —— 宁可裁掉几章原文，也不能让 Agent 不知道
+        // 自己在写什么题材的书。
+        // 注意：required() 造出来的 kind 统一是"必需"，靠 title 区分
+        assertThat(all.stream().filter(section -> "本书概况".equals(section.title())).toList())
+                .singleElement()
+                .satisfies(section -> assertThat(section.required()).isTrue());
+
+        // 内容类材料（摘要 / 蓝图 / 人物 / 设定 / 章节）应当一个都没有
+        assertThat(all).noneMatch(section -> List.of("摘要", "蓝图", "人物", "设定", "原文")
+                .contains(section.kind()));
     }
 
     @Test
