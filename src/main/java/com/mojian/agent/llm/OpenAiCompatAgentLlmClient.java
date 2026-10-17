@@ -28,6 +28,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
+import com.mojian.agent.tool.AgentTool;
 
 /**
  * 带工具调用能力的 OpenAI 兼容客户端（/chat/completions）。
@@ -120,7 +123,13 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-            AgentLlmResponse parsed = parseStream(reader, listener);
+            // 哪些工具的参数里装的是"大段内容"，由工具自己声明
+            Map<String, String> contentFields = availableTools == null ? Map.of()
+                    : availableTools.stream()
+                            .filter(tool -> tool.streamingContentField() != null)
+                            .collect(Collectors.toMap(AgentTool::name, AgentTool::streamingContentField));
+
+            AgentLlmResponse parsed = parseStream(reader, listener, contentFields);
             log.debug("[{}] {} 流式 -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
             return parsed;
         } catch (IOException e) {
@@ -141,7 +150,8 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
      *       因为一帧坏掉就丢弃已经生成的几百字，代价太大</li>
      * </ol>
      */
-    private AgentLlmResponse parseStream(BufferedReader reader, LlmStreamListener listener) throws IOException {
+    private AgentLlmResponse parseStream(BufferedReader reader, LlmStreamListener listener,
+                                         Map<String, String> contentFields) throws IOException {
         StringBuilder content = new StringBuilder();
         Map<Integer, ToolCallBuilder> callBuilders = new LinkedHashMap<>();
         TokenUsage usage = TokenUsage.NONE;
@@ -199,13 +209,16 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
                         builder.name = function.path("name").asText("");
                     }
                     if (function.hasNonNull("arguments")) {
-                        builder.arguments.append(function.path("arguments").asText(""));
+                        String fragment = function.path("arguments").asText("");
+                        builder.arguments.append(fragment);
+                        // 正文就在这串参数里。不在这里边收边抽，用户就要等模型把它
+                        // 写完（可能一两分钟）才看得见第一个字 —— 流式等于白做
+                        pushContentDelta(builder, fragment, contentFields, listener);
                     }
-                    // 诊断用：收到 tool_calls 帧却没有 id / 函数名，说明这个服务方的
-                    // 流式结构和我们预期的不一样。把原始帧打出来，下次一跑就能定位 ——
-                    // 否则只能看到"工具名是空的"这种毫无线索的现象
-                    if (!gotId && !gotName) {
-                        log.warn("流式 tool_calls 帧结构异常（无 id 无函数名），原始帧: {}", shorten(payload));
+                    // 服务方后续的分片只有 arguments（id 与函数名只在第一片出现），
+                    // 所以这里不做告警 —— 那是正常的流式结构，不是异常
+                    if (!gotId && !gotName && log.isDebugEnabled()) {
+                        log.debug("流式 tool_calls 分片（无 id 无函数名，属正常）：{}", shorten(payload));
                     }
                 }
             }
@@ -222,6 +235,15 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
                 log.warn("流式解析得到一个没有名字的工具调用（id={}），本轮无法执行", call.id());
             }
         }
+
+        // 诊断：把声明了内容字段的工具参数开头打出来，便于排查服务方的结构差异
+        if (log.isDebugEnabled()) {
+            callBuilders.values().stream()
+                    .filter(b -> b.contentExtractor != null)
+                    .forEach(b -> log.debug("[STREAM-DIAG] tool={} argsHead={} extracted={}",
+                            b.name, shorten(b.arguments.toString()), b.extractedChars));
+        }
+
         return new AgentLlmResponse(content.isEmpty() ? null : content.toString(), toolCalls, usage);
     }
 
@@ -230,6 +252,37 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         private String id = "";
         private String name = "";
         private final StringBuilder arguments = new StringBuilder();
+        /** 若本工具声明了"大段内容"字段，用它在参数还在到达时就抽出内容 */
+        private ToolArgumentExtractor contentExtractor;
+        /** 已抽出的字数，仅用于诊断 */
+        private int extractedChars;
+    }
+
+    /**
+     * 把工具参数里"大段内容"的新增部分推给回调。
+     *
+     * <p>名字还没到齐时直接跳过：OpenAI 的流式协议里，
+     * 同一个工具调用的第一片会带上 {@code function.name}，arguments 在其后，
+     * 所以正常情况下这里不会落空。
+     */
+    private void pushContentDelta(ToolCallBuilder builder, String fragment,
+                                  Map<String, String> contentFields, LlmStreamListener listener) {
+        String field = contentFields.get(builder.name);
+        if (field == null) {
+            return;
+        }
+        if (builder.contentExtractor == null) {
+            builder.contentExtractor = new ToolArgumentExtractor(field);
+            // 诊断日志用纯 ASCII 前缀：日志文件里的中文 grep 不可靠，
+            // 排查时最不该发生的就是"日志明明打了却搜不到"
+            log.debug("[STREAM-DIAG] tool={} field={} firstChunk={}",
+                    builder.name, field, shorten(fragment));
+        }
+        String text = builder.contentExtractor.append(fragment);
+        if (!text.isEmpty()) {
+            builder.extractedChars += text.length();
+            listener.onToolContentDelta(builder.name, text);
+        }
     }
 
     private HttpRequest buildRequest(AgentContext context, AgentProfileService.ResolvedModel resolved,

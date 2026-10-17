@@ -25,4 +25,16 @@ public interface LlmStreamListener {
     /** 一个工具调用的参数开始输出。工具名可能还没到齐，所以只用于提示"正在准备调用工具" */
     default void onToolCallStarted() {
     }
+
+    /**
+     * 工具参数里"大段内容"字段的增量（例如正在写的正文）。
+     *
+     * <p>正文是通过工具参数传的，不在 {@link #onDelta} 里 ——
+     * 不单独抽出来的话，用户会在模型写作的那一两分钟里只看到空白。
+     *
+     * @param toolName 哪个工具的参数字段（如 save_chapter_draft）
+     * @param delta    本次新增的内容
+     */
+    default void onToolContentDelta(String toolName, String delta) {
+    }
 }

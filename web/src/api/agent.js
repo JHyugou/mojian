@@ -100,8 +100,10 @@ export function setWritingRequirement(chapterId, requirement) {
 /**
  * 订阅写作任务的 SSE 事件流。
  *
- * 事件：status / progress / delta（正文增量）/ reasoning /
- *       tool-call / tool-result / result / task-error / end
+ * 事件：
+ *   status / progress / reasoning / tool-call / tool-result / result / task-error / end
+ *   delta   —— 模型<b>说</b>的话（对话流里的回答）
+ *   content —— 模型<b>写</b>的正文增量。正文装在工具参数里，所以单独一条通道
  *
  * 返回 EventSource，调用方负责 close()。
  */
@@ -110,6 +112,7 @@ export function subscribeWritingTask(taskId, handlers) {
   source.addEventListener('status', (e) => handlers.onStatus?.(e.data))
   source.addEventListener('progress', (e) => handlers.onProgress?.(e.data))
   source.addEventListener('delta', (e) => handlers.onDelta?.(e.data))
+  source.addEventListener('content', (e) => handlers.onContent?.(e.data))
   source.addEventListener('reasoning', (e) => handlers.onReasoning?.(e.data))
   source.addEventListener('tool-call', (e) => handlers.onToolCall?.(e.data))
   source.addEventListener('tool-result', (e) => handlers.onToolResult?.(e.data))

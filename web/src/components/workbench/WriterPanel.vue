@@ -1,7 +1,7 @@
 <template>
   <div class="wr">
     <!-- ==================== 左：交互区 ==================== -->
-    <section class="wr-chat">
+    <section class="wr-chat" :style="{ width: chatWidth + 'px' }">
       <header class="wr-chat-head">
         <!-- 章节选择。原来在左栏的章节目录里，左栏与右栏内容重复，已移除 -->
         <div class="wr-chapter">
@@ -98,8 +98,14 @@
           <div class="wr-bubble">{{ m.text }}</div>
         </div>
 
-        <!-- 进行中。要占对话流里的一条，否则看起来像"说了话没人应" -->
-        <div v-if="running" class="wr-msg is-assistant mj-fade">
+        <!-- 正在说话：回答逐字出现在对话流里，和右边的正文是两条通道 -->
+        <div v-if="running && streamingAnswer" class="wr-msg is-assistant mj-fade">
+          <div class="wr-msg-tag">写作 Agent</div>
+          <div class="wr-bubble mj-caret">{{ streamingAnswer }}</div>
+        </div>
+
+        <!-- 还没开口：显示它在干什么 -->
+        <div v-else-if="running" class="wr-msg is-assistant mj-fade">
           <div class="wr-msg-tag">写作 Agent</div>
           <div class="wr-bubble wr-thinking">
             <span class="mj-dots"><i></i><i></i><i></i></span>
@@ -142,6 +148,9 @@
         </div>
       </footer>
     </section>
+
+    <!-- 交互区与内容区之间：拖拽调整。想仔细读正文就往左拖，想多聊几句就往右拖 -->
+    <Resizer v-model="chatWidth" :min="320" :max="880" />
 
     <!-- ==================== 右：章节内容 ==================== -->
     <section class="wr-content">
@@ -208,6 +217,7 @@ import {
   subscribeWritingTask
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
+import Resizer from './Resizer.vue'
 import VersionPanel from '../VersionPanel.vue'
 import MemoryPanel from '../MemoryPanel.vue'
 
@@ -231,6 +241,8 @@ const requirementSaved = ref(false)
 const messages = ref([])
 const citations = ref([])
 const menu = ref(null)
+/** 正在流式输出的回答（它说的话）。结束后会被落库的完整版本替换 */
+const streamingAnswer = ref('')
 
 const running = ref(false)
 const statusText = ref('')
@@ -242,6 +254,10 @@ const streamEl = ref(null)
 const tab = ref('text')
 const chapterMenuOpen = ref(false)
 const newChapterTitle = ref('')
+
+/** 交互区宽度可拖拽，并记住 */
+const chatWidth = ref(Number(localStorage.getItem('mojian.chatWidth')) || 460)
+watch(chatWidth, (value) => localStorage.setItem('mojian.chatWidth', String(value)))
 
 const tabs = [
   { key: 'text', label: '正文' },
@@ -496,6 +512,7 @@ async function start() {
   running.value = true
   error.value = ''
   progress.value = []
+  streamingAnswer.value = ''
   phase.value = '正在准备材料…'
   statusText.value = '写作中'
   scrollStreamToBottom()
@@ -523,14 +540,20 @@ async function start() {
       onProgress: (p) => {
         progress.value = [...progress.value.slice(-3), p]
       },
-      onDelta: (delta) => {
+      onContent: (delta) => {
+        // 正文：逐字出现在右边。它装在工具参数里，走的是单独的 content 通道
         if (pendingReplace) {
           text.value = ''
           pendingReplace = false
         }
-        // SSE 会把同一事件里的多个 data 行用换行拼好，这里直接追加
         text.value += delta
         scrollBodyToBottom()
+      },
+      onDelta: (delta) => {
+        // 回答：逐字出现在左边对话流。和正文是两回事 ——
+        // 混在一条通道里的话，它说的"改好了…"会被拼到正文后面去
+        streamingAnswer.value += delta
+        scrollStreamToBottom()
       },
       onError: (message) => {
         // 立刻显示，不等 onEnd —— 失败的当下就该看见原因
@@ -545,6 +568,7 @@ async function start() {
         // 后端也会把失败落进会话，所以这里统一重载：
         // 保证"当场看到的"和"刷新后看到的"完全一致
         await loadConversation()
+        streamingAnswer.value = ''
       }
     })
   } catch (e) {
@@ -565,11 +589,11 @@ async function start() {
 
 /* ==================== 左：交互区 ==================== */
 .wr-chat {
-  flex: 0 0 42%;
-  min-width: 320px;
+  /* 宽度由 Resizer 拖拽控制（内联 style） */
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--color-line);
+  flex-shrink: 0;
 }
 
 .wr-chat-head {

@@ -42,4 +42,17 @@ public interface AgentTool {
      *         而不是返回对象或状态码。
      */
     String execute(AgentContext context, Map<String, Object> arguments);
+
+    /**
+     * 本工具的参数里，哪个字段装的是"大段内容"（比如正文）。
+     *
+     * <p>用来支持<b>边写边看</b>：这类内容可能有几千字，模型要写上一两分钟。
+     * 声明之后，客户端就能在参数还在一片片到达时，把内容随时间抽出来推给界面 ——
+     * 否则用户这两分钟只能看到空白，然后正文一次性冒出来。
+     *
+     * <p>不装大段内容的工具返回 null 即可（默认如此）。
+     */
+    default String streamingContentField() {
+        return null;
+    }
 }

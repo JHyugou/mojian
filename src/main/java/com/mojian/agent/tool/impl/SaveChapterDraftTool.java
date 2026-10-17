@@ -65,6 +65,15 @@ public class SaveChapterDraftTool implements AgentTool {
                 "required", List.of("content"));
     }
 
+    /**
+     * 正文是"大段内容"：可能五千字、模型要写一两分钟。
+     * 声明之后，客户端能在它一片片流出时实时推给界面，做到"边写边看"。
+     */
+    @Override
+    public String streamingContentField() {
+        return "content";
+    }
+
     @Override
     public String execute(AgentContext context, Map<String, Object> arguments) {
         Long chapterId = context.requireChapterId();

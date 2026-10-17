@@ -143,6 +143,14 @@ public class WriterService {
             }
 
             @Override
+            public void onToolContentDelta(String toolName, String delta) {
+                // 正文通过工具参数传，这才是"边写边看"真正的内容来源。
+                // 走 content 通道而不是 delta：delta 是"它说了什么"（回答），
+                // 混在一起的话回答会被拼到正文后面，界面上就分不清了
+                broker.publishContent(taskId, delta);
+            }
+
+            @Override
             public void onReasoning(String delta) {
                 broker.publishReasoning(taskId, delta);
             }

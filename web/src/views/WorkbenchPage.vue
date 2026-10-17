@@ -70,10 +70,14 @@
         </Transition>
       </main>
 
+      <!-- 中栏与右栏之间：拖拽调整右栏宽度，向左拖变宽 -->
+      <Resizer v-model="rightWidth" :min="240" :max="760" invert />
+
       <!-- 右：可切换分屏（引用源）。
            四种内容都能浏览并框选引用；中栏始终是纯交互区。
-           非「资料」页签时加宽 —— 浏览长文本和框选都需要宽度。 -->
-      <aside class="wb-right" :class="{ 'is-wide': rightTab !== 'info' }">
+           宽度由拖拽决定并记住 —— 浏览长文本时想拉宽，看一眼用量时想收窄，
+           两种需求常常在同一次使用里来回切换，固定值满足不了。 -->
+      <aside class="wb-right" :style="{ width: rightWidth + 'px' }">
         <nav class="wb-right-tabs">
           <button
             v-for="t in rightTabs"
@@ -184,6 +188,7 @@ import { getContextReport } from '../api/agent'
 import PlannerPanel from '../components/workbench/PlannerPanel.vue'
 import WriterPanel from '../components/workbench/WriterPanel.vue'
 import ResourceBrowser from '../components/workbench/ResourceBrowser.vue'
+import Resizer from '../components/workbench/Resizer.vue'
 
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentId)
@@ -211,6 +216,10 @@ function onConversationChanged(conversationId) {
 }
 
 const rightTab = ref('info')
+
+/** 右栏宽度可拖拽，并记住 */
+const rightWidth = ref(Number(localStorage.getItem('mojian.rightWidth')) || 320)
+watch(rightWidth, (value) => localStorage.setItem('mojian.rightWidth', String(value)))
 const rightTabs = [
   { key: 'info', label: '资料' },
   { key: 'characters', label: '人物' },
@@ -529,16 +538,12 @@ watch(projectId, () => loadAll())
 .wb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 .wb-right {
-  width: 264px;
   border-left: 1px solid var(--color-line);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width var(--dur-slow) var(--ease-out);
+  /* 宽度由 Resizer 拖拽控制（内联 style） */
 }
-
-/* 蓝图浏览器需要宽度：浏览长文本、框选一段，窄栏做不了这两件事 */
-.wb-right.is-wide { width: 440px; }
 
 .wb-right-tabs {
   display: flex;

@@ -30,6 +30,15 @@ public interface AgentRunListener {
     default void onAssistantDelta(String delta) {
     }
 
+    /**
+     * 工具参数里"大段内容"的增量（例如正在写的正文）。
+     *
+     * <p>正文不走 {@link #onAssistantDelta} —— 它装在工具参数里。
+     * 不把它接出来，写作时界面就会在模型写作的一两分钟里一直空着。
+     */
+    default void onToolContentDelta(String toolName, String delta) {
+    }
+
     /** 模型的思维链增量（推理模型会先想一段）。可以拿它显示"正在思考…" */
     default void onReasoning(String delta) {
     }
@@ -63,6 +72,11 @@ public interface AgentRunListener {
             @Override
             public void onToolCallStarted() {
                 self.onToolCallStarted();
+            }
+
+            @Override
+            public void onToolContentDelta(String toolName, String delta) {
+                self.onToolContentDelta(toolName, delta);
             }
         };
     }

@@ -1,16 +1,21 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from './stores/project'
 import { useMessageStore } from './stores/message'
 import { listProjects } from './api/project'
 import { listConversations, deleteConversation } from './api/agent'
+import Resizer from './components/workbench/Resizer.vue'
 
 const contextOpen = ref(true)
 const projectStore = useProjectStore()
 const messageStore = useMessageStore()
 const route = useRoute()
 const router = useRouter()
+
+/** 侧栏宽度可拖拽，并记住 —— 调好一次就不用每次再调 */
+const sideWidth = ref(Number(localStorage.getItem('mojian.sideWidth')) || 232)
+watch(sideWidth, (value) => localStorage.setItem('mojian.sideWidth', String(value)))
 
 /*
  * 导航只剩四页：工作台、项目、成书、模型接入。
@@ -113,8 +118,13 @@ function openConversation(project, conversation) {
 /** 在当前项目里新开一段对话。真正落库发生在发出第一条消息时 */
 function newConversation() {
   const current = projectStore.current || projects.value[0]
-  if (!current) return
-  projectStore.select(current)
+  if (current) newConversationIn(current)
+}
+
+/** 在指定项目里新开一段对话 */
+function newConversationIn(project) {
+  projectStore.select(project)
+  expanded.value = new Set([...expanded.value, project.id])
   router.push({ path: '/workbench', query: { mode: 'planner', fresh: Date.now() } })
 }
 
@@ -171,7 +181,7 @@ onMounted(loadWorkspace)
     </header>
 
     <div class="app-body">
-      <aside class="app-side" aria-label="工作区导航">
+      <aside class="app-side" :style="{ width: sideWidth + 'px' }" aria-label="工作区导航">
         <nav class="app-nav">
           <RouterLink
             v-for="item in navItems"
@@ -224,9 +234,12 @@ onMounted(loadWorkspace)
                     @click.stop="removeConversation(c)"
                   >×</span>
                 </button>
-                <p v-if="!conversationsOf(p.id).length" class="ws-empty">
-                  还没有对话，点右上角 ＋ 开始
-                </p>
+                <p v-if="!conversationsOf(p.id).length" class="ws-empty">还没有对话</p>
+                <!-- 新建入口就放在项目下面：这是"想在这里加一段"最自然的位置，
+                     不像顶部那个 ＋ 需要先意识到它是给当前项目的 -->
+                <button class="ws-new-conv" @click.stop="newConversationIn(p)">
+                  ＋ 新建对话
+                </button>
               </div>
             </div>
 
@@ -234,6 +247,9 @@ onMounted(loadWorkspace)
           </div>
         </section>
       </aside>
+
+      <!-- 左栏与主区之间：拖拽调整侧栏宽度 -->
+      <Resizer v-model="sideWidth" :min="180" :max="420" />
 
       <main class="app-main">
         <RouterView />
@@ -409,9 +425,9 @@ onMounted(loadWorkspace)
   min-height: 0;
 }
 
-/* 侧栏现在装两样东西：导航 + 工作区树。宽度与底色统一在这里，两段共用 */
+/* 侧栏现在装两样东西：导航 + 工作区树。底色统一在这里，两段共用。
+   宽度由 Resizer 拖拽控制（内联 style），这里不再写死 */
 .app-side {
-  width: var(--nav-width);
   background: var(--color-dai);
   border-right: 1px solid var(--color-line);
   display: flex;
@@ -574,6 +590,25 @@ onMounted(loadWorkspace)
   font-size: 11px;
   color: var(--color-muted);
   line-height: 1.7;
+}
+
+/* 项目下面的新建入口：平时低调，悬停时明确 */
+.ws-new-conv {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px dashed transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--color-muted);
+  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.ws-new-conv:hover {
+  color: var(--color-brown-deep);
+  border-color: var(--color-line);
 }
 
 .nav-item {

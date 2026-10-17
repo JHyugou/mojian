@@ -27,6 +27,7 @@ public class TaskEventBroker {
 
     private final Map<Long, CopyOnWriteArrayList<SseEmitter>> emittersByTask = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> deltaBufferByTask = new ConcurrentHashMap<>();
+    private final Map<Long, StringBuilder> contentBufferByTask = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> reasoningBufferByTask = new ConcurrentHashMap<>();
     private final Map<Long, String> statusByTask = new ConcurrentHashMap<>();
 
@@ -49,6 +50,10 @@ public class TaskEventBroker {
         String buffered = deltaBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
         if (!buffered.isEmpty()) {
             send(emitter, taskId, "delta", buffered);
+        }
+        String bufferedContent = contentBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
+        if (!bufferedContent.isEmpty()) {
+            send(emitter, taskId, "content", bufferedContent);
         }
         if (isFinalStatus(status)) {
             send(emitter, taskId, "end", status);
@@ -77,6 +82,20 @@ public class TaskEventBroker {
             reasoningBufferByTask.computeIfAbsent(taskId, k -> new StringBuilder()).append(delta);
         }
         broadcast(taskId, "reasoning", delta);
+    }
+
+    /**
+     * 正文增量。
+     *
+     * <p><b>为什么和 {@link #publishDelta} 分开</b>：两者是不同性质的东西 ——
+     * delta 是"它说了什么"（对话流里的回答），content 是"它写了什么"（正文）。
+     * 混在一个通道里，回答会被拼到正文后面去，界面上就分不清哪是哪了。
+     */
+    public void publishContent(Long taskId, String delta) {
+        synchronized (this) {
+            contentBufferByTask.computeIfAbsent(taskId, k -> new StringBuilder()).append(delta);
+        }
+        broadcast(taskId, "content", delta);
     }
 
     /**
@@ -109,6 +128,7 @@ public class TaskEventBroker {
         synchronized (this) {
             emittersByTask.remove(taskId);
             deltaBufferByTask.remove(taskId);
+            contentBufferByTask.remove(taskId);
             reasoningBufferByTask.remove(taskId);
         }
     }
