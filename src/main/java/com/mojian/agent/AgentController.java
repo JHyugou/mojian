@@ -15,6 +15,7 @@ import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentProfileService;
+import com.mojian.agent.service.AgentUsageService;
 import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.DraftService;
 import com.mojian.agent.service.PlannerService;
@@ -68,6 +69,7 @@ public class AgentController {
     private final DraftService draftService;
     private final WriterService writerService;
     private final ChapterService chapterService;
+    private final AgentUsageService usageService;
     private final TaskEventBroker broker;
 
     // ==================== 策划对话 ====================
@@ -264,6 +266,22 @@ public class AgentController {
     }
 
     // ==================== 草稿（人工确认） ====================
+
+    /**
+     * 用量与花销（<b>单位是美元</b>，单价表按 OpenCode Go 的美元定价）。
+     *
+     * <p>为什么值得有个接口：Agent 的花销是<b>不可见</b>的 ——
+     * 它不像点外卖那样有个明确的"提交"动作，而是在对话里一次次调用悄悄累积。
+     * 没有这个数字，作者能感知到的只有两种状态："好像还行"和"怎么欠费了"。
+     */
+    @GetMapping("/usage")
+    public ApiResponse<Map<String, Object>> usage(@RequestParam(defaultValue = "20") int limit,
+                                                  @RequestParam(defaultValue = "30") int days) {
+        return ApiResponse.ok(Map.of(
+                "currency", "USD",
+                "recent", usageService.recent(limit),
+                "summary", usageService.summary(days)));
+    }
 
     /**
      * 前端把未捕获的错误回传到这里。

@@ -45,6 +45,7 @@ public class PlannerService {
     private final AgentContextService agentContextService;
     private final ConversationService conversationService;
     private final AgentProfileService profileService;
+    private final AgentUsageService usageService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage) {
         // 1. 会话
@@ -74,6 +75,9 @@ public class PlannerService {
         // 6. 回答落库
         conversationService.append(conversation.getId(), result.steps(),
                 AgentMessage.assistant(result.answer(), null));
+
+        // 7. 记账 —— 花销要看得见，否则作者只能等到欠费才知道
+        usageService.record(context, result.usage());
 
         log.info("策划对话完成（会话 {}）：{} 步 / {} / {}", conversation.getId(),
                 result.steps(), result.status(), result.usage().describe());

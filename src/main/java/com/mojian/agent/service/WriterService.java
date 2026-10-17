@@ -83,6 +83,7 @@ public class WriterService {
     private final OutlineService outlineService;
     private final ChapterIndex chapterIndex;
     private final TaskEventBroker broker;
+    private final AgentUsageService usageService;
     private final ExecutorService agentTaskExecutor;
 
     // ==================== 异步任务（给界面用） ====================
@@ -290,6 +291,9 @@ public class WriterService {
         Chapter updated = chapterService.requireById(chapterId);
         boolean saved = StringUtils.hasText(updated.getContent())
                 && result.trace().stream().anyMatch(step -> SAVE_TOOL.equals(step.toolName()));
+
+        // 8. 记账。被终止的运行也要记：钱已经花出去了，不能因为"没写完"就不算
+        usageService.record(context, result.usage());
 
         log.info("写作任务完成（第 {} 章）：{} 步 / {} / 落库={} / {}",
                 chapterId, result.steps(), result.status(), saved, result.usage().describe());
