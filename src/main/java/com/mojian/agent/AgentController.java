@@ -10,6 +10,7 @@ import com.mojian.agent.dto.WriterRunRequest;
 import com.mojian.agent.dto.WritingRequirementRequest;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextBudget;
+import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.service.AgentContextService;
@@ -114,6 +115,26 @@ public class AgentController {
     }
 
     // ==================== 写作 ====================
+
+    /**
+     * 本书的写作会话与历史。
+     *
+     * <p>写作会话是<b>整本书一个、跨章存续</b>的 —— 副 Agent 靠它记得住
+     * 你此前说过的写作偏好与约束，而不是每章从零开始。
+     */
+    @GetMapping("/writer/projects/{projectId}/conversation")
+    public ApiResponse<Map<String, Object>> writerConversation(@PathVariable Long projectId) {
+        AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
+        List<Map<String, String>> messages = conversationService
+                .loadTextHistory(conversation.getId())
+                .stream()
+                .map(m -> Map.of("role", m.role(),
+                        "content", m.content() == null ? "" : m.content()))
+                .toList();
+        return ApiResponse.ok(Map.of(
+                "conversationId", conversation.getId(),
+                "messages", messages));
+    }
 
     /**
      * 启动一次写作任务，<b>立刻返回任务 id</b>。

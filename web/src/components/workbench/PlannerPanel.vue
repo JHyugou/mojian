@@ -146,6 +146,7 @@ import {
   rejectDraft,
   selectPlanOption
 } from '../../api/agent'
+import { buildCitedMessage, citationPreview } from '../../utils/citation'
 
 const props = defineProps({
   projectId: { type: [Number, String], required: true },
@@ -181,34 +182,16 @@ const DRAFT_LABELS = {
 
 const toolLabel = (name) => TOOL_LABELS[name] || name
 const draftTypeLabel = (type) => DRAFT_LABELS[type] || type
-const preview = (text) => (text.length > 40 ? text.slice(0, 40) + '…' : text)
+const preview = citationPreview
 
 /**
  * 组装这一轮真正发出去的消息。
  *
- * <p>引用必须<b>放在最前面并标明出处</b>：模型是靠这段文字知道"你说的是哪一段"的。
- * 用 {@code >} 逐行引用而不是直接拼接，是为了让它在长消息里一眼能看出
- * "哪部分是被引用的原文、哪部分是用户的要求" —— 这两者混在一起最容易改错地方。
+ * 引用格式由共用的 buildCitedMessage 决定 —— 它和写作面板用的是同一份实现，
+ * 格式必须一致：模型是靠这段固定格式认出"哪部分是被引的原文"的。
  */
 function buildMessage() {
-  const text = draftMessage.value.trim()
-  if (!props.citations.length) {
-    return text
-  }
-  const quoted = props.citations
-    .map((c) => {
-      const body = String(c.text)
-        .split('\n')
-        .map((line) => '> ' + line)
-        .join('\n')
-      // 标明出处：人物 / 设定 / 蓝图节点。模型由此知道该用哪个 update_* 工具
-      return `【引用 · ${c.kind || '资料'}「${c.targetName}」】\n${body}`
-    })
-    .join('\n\n')
-
-  return text
-    ? `${quoted}\n\n${text}`
-    : `${quoted}\n\n请针对上面引用的内容，给出修改方案。`
+  return buildCitedMessage(props.citations, draftMessage.value)
 }
 
 function scrollToBottom() {

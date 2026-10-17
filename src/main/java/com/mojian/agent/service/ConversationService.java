@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mojian.agent.AgentRole;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentMessageLog;
 import com.mojian.agent.entity.AgentPlanOption;
@@ -117,6 +118,68 @@ public class ConversationService {
     /** 原始记录（带 stepNo 等字段），给界面展示 trace 用 */
     public List<AgentMessageLog> loadLogs(Long conversationId) {
         return messageLogMapper.selectByConversation(conversationId);
+    }
+
+    // ==================== 长期存续的写作会话 ====================
+
+    /** 长期写作会话的规范标题 */
+    private static final String WRITER_TITLE = "写作会话（跨章存续）";
+
+    /**
+     * 取本书的写作会话，没有就建一个。
+     *
+     * <p><b>整本书一个，跨章存续</b> —— 这不是省事，是需求：
+     * 副 Agent 要能在写第 14 章时记得"上次你不喜欢太多心理描写"、
+     * 记得你上一章提过的那些写作约束。每次写作新开一段对话，
+     * 它就永远是个只有当前这一章记忆的写手。
+     *
+     * <p>取的是<b>最近使用过的那一段</b>（列表按 updated_at 倒序）：
+     * 早期版本每次写作都新开一段，库里因此可能已经攒下多段；
+     * 选最近在用的那段，能尽量把已有的对话记忆接续上，而不是从一段空会话重来。
+     */
+    @Transactional
+    public AgentConversation findOrCreateWriter(Long projectId) {
+        List<AgentConversation> existing = list(projectId, AgentRole.WRITER);
+        if (!existing.isEmpty()) {
+            AgentConversation conversation = existing.get(0);
+            // 顺手把标题规范一下：旧标题是"写「第十三章 追命剑」"这种按次生成的，
+            // 作者看到它会以为这是"写第十三章"的一次性会话，而不是整本书共用的
+            if (!WRITER_TITLE.equals(conversation.getTitle())) {
+                conversation.setTitle(WRITER_TITLE);
+                conversationMapper.updateById(conversation);
+            }
+            return conversation;
+        }
+        return create(projectId, AgentRole.WRITER, WRITER_TITLE);
+    }
+
+    /**
+     * 只取"人话"的历史：用户的指令 + 助手的文本回答。
+     *
+     * <p><b>为什么必须成对跳过，而不是简单过滤</b>：
+     * 协议要求 assistant 的 {@code tool_calls} 后面必须紧跟对应的 tool 结果。
+     * 如果保留"带工具调用的那一轮"却丢掉它的工具结果，请求会被服务方直接拒绝。
+     * 所以这两类一起不要 —— 工具结果本来就又长又是临时的
+     * （比如"读了第 3 章全文"），留在历史里只会白白吃掉上下文。
+     *
+     * <p>模型因此"不记得"某次具体查了什么。这没关系 —— 它需要时能再查一次，
+     * 而真正需要长期记住的是用户的偏好与约束，那些都在文本里。
+     */
+    public List<AgentMessage> loadTextHistory(Long conversationId) {
+        List<AgentMessage> history = new ArrayList<>();
+        for (AgentMessageLog record : messageLogMapper.selectByConversation(conversationId)) {
+            if (AgentMessage.ROLE_TOOL.equals(record.getRole())) {
+                continue;
+            }
+            if (record.getToolCallsJson() != null && !record.getToolCallsJson().isBlank()) {
+                continue;
+            }
+            if (record.getContent() == null || record.getContent().isBlank()) {
+                continue;
+            }
+            history.add(new AgentMessage(record.getRole(), record.getContent(), null, null));
+        }
+        return history;
     }
 
     // ==================== 剧情方案 ====================

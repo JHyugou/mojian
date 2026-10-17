@@ -1,5 +1,6 @@
 package com.mojian.agent.service;
 
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.mojian.agent.AgentContext;
 import com.mojian.agent.AgentLoopService;
 import com.mojian.agent.AgentPrompts;
@@ -74,15 +75,13 @@ public class WriterService {
     /**
      * 启动一次写作任务，立刻返回任务 id。
      *
-     * <p>任务 id 就用会话 id —— 会话已经把这次任务的输入、材料、输出都存下来了，
-     * 再发一个 id 只是多一处要同步的状态。
+     * <p><b>任务 id 与会话 id 现在是两个东西</b>：会话是长期存续的（整本书一个，跨章保持上下文），
+     * 而任务是一次性的。之前拿会话 id 当任务 id，是因为「一次任务=一段会话」；
+     * 现在会话不再新建，两者必须分开，否则两次写作会共用同一个事件通道。
      */
     public Long startTask(Long chapterId, String instruction) {
-        Chapter chapter = chapterService.requireById(chapterId);
-        AgentConversation conversation = conversationService.create(chapter.getProjectId(),
-                AgentRole.WRITER, "写「" + titleOf(chapter) + "」");
-        Long taskId = conversation.getId();
-
+        chapterService.requireById(chapterId);
+        Long taskId = IdWorker.getId();
         broker.publishStatus(taskId, STATUS_RUNNING);
         agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
         log.info("写作任务 {} 已提交（第 {} 章）", taskId, chapterId);
@@ -91,7 +90,7 @@ public class WriterService {
 
     private void runTask(Long taskId, Long chapterId, String instruction) {
         try {
-            WriterResult result = execute(chapterId, instruction, taskId, taskListener(taskId));
+            WriterResult result = execute(chapterId, instruction, taskListener(taskId));
             broker.publishEvent(taskId, "result",
                     (result.saved() ? "已写入正文 " + result.charCount() + " 字，版本 "
                             + result.versionNo() : "未产出正文") + "｜" + result.answer());
@@ -140,18 +139,17 @@ public class WriterService {
     // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
-        return execute(chapterId, instruction, null, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, AgentRunListener.NOOP);
     }
 
-    private WriterResult execute(Long chapterId, String instruction, Long existingTaskId,
-                                 AgentRunListener listener) {
+    private WriterResult execute(Long chapterId, String instruction, AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
 
-        // 1. 会话（异步任务已提前建好，直接复用）
-        AgentConversation conversation = existingTaskId == null
-                ? conversationService.create(projectId, AgentRole.WRITER, "写「" + titleOf(chapter) + "」")
-                : conversationService.require(existingTaskId);
+        // 1. 写作会话：整本书一个，跨章存续。
+        //    这样副 Agent 才记得住你上一章说过的偏好与约束，而不是每章从零开始。
+        AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
+        List<AgentMessage> history = conversationService.loadTextHistory(conversation.getId());
 
         // 2. 必备材料：本章蓝图 + 本章写作要求（改稿时再加"现有稿"）。全部 REQUIRED，永不裁
         boolean revising = StringUtils.hasText(chapter.getContent());
@@ -179,12 +177,12 @@ public class WriterService {
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
         conversationService.append(conversation.getId(), 0, AgentMessage.user(userInput));
 
-        // 5. 跑循环（过程实时回调出去）
+        // 5. 跑循环（带上这段会话的历史 —— 这是"跨章保持上下文"落地的地方）
         AgentContext context = AgentContext.forChapter(projectId, AgentRole.WRITER,
                 conversation.getId(), chapterId);
-        AgentResult result = agentLoopService.run(context, systemPrompt, List.of(), userInput, maxSteps(), listener);
+        AgentResult result = agentLoopService.run(context, systemPrompt, history, userInput, maxSteps(), listener);
 
-        // 6. 回答落库
+        // 6. 回答落库（进这段长期会话，下一章写作时它会作为历史被带上）
         conversationService.append(conversation.getId(), result.steps(),
                 AgentMessage.assistant(result.answer(), null));
 

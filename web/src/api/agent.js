@@ -46,6 +46,15 @@ export function rejectDraft(draftId) {
 
 // ==================== 写作 ====================
 
+/**
+ * 本书的写作会话与历史。
+ *
+ * 写作会话是整本书一个、跨章存续的 —— 副 Agent 靠它记得住你此前说过的写作偏好。
+ */
+export function getWriterConversation(projectId) {
+  return http.get(`/agent/writer/projects/${projectId}/conversation`)
+}
+
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
 export function startWritingTask(chapterId, instruction) {
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction })

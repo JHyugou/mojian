@@ -17,19 +17,29 @@ import java.util.List;
  */
 public record AgentMessage(String role, String content, String toolCallId, List<AgentToolCall> toolCalls) {
 
+    /*
+     * 角色名做成常量：它们会出现在好几处判断里
+     * （比如"读长期历史时要跳过工具结果"），散落的字面量迟早会写错一个字母，
+     * 而写错的表现是"历史被静默丢了一部分"，不报错、只是模型表现变差。
+     */
+    public static final String ROLE_SYSTEM = "system";
+    public static final String ROLE_USER = "user";
+    public static final String ROLE_ASSISTANT = "assistant";
+    public static final String ROLE_TOOL = "tool";
+
     public static AgentMessage system(String content) {
-        return new AgentMessage("system", content, null, null);
+        return new AgentMessage(ROLE_SYSTEM, content, null, null);
     }
 
     public static AgentMessage user(String content) {
-        return new AgentMessage("user", content, null, null);
+        return new AgentMessage(ROLE_USER, content, null, null);
     }
 
     public static AgentMessage assistant(String content, List<AgentToolCall> toolCalls) {
-        return new AgentMessage("assistant", content, null, toolCalls);
+        return new AgentMessage(ROLE_ASSISTANT, content, null, toolCalls);
     }
 
     public static AgentMessage tool(String toolCallId, String content) {
-        return new AgentMessage("tool", content, toolCallId, null);
+        return new AgentMessage(ROLE_TOOL, content, toolCallId, null);
     }
 }
