@@ -273,20 +273,23 @@ function closeAll() {
  * 用 mousedown 而不是 click：click 要等鼠标松开，菜单会"多活"一小段时间；
  * 而且如果按下和松开之间鼠标移到了别处，click 可能落在不相干的元素上。
  *
- * <b>还踩过一个坑</b>：一开始给根元素加了 @click.stop，结果侧栏内所有点击
- * 都被拦住、传不到 document，点空白处菜单根本不关 —— 自己把监听挡住了。
- * 所以这里反过来做：不在"要排除的地方"就一律关掉。
+ * <b>代价是必须显式排除掉所有"浮层内部"</b>。
+ * 这里踩过一个很隐蔽的坑：选择工作区的面板没被排除，于是——
+ *   按下鼠标 → 关闭面板 → Vue 重渲染把面板（连同你点的那个按钮）从 DOM 里删掉
+ *   → 松开鼠标 → click 事件要派发给一个已经不存在的元素 → 点击落空
+ * 表现就是"点项目没反应、加不回工作区"。
+ * 所以浮层统一带 .ws-pop 标记，按标记排除，而不是一个个列类名。
  */
+const POP_SELECTOR = '.ws-pop, .ws-bubble'
+
 function onPointerDown(event) {
   const target = event.target
   if (!(target instanceof Element)) {
     closeAll()
     return
   }
-  // 点在菜单里：不关。否则点菜单项之前菜单就没了，点击落空
-  if (target.closest('.ws-menu')) return
-  // 点在气泡按钮上：交给它自己切换（关掉再打开会闪一下）
-  if (target.closest('.ws-bubble')) return
+  // 点在浮层或触发按钮里：不关。关了就点不着了
+  if (target.closest(POP_SELECTOR)) return
   closeAll()
 }
 
@@ -339,7 +342,7 @@ onBeforeUnmount(() => {
     </header>
 
     <!-- 项目选择器 -->
-    <div v-if="pickerOpen" class="ws-picker mj-fade">
+    <div v-if="pickerOpen" class="ws-picker ws-pop mj-fade">
       <div class="ws-picker-title">选择一个项目作为工作区</div>
       <button
         v-for="p in projects"
@@ -402,7 +405,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div v-if="menuFor === p.id" class="ws-menu mj-fade" @click.stop>
+          <div v-if="menuFor === p.id" class="ws-menu ws-pop mj-fade" @click.stop>
             <button class="ws-menu-item" @click="startRename(p)">
               <Icon name="edit" :size="14" />
               <span>修改项目内容</span>
@@ -453,7 +456,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="convMenu"
-        class="ws-menu is-floating mj-fade"
+        class="ws-menu ws-pop is-floating mj-fade"
         :style="{ left: convMenu.x + 'px', top: convMenu.y + 'px' }"
         @click.stop
       >
