@@ -12,6 +12,75 @@
   </head>
   <body>
     <div id="app"></div>
+
+    <!--
+      错误回传。这段必须**内联在这里、放在模块之前**。
+
+      原因是：如果模块图本身加载失败（比如某个 import 指向了不存在的导出），
+      main.js 根本不会执行 —— 而放在 main.js 里的监听器也就永远不会注册。
+      恰恰是那种情况最需要线索：页面全白，除了控制台什么信息都没有。
+
+      2026-10-17 实测踩过：WriterPanel 导入了一个不存在的导出，
+      浏览器报 "does not provide an export named ..."，
+      而我们的回传监听器还没注册，服务端日志里一条记录都没有，
+      只能靠用户手动 F12 截图才知道原因。
+
+      用 sendBeacon 而不是 fetch：页面可能正在崩溃，beacon 不依赖页面还活着。
+      自己出错也绝不再抛 —— 整个函数体包在 try 里。
+    -->
+    <script>
+      (function () {
+        function report(message, where) {
+          try {
+            var payload = JSON.stringify({
+              message: String(message).slice(0, 500),
+              where: String(where || '').slice(0, 300)
+            })
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon(
+                '/api/agent/client-error',
+                new Blob([payload], { type: 'application/json' })
+              )
+            } else {
+              fetch('/api/agent/client-error', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                keepalive: true
+              }).catch(function () {})
+            }
+          } catch (e) {
+            /* 连报错都失败就算了，绝不能再抛 */
+          }
+        }
+
+        // 捕获阶段：这样连资源加载失败（script/link）也能收到
+        window.addEventListener(
+          'error',
+          function (event) {
+            var where
+            if (event.filename) {
+              where = event.filename + ':' + event.lineno + ':' + event.colno
+            } else if (event.target) {
+              where = '资源加载失败: ' + (event.target.src || event.target.href || '未知')
+            } else {
+              where = '未知位置'
+            }
+            report(event.message || 'Script error', where)
+          },
+          true
+        )
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason
+          report(
+            (reason && reason.message) || reason || '未知拒绝',
+            (reason && reason.stack) || '未处理的 Promise 拒绝'
+          )
+        })
+      })()
+    </script>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

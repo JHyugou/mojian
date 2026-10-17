@@ -8,42 +8,13 @@ import './assets/theme.css'
 import './assets/workbench.css'
 
 /*
- * 把未捕获的错误回传到后端。
+ * 未捕获错误的回传监听**不在这里**，在 index.html 的内联脚本里。
  *
- * 前端出错时，用户能告诉我们的只有"页面白了" —— 而真正的错误在浏览器的控制台里，
- * 我们看不到。让页面自己把错误报回来，排查就从"猜"变成"看"。
- *
- * 用 sendBeacon 而不是 fetch：页面可能正在崩溃，beacon 不依赖页面还活着。
- * 自己出错也不该再抛 —— 整个函数体包在 try 里。
+ * 原因：如果模块图本身加载失败（比如某个 import 指向不存在的导出），
+ * 这个文件根本不会执行，放在这里的监听器也就永远不会注册 ——
+ * 而那恰恰是最需要线索的情况（页面全白，除了控制台什么都没有）。
+ * 2026-10-17 真的踩过一次，所以把它挪到了模块之前。
  */
-function reportClientError(message, where) {
-  try {
-    const payload = JSON.stringify({
-      message: String(message).slice(0, 500),
-      where: String(where || '').slice(0, 300)
-    })
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon('/api/agent/client-error', new Blob([payload], { type: 'application/json' }))
-    } else {
-      fetch('/api/agent/client-error', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true
-      }).catch(() => {})
-    }
-  } catch (e) {
-    // 连报错都失败就算了，绝不能再抛
-  }
-}
-
-window.addEventListener('error', (event) => {
-  reportClientError(event.message, `${event.filename}:${event.lineno}:${event.colno}`)
-})
-window.addEventListener('unhandledrejection', (event) => {
-  const reason = event.reason
-  reportClientError(reason?.message || reason, reason?.stack || '未处理的 Promise 拒绝')
-})
 
 createApp(App)
   .use(createPinia())
