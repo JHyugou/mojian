@@ -27,11 +27,27 @@ const html = computed(() => {
   try {
     return DOMPurify.sanitize(marked.parse(props.text))
   } catch (e) {
-    // 渲染失败就退回纯文本：显示得朴素一点，总比整块空白好
+    /*
+     * 渲染失败就退回纯文本。
+     *
+     * 注意这里**不能再用 DOMPurify** —— 上一版就是这么写的，
+     * 而 DOMPurify 需要 DOM 环境；一旦它不可用，兜底路径会跟着抛，
+     * 于是"有兜底"变成了"没兜底"，整个组件渲染失败。
+     * 兜底路径必须只依赖最基本的东西：字符串拼接。
+     */
     console.warn('Markdown 渲染失败，退回纯文本', e)
-    return DOMPurify.sanitize(props.text.replace(/\n/g, '<br>'))
+    return escapeHtml(props.text).replace(/\n/g, '<br>')
   }
 })
+
+/** 最小化的转义。纯文本兜底路径用它，不依赖任何库 */
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
 </script>
 
 <template>

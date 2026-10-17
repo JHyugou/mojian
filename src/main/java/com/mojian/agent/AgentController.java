@@ -266,6 +266,23 @@ public class AgentController {
     // ==================== 草稿（人工确认） ====================
 
     /**
+     * 前端把未捕获的错误回传到这里。
+     *
+     * <p>为什么值得有一个：前端出错时，用户能告诉我们的只有"页面白了" ——
+     * 而真正的错误在浏览器的控制台里，我们看不到。让页面自己把错误报回来，
+     * 排查就从"猜"变成了"看"。
+     *
+     * <p>报告落到服务端日志，和请求日志放在一起，时间点能对上。
+     */
+    @PostMapping("/client-error")
+    public ApiResponse<Void> clientError(@RequestBody Map<String, String> body) {
+        log.error("[CLIENT-ERROR] {} @ {}",
+                body.getOrDefault("message", "(无消息)"),
+                body.getOrDefault("where", "(未知位置)"));
+        return ApiResponse.ok();
+    }
+
+    /**
      * 终止一个正在跑的写作任务。
      *
      * <p>光让前端断开 SSE 是不够的 —— 后端线程还在跑、模型还在生成、钱还在花。
