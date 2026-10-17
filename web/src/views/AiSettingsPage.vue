@@ -34,6 +34,8 @@ const selectedProvider = ref(null)
 /** 服务商返回的模型列表；为空时退回手动输入 */
 const models = ref([])
 const fetchingModels = ref(false)
+/** 模型是不是从公开目录查到的（用来把提示语说准） */
+const modelsFromCatalog = ref(false)
 /** 手动输入模式：拉不到列表（服务商没实现 /models）或作者想自己填时用 */
 const manualModel = ref(false)
 
@@ -93,9 +95,10 @@ function chooseProvider(provider) {
    * 所以"先留空、等拉取"会让这些厂家的用户面对一个空下拉，以为坏了。
    * 预设里的名字是验证过的，先给出来；想拉最新的随时点「获取可用模型」。
    */
-  models.value = provider.models || []
+  models.value = (provider.models || []).map((id) => ({ id, name: id }))
+  modelsFromCatalog.value = false
   manualModel.value = models.value.length === 0
-  form.model = models.value.length ? models.value[0] : ''
+  form.model = models.value.length ? models.value[0].id : ''
 }
 
 /**
@@ -111,31 +114,33 @@ async function loadModels() {
   }
   fetchingModels.value = true
   try {
-    const list = await fetchModels({
+    const result = await fetchModels({
       baseUrl: form.baseUrl.trim(),
       apiKey: form.apiKey.trim() || null
     })
-    models.value = list || []
+    // 后端返回 { source, models: [{id, name, contextLimit, inputCost, outputCost}] }
+    models.value = result?.models || []
+    modelsFromCatalog.value = result?.source === 'catalog-or-provider'
+
     if (!models.value.length) {
-      // 服务商没实现 /models（实测 OpenCode Go 就是 404）。
-      // 退回预设里登记的模型，别让作者面对一个空下拉
-      const fallback = selectedProvider.value?.models || []
+      // 目录里没有、服务商也没实现 /models
+      const fallback = (selectedProvider.value?.models || []).map((id) => ({ id, name: id }))
       models.value = fallback
       manualModel.value = fallback.length === 0
       message.info(
         fallback.length
-          ? '这一家没有提供模型列表，已用内置的常用模型'
-          : '这一家没有提供模型列表，请手动填写模型名称'
+          ? '没查到这一家的模型列表，已用内置的常用模型'
+          : '没查到模型列表，请手动填写模型名称'
       )
       if (fallback.length) {
-        form.model = fallback[0]
+        form.model = fallback[0].id
       }
     } else {
       manualModel.value = false
-      if (!models.value.includes(form.model)) {
-        form.model = models.value[0]
+      if (!models.value.some((m) => m.id === form.model)) {
+        form.model = models.value[0].id
       }
-      message.success(`拿到 ${models.value.length} 个可用模型`)
+      message.success(`查到 ${models.value.length} 个可用模型`)
     }
   } catch (e) {
     manualModel.value = true
@@ -143,6 +148,16 @@ async function loadModels() {
   } finally {
     fetchingModels.value = false
   }
+}
+
+/** 选中模型的附加信息：上下文长度与价格。目录里带着，白拿的 */
+const selectedModelInfo = computed(() =>
+  models.value.find((m) => m.id === form.model) || null
+)
+
+function formatContext(tokens) {
+  if (!tokens) return ''
+  return tokens >= 1000000 ? `${(tokens / 1000000).toFixed(1)}M` : `${Math.round(tokens / 1000)}K`
 }
 
 function validate() {
@@ -296,9 +311,11 @@ async function doReset() {
         </div>
 
         <!-- 有列表就下拉选；没有（或作者要手填）就输入框。
-             不给"只能手填"也不给"只能选" —— 不是每家都实现了 /models -->
+             不给"只能手填"也不给"只能选" —— 不是每家都能查到列表 -->
         <select v-if="!manualModel && models.length" v-model="form.model" class="ai-input">
-          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+          <option v-for="m in models" :key="m.id" :value="m.id">
+            {{ m.name || m.id }}{{ m.contextLimit ? `（${formatContext(m.contextLimit)} 上下文）` : '' }}
+          </option>
         </select>
         <input
           v-else
@@ -306,12 +323,27 @@ async function doReset() {
           class="ai-input"
           placeholder="例如 deepseek-v4.1-flash"
         />
+
+        <!-- 目录里带着上下文长度与价格，选中的模型直接显示出来：
+             作者据此判断"这个模型够不够装下我这本书" -->
+        <span v-if="selectedModelInfo" class="ai-model-meta">
+          <span v-if="selectedModelInfo.contextLimit" class="mj-tag">
+            上下文 {{ formatContext(selectedModelInfo.contextLimit) }}
+          </span>
+          <span v-if="selectedModelInfo.inputCost != null" class="mj-tag">
+            入 ${selectedModelInfo.inputCost}/M
+          </span>
+          <span v-if="selectedModelInfo.outputCost != null" class="mj-tag">
+            出 ${selectedModelInfo.outputCost}/M
+          </span>
+        </span>
+
         <span class="ai-hint">
           {{ models.length
-            ? (selectedProvider?.models?.length && models === selectedProvider.models
-                ? '这是内置的常用模型；想拉最新列表就点「获取可用模型」'
-                : `从服务商拿到 ${models.length} 个可用模型`)
-            : '点「获取可用模型」从服务商拉取；也可以直接手填' }}
+            ? (modelsFromCatalog
+                ? `从公开模型目录查到 ${models.length} 个模型`
+                : '这是内置的常用模型；点「获取可用模型」可以查最新的')
+            : '点「获取可用模型」查这一家有哪些模型；也可以直接手填' }}
         </span>
       </div>
 
@@ -475,6 +507,14 @@ async function doReset() {
   font-size: 11px;
   line-height: 1.7;
   color: var(--color-muted);
+}
+
+/* 选中模型的上下文与价格：用小标签排一行，不抢标题但看得见 */
+.ai-model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .ai-mini-btn {

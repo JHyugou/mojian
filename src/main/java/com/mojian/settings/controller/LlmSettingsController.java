@@ -3,6 +3,7 @@ package com.mojian.settings.controller;
 import com.mojian.common.api.ApiResponse;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
 import com.mojian.settings.llm.LlmProviderPreset;
+import com.mojian.settings.llm.ModelsDevCatalog;
 import com.mojian.settings.service.LlmSettingsService;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.validation.Valid;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 模型接入设置接口（FR-019）。
@@ -54,13 +56,19 @@ public class LlmSettingsController {
     }
 
     /**
-     * 拉取某个服务商的可用模型列表。
+     * 查某个接口地址下有哪些可用模型。
      *
-     * <p>比"预设里写死模型名"可靠：模型上下线很快，写死的名字过一阵就成了
-     * "看着对但调不通"的错误答案，而作者会以为是自己 Key 的问题。
+     * <p>三层来源：公开模型目录（models.dev，覆盖 232 家，还带上下文长度与定价）
+     * → 直接问服务商 → 都拿不到就返回空，界面退回预设或手动填。
+     *
+     * <p>不需要 Key 也能调用：目录是公开的，而"先看看有哪些模型再决定"是很自然的用法。
      */
     @PostMapping("/settings/llm/models")
-    public ApiResponse<List<String>> models(@RequestBody LlmSettingsSaveRequest request) {
-        return ApiResponse.ok(settingsService.fetchModels(request.getBaseUrl(), request.getApiKey()));
+    public ApiResponse<Map<String, Object>> models(@RequestBody LlmSettingsSaveRequest request) {
+        List<ModelsDevCatalog.ModelInfo> models =
+                settingsService.fetchModels(request.getBaseUrl(), request.getApiKey());
+        return ApiResponse.ok(Map.of(
+                "source", models.isEmpty() ? "none" : "catalog-or-provider",
+                "models", models));
     }
 }

@@ -9,6 +9,7 @@ import com.mojian.generation.llm.LlmProperties;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
 import com.mojian.settings.entity.LlmSettings;
 import com.mojian.settings.llm.LlmProviderPreset;
+import com.mojian.settings.llm.ModelsDevCatalog;
 import com.mojian.settings.mapper.LlmSettingsMapper;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.annotation.PostConstruct;
@@ -64,6 +65,7 @@ public class LlmSettingsService {
     private final LocalSecretCipher cipher;
     private final LlmProperties llmProperties;
     private final JdbcTemplate jdbcTemplate;
+    private final ModelsDevCatalog catalog;
 
     /** 老库升级友好：启动时幂等建表，无需手动重跑 schema.sql */
     @PostConstruct
@@ -190,24 +192,43 @@ public class LlmSettingsService {
     }
 
     /**
-     * 拉取服务商的可用模型列表。
+     * 查某个接口地址下有哪些可用模型。
      *
-     * <p><b>为什么不让预设写死模型名</b>：模型上下线很快，写死的名字过一阵
-     * 就成了"看着对但调不通"的错误答案，而作者会以为是自己 Key 的问题。
-     * 直接问服务商要，既不会过期，也顺带验证了 Key —— 拉不到列表本身就说明 Key 不对。
+     * <p><b>三层来源，从可靠到将就</b>：
+     * <ol>
+     *   <li><b>模型目录</b>（models.dev）：一个请求覆盖 232 家服务商，
+     *       还带上下文长度与定价。这是首选 —— 实测 OpenCode Go 的
+     *       {@code GET /models} 是 404，只有目录这条路走得通</li>
+     *   <li><b>直接问服务商</b>：目录里没有的地址（自建网关、公司内部服务）试这个</li>
+     *   <li>都拿不到就返回空，界面退回预设里的常用模型或手动填</li>
+     * </ol>
      *
-     * <p>不过不保证每个服务商都实现了 {@code GET /models}，所以拉不到时
-     * 前端会退回"手动输入模型名"，而不是把这个流程卡死。
+     * <p>注意 Key 在这一步<b>可能根本用不上</b>（目录是公开的）——
+     * 所以不填 Key 也能看到模型列表，这对"先看看有哪些模型再决定充不充值"
+     * 是很自然的用法。
      */
-    public List<String> fetchModels(String baseUrl, String apiKey) {
+    public List<ModelsDevCatalog.ModelInfo> fetchModels(String baseUrl, String apiKey) {
         if (!StringUtils.hasText(baseUrl)) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写接口地址");
         }
-        String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
-        if (!StringUtils.hasText(key)) {
-            throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写 API Key");
+
+        // ① 公开目录
+        List<ModelsDevCatalog.ModelInfo> fromCatalog = catalog.modelsFor(baseUrl);
+        if (!fromCatalog.isEmpty()) {
+            log.info("从模型目录匹配到 {} 个模型：{}", fromCatalog.size(), baseUrl);
+            return fromCatalog;
         }
 
+        // ② 直接问服务商（需要 Key）
+        String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
+        if (!StringUtils.hasText(key)) {
+            return List.of();
+        }
+        return askProvider(baseUrl, key);
+    }
+
+    /** 问服务商要模型列表（{@code GET /models}）。不是每家都实现了 */
+    private List<ModelsDevCatalog.ModelInfo> askProvider(String baseUrl, String key) {
         String url = baseUrl.trim().replaceAll("/+$", "") + "/models";
         HttpRequest request;
         try {
@@ -238,49 +259,44 @@ public class LlmSettingsService {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
-                    "拉取模型列表失败（HTTP " + response.statusCode() + "）："
-                            + StringUtils.trimWhitespace(abbreviate(response.body(), 200)));
+            // 404 是常见且正常的情况（服务商没实现这个接口），不该当成错误弹给用户。
+            // 让调用方走"退回预设/手动填"那条路
+            log.info("{} 没有提供模型列表（HTTP {}），退回预设", url, response.statusCode());
+            return List.of();
         }
-
-        List<String> ids = parseModelIds(response.body());
-        log.info("从 {} 拉到 {} 个模型", url, ids.size());
-        return ids;
+        return parseModelIds(response.body());
     }
 
     /**
-     * 解析 {@code GET /models} 的返回。
+     * 解析服务商 {@code GET /models} 的返回。
      *
-     * <p>标准结构是 {@code {"data":[{"id":"..."}]}}，但各家略有出入（有的多套一层、
-     * 有的直接把 id 放顶层）。这里顺着几种常见结构找一遍，找不到就返回空列表 ——
-     * 让前端退回手动输入，而不是因为解析不出就整个流程卡死。
+     * <p>标准结构是 {@code {"data":[{"id":"..."}]}}，但各家略有出入。
+     * 找不到就返回空 —— 让前端退回预设，而不是因为解析不出就整个流程卡死。
      */
-    private List<String> parseModelIds(String body) {
+    private List<ModelsDevCatalog.ModelInfo> parseModelIds(String body) {
         try {
             JsonNode root = MAPPER.readTree(body);
             JsonNode data = root.has("data") ? root.get("data") : root;
-            List<String> ids = new ArrayList<>();
+            List<ModelsDevCatalog.ModelInfo> models = new ArrayList<>();
             if (data.isArray()) {
                 for (JsonNode node : data) {
                     JsonNode id = node.has("id") ? node.get("id") : node.get("name");
                     if (id != null && id.isTextual() && StringUtils.hasText(id.asText())) {
-                        ids.add(id.asText().trim());
+                        models.add(new ModelsDevCatalog.ModelInfo(
+                                id.asText().trim(), id.asText().trim(), null, null, null));
                     }
                 }
             }
-            return ids.stream().distinct().sorted().toList();
+            return models.stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            ModelsDevCatalog.ModelInfo::id, m -> m, (a, b) -> a))
+                    .values().stream()
+                    .sorted(java.util.Comparator.comparing(ModelsDevCatalog.ModelInfo::id))
+                    .toList();
         } catch (Exception e) {
             log.warn("解析模型列表失败: {}", e.getMessage());
             return List.of();
         }
-    }
-
-    private String abbreviate(String text, int max) {
-        if (text == null) {
-            return "";
-        }
-        String flat = text.replaceAll("\\s+", " ").trim();
-        return flat.length() <= max ? flat : flat.substring(0, max) + "…";
     }
 
     private String storedPlainKey() {
