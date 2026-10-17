@@ -26,7 +26,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 /**
  * 写作 Agent：把某一章的蓝图写成正文。
@@ -56,6 +60,17 @@ public class WriterService {
     public static final String STATUS_RUNNING = "RUNNING";
     public static final String STATUS_SUCCEEDED = "SUCCEEDED";
     public static final String STATUS_FAILED = "FAILED";
+    public static final String STATUS_CANCELLED = "CANCELLED";
+
+    /**
+     * 正在跑的任务，用来支持"终止"。
+     *
+     * <p>光让前端断开 SSE 是不够的 —— 后端的线程还在跑、模型还在生成、钱还在花。
+     * 用户按下终止的意思是"现在停"，不是"我看不见了"。
+     */
+    private final Map<Long, Future<?>> runningTasks = new ConcurrentHashMap<>();
+    /** 被主动终止的任务 id。用来把"用户停的"和"自己失败的"区分开 */
+    private final Set<Long> cancelledTasks = ConcurrentHashMap.newKeySet();
 
     /** 保存动作的痕迹 —— 用来判断这一轮到底有没有产出正文 */
     private static final String SAVE_TOOL = "save_chapter_draft";
@@ -83,22 +98,64 @@ public class WriterService {
         chapterService.requireById(chapterId);
         Long taskId = IdWorker.getId();
         broker.publishStatus(taskId, STATUS_RUNNING);
-        agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+        Future<?> future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+        runningTasks.put(taskId, future);
         log.info("写作任务 {} 已提交（第 {} 章）", taskId, chapterId);
         return taskId;
+    }
+
+    /**
+     * 终止一个正在跑的写作任务。
+     *
+     * <p>{@code cancel(true)} 会中断线程 —— 循环在下一轮开始前会看到中断标记并停下，
+     * 正在等模型返回的 HTTP 调用也会被中断。两者都必要：只标记不中断的话，
+     * 得等当前这次模型调用跑完（可能一两分钟）才生效，那期间照样计费。
+     *
+     * @return 是否真的终止了一个在跑的任务
+     */
+    public boolean cancel(Long taskId) {
+        Future<?> future = runningTasks.get(taskId);
+        if (future == null) {
+            return false;
+        }
+        cancelledTasks.add(taskId);
+        future.cancel(true);
+        broker.finish(taskId, STATUS_CANCELLED, null);
+        log.info("写作任务 {} 已被用户终止", taskId);
+        return true;
+    }
+
+    /** 任务是否还在跑 */
+    public boolean isRunning(Long taskId) {
+        return runningTasks.containsKey(taskId);
     }
 
     private void runTask(Long taskId, Long chapterId, String instruction) {
         try {
             WriterResult result = execute(chapterId, instruction, taskListener(taskId));
+            if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
+                // 用户停的：如实说"停了"，不要伪装成"写完了"
+                broker.publishEvent(taskId, "result", "已按你的要求停下");
+                broker.finish(taskId, STATUS_CANCELLED, null);
+                return;
+            }
             broker.publishEvent(taskId, "result",
                     (result.saved() ? "已写入正文 " + result.charCount() + " 字，版本 "
                             + result.versionNo() : "未产出正文") + "｜" + result.answer());
             broker.finish(taskId, STATUS_SUCCEEDED, null);
         } catch (Exception e) {
+            // 区分"用户停的"和"自己失败的"：前者不是错误，日志里不该出现 WARN
+            if (cancelledTasks.contains(taskId) || Thread.currentThread().isInterrupted()) {
+                log.info("写作任务 {} 已终止", taskId);
+                broker.finish(taskId, STATUS_CANCELLED, null);
+                return;
+            }
             log.warn("写作任务 {} 失败: {}", taskId, e.getMessage());
             recordFailure(chapterId, e.getMessage());
             broker.finish(taskId, STATUS_FAILED, e.getMessage());
+        } finally {
+            runningTasks.remove(taskId);
+            cancelledTasks.remove(taskId);
         }
     }
 
@@ -132,6 +189,18 @@ public class WriterService {
      */
     private AgentRunListener taskListener(Long taskId) {
         return new AgentRunListener() {
+            /**
+             * 终止标记检查。循环每轮、以及每次动手执行工具之前都会问它。
+             *
+             * <p>不依赖线程中断：实测 {@code Future.cancel(true)} 不保险 ——
+             * 结果是用户点了终止，任务照样跑完、照样把正文写进书里。
+             * 一个自己维护的标记，行为是可预期的。
+             */
+            @Override
+            public boolean cancelled() {
+                return cancelledTasks.contains(taskId);
+            }
+
             @Override
             public void onStepStart(int step) {
                 broker.publishEvent(taskId, "progress", "第 " + step + " 步");

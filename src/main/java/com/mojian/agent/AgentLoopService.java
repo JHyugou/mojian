@@ -97,6 +97,19 @@ public class AgentLoopService {
         TokenUsage totalUsage = TokenUsage.NONE;
 
         for (int step = 1; step <= maxSteps; step++) {
+            /*
+             * 用户点了终止。
+             *
+             * 为什么必须在"每一轮开始前"查一次，而不是等模型调用自己抛中断：
+             * 一次模型调用可能跑一两分钟且持续计费。等到那时候才停，
+             * 用户按下终止后账单还在涨 —— 那不叫终止，叫"排队等着停"。
+             */
+            if (Thread.currentThread().isInterrupted() || sink.cancelled()) {
+                log.info("[{}] 任务被终止（第 {} 轮之前），已跑 {} 步",
+                        context.agentRole(), step, step - 1);
+                return AgentResult.cancelled(trace, step - 1, totalUsage);
+            }
+
             log.debug("[{}] Agent 第 {} 轮，当前包裹 {} 条", context.agentRole(), step, messages.size());
             sink.onStepStart(step);
 
@@ -127,6 +140,20 @@ public class AgentLoopService {
 
             // ② 做 + ③ 看：一轮可以要求调多个工具，按顺序执行
             for (AgentToolCall call : response.toolCalls()) {
+                /*
+                 * 动手之前再看一次中断。
+                 *
+                 * 只在"每轮开始前"检查是不够的：模型调用本身要跑几十秒，
+                 * 用户完全可能在这期间点终止。那种情况下模型还是会返回结果，
+                 * 而如果这里不查，工具照跑 —— 用户按下"停下"之后
+                 * 还会看到书被改动一次，那是最让人意外的行为。
+                 */
+                if (Thread.currentThread().isInterrupted() || sink.cancelled()) {
+                    log.info("[{}] 工具执行前发现已终止，跳过本轮剩余 {} 个工具调用",
+                            context.agentRole(), response.toolCalls().size());
+                    return AgentResult.cancelled(trace, step, totalUsage);
+                }
+
                 sink.onToolCall(call.name(), call.arguments());
                 String result = executeTool(context, call);
                 sink.onToolResult(call.name(), result);

@@ -12,10 +12,10 @@ const WRITER_TIMEOUT = 30 * 60 * 1000
 
 // ==================== 策划对话 ====================
 
-/** conversationId 传 null 表示新开一段对话 */
-export function plannerChat(projectId, conversationId, message) {
+/** conversationId 传 null 表示新开一段对话；signal 用于中止（用户点"停下"） */
+export function plannerChat(projectId, conversationId, message, signal) {
   return http.post('/agent/planner/chat', { projectId, conversationId, message },
-    { timeout: PLANNER_TIMEOUT })
+    { timeout: PLANNER_TIMEOUT, signal })
 }
 
 /** 该会话已给出的剧情走向方案（前端渲染成卡片） */
@@ -61,14 +61,14 @@ export function listDrafts(conversationId, pendingOnly = false) {
   return http.get(`/agent/conversations/${conversationId}/drafts`, { params: { pendingOnly } })
 }
 
-/**
- * 本书的待确认草稿（不看是哪段会话起草的）。
- *
- * 写作 Agent 也会起草人物卡，那些挂在写作会话上 ——
- * 只查策划会话的话，它们永远不会出现在"待确认"里。
- */
+/** 本书的待确认草稿（不看是哪段会话起草的）。 */
 export function listProjectDrafts(projectId, pendingOnly = true) {
   return http.get(`/agent/projects/${projectId}/drafts`, { params: { pendingOnly } })
+}
+
+/** 全部采纳。返回 { total, accepted, failed } —— 单条失败不影响其余 */
+export function acceptAllDrafts(projectId) {
+  return http.post(`/agent/projects/${projectId}/drafts/accept-all`)
 }
 
 /** 确认草稿 —— 到这一步才真正写进人物/设定/蓝图表 */
@@ -99,6 +99,16 @@ export function clearWriterHistory(projectId) {
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
 export function startWritingTask(chapterId, instruction) {
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction })
+}
+
+/**
+ * 终止一个正在跑的写作任务。
+ *
+ * 光关掉前端的 EventSource 是不够的 —— 后端线程还在跑、模型还在生成、钱还在花。
+ * 必须显式告诉后端停。
+ */
+export function cancelWritingTask(taskId) {
+  return http.post(`/agent/writer/tasks/${taskId}/cancel`)
 }
 
 /** 同步写作（调试用，会一直等到写完） */

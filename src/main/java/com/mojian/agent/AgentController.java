@@ -27,6 +27,7 @@ import com.mojian.common.api.ApiResponse;
 import com.mojian.generation.sse.TaskEventBroker;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,6 +40,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +53,7 @@ import java.util.Map;
  *   <li>其余 —— 调试与可观测性（工具清单、上下文用量、方案列表）</li>
  * </ul>
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/agent")
 @RequiredArgsConstructor
@@ -261,6 +264,46 @@ public class AgentController {
     }
 
     // ==================== 草稿（人工确认） ====================
+
+    /**
+     * 终止一个正在跑的写作任务。
+     *
+     * <p>光让前端断开 SSE 是不够的 —— 后端线程还在跑、模型还在生成、钱还在花。
+     * 用户按下终止的意思是"现在停"，不是"我看不见了"。
+     */
+    @PostMapping("/writer/tasks/{taskId}/cancel")
+    public ApiResponse<Map<String, Object>> cancelWriting(@PathVariable Long taskId) {
+        return ApiResponse.ok(Map.of("cancelled", writerService.cancel(taskId)));
+    }
+
+    /**
+     * 批量采纳本书所有待确认草稿。
+     *
+     * <p>为什么循环写在控制器而不是 service 里：{@code draftService.accept} 上标了
+     * {@code @Transactional}，但<b>同类内部调用不经过代理、事务注解不生效</b>。
+     * 放在这里逐条调用，每条才是独立事务 —— 一条失败不会把另外七条一起回滚。
+     */
+    @PostMapping("/projects/{projectId}/drafts/accept-all")
+    public ApiResponse<Map<String, Object>> acceptAllDrafts(@PathVariable Long projectId) {
+        List<AgentDraft> pending = draftService.listPendingByProject(projectId);
+        int accepted = 0;
+        List<String> failed = new ArrayList<>();
+        for (AgentDraft draft : pending) {
+            try {
+                draftService.accept(draft.getId());
+                accepted++;
+            } catch (Exception e) {
+                failed.add(draft.getTitle());
+                log.warn("批量采纳：草稿 {}「{}」失败（{}）",
+                        draft.getId(), draft.getTitle(), e.getMessage());
+            }
+        }
+        log.info("批量采纳（项目 {}）：{} / {} 条成功", projectId, accepted, pending.size());
+        return ApiResponse.ok(Map.of(
+                "total", pending.size(),
+                "accepted", accepted,
+                "failed", failed));
+    }
 
     /**
      * 本书的草稿。

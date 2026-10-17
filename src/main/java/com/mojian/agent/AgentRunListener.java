@@ -55,6 +55,22 @@ public interface AgentRunListener {
     default void onToolResult(String toolName, String result) {
     }
 
+    /**
+     * 用户是否已经要求终止。
+     *
+     * <p><b>为什么不能只靠线程中断</b>：实测 {@code Future.cancel(true)} 那一套不保险 ——
+     * HTTP 客户端的读操作不一定响应中断，而中断标记还可能被中途某个
+     * "捕获了 InterruptedException 但没恢复标记"的调用悄悄清掉。
+     * 结果是用户点了终止，任务照样跑完、照样写进书里。
+     *
+     * <p>所以终止用一个确定性的标记：调用方自己维护"哪些任务被停了"，
+     * 循环每轮、以及每次动手执行工具之前都问一次。它不依赖任何线程语义，
+     * 所以行为是可预期的。
+     */
+    default boolean cancelled() {
+        return false;
+    }
+
     /** 把循环事件适配成模型客户端的流式回调 */
     default LlmStreamListener asLlmListener() {
         AgentRunListener self = this;

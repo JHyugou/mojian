@@ -93,6 +93,16 @@ public class ConversationService {
      */
     @Transactional
     public AgentMessageLog append(Long conversationId, int stepNo, AgentMessage message) {
+        /*
+         * 会话可能已经被删了 —— 用户在任务跑着的时候删掉了那段对话。
+         * 这时不该再往里写：写进去的就是永远没人看得到的孤儿数据，
+         * 而且下次读历史时它们还会混进来，让模型看到一段"没有开头的对话"。
+         */
+        if (conversationMapper.selectById(conversationId) == null) {
+            log.debug("会话 {} 已不存在，跳过写入（角色 {}）", conversationId, message.role());
+            return null;
+        }
+
         AgentMessageLog logRecord = new AgentMessageLog();
         logRecord.setConversationId(conversationId);
         logRecord.setStepNo(stepNo);

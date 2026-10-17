@@ -141,12 +141,18 @@
             @keydown.enter.exact.prevent="start"
           ></textarea>
           <div class="wr-input-side">
+            <!-- 跑着的时候这个按钮就是"停下" —— 它比"开始写"更有用 -->
+            <button v-if="running" class="mj-btn mj-btn-ghost" @click="stop">
+              <Icon name="stop" :size="12" />
+              停下
+            </button>
             <button
+              v-else
               class="mj-btn mj-btn-primary"
-              :disabled="!chapter || running || !canRun"
+              :disabled="!chapter || !canRun"
               @click="start"
             >
-              {{ running ? '写作中…' : primaryLabel }}
+              {{ primaryLabel }}
             </button>
           </div>
         </div>
@@ -214,6 +220,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getChapter } from '../../api/chapter'
 import {
+  cancelWritingTask,
   clearWriterHistory,
   getWriterConversation,
   setWritingRequirement,
@@ -222,6 +229,7 @@ import {
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
 import Resizer from './Resizer.vue'
+import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
 import VersionPanel from '../VersionPanel.vue'
 import MemoryPanel from '../MemoryPanel.vue'
@@ -272,6 +280,8 @@ const tabs = [
 
 let source = null
 let pendingReplace = false
+/** 当前任务的 id，用来终止 */
+const currentTaskId = ref(null)
 
 const hasBlueprint = computed(() => Boolean(props.blueprint))
 const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || citations.value.length > 0)
@@ -553,10 +563,14 @@ async function start() {
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing)
+    currentTaskId.value = taskId
     source = subscribeWritingTask(taskId, {
       onStatus: (s) => {
         statusText.value =
-          s === 'RUNNING' ? '写作中' : s === 'SUCCEEDED' ? '已完成' : s === 'FAILED' ? '失败' : s
+          s === 'RUNNING' ? '写作中'
+            : s === 'SUCCEEDED' ? '已完成'
+              : s === 'CANCELLED' ? '已停止'
+                : s === 'FAILED' ? '失败' : s
       },
       onProgress: (p) => {
         progress.value = [...progress.value.slice(-3), p]
@@ -584,6 +598,7 @@ async function start() {
       onEnd: async () => {
         running.value = false
         source = null
+        currentTaskId.value = null
         clearTimeout(timer)
         await reload()
         // 后端也会把失败落进会话，所以这里统一重载：
@@ -595,9 +610,44 @@ async function start() {
   } catch (e) {
     // 任务都没起来（比如后端没响应）：同样要在对话里说一声
     running.value = false
+    currentTaskId.value = null
     clearTimeout(timer)
     pushFailure(e.message)
   }
+}
+
+/**
+ * 终止写作。
+ *
+ * <p>两件事都要做，缺一不可：
+ *   1. 关掉前端的 EventSource —— 界面上立刻停住
+ *   2. 调后端接口 —— <b>否则后端线程还在跑、模型还在生成、钱还在花</b>
+ * 只做第一件，用户按了"停下"账单照样涨。
+ */
+async function stop() {
+  const taskId = currentTaskId.value
+  closeStream()
+  running.value = false
+  currentTaskId.value = null
+  statusText.value = '已停止'
+  phase.value = ''
+
+  if (taskId) {
+    try {
+      await cancelWritingTask(taskId)
+    } catch (e) {
+      // 任务可能刚好自己跑完了，取消失败不算问题
+      console.warn('终止任务失败（可能已结束）', e)
+    }
+  }
+
+  // 在对话里留一条说明，否则界面看起来像"写了一半就没了"
+  messages.value = [...messages.value, {
+    role: 'assistant',
+    text: '（已按你的要求停下。已经写出的部分保留在右边，可继续改。）',
+    failed: false
+  }]
+  scrollStreamToBottom()
 }
 </script>
 

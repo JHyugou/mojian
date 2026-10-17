@@ -25,7 +25,7 @@
         </p>
       </div>
 
-      <div v-for="(msg, i) in messages" :key="i" class="pl-msg mj-rise" :class="'is-' + msg.role">
+      <div v-for="(msg, i) in messages" :key="i" class="pl-msg mj-rise" :class="['is-' + msg.role, { 'is-cancelled': msg.cancelled }]">
         <div class="pl-msg-tag">{{ msg.role === 'user' ? '你' : '策划 Agent' }}</div>
 
         <div class="pl-bubble">
@@ -94,6 +94,17 @@
         <span class="mj-muted">
           这些是 Agent 起草的内容。<b>点确认之前，它们不会进入你的书。</b>
         </span>
+        <!-- 一次梳理常常起草七八条，逐条点是重复劳动。
+             但全收等于跳过逐条审阅 —— 而那正是这套机制存在的意义，
+             所以它只是个不起眼的文字按钮，不做成主操作 -->
+        <button
+          v-if="drafts.length > 1"
+          class="pl-accept-all"
+          @click="acceptAll"
+        >
+          <Icon name="checkAll" :size="13" />
+          全部采纳（{{ drafts.length }} 条）
+        </button>
       </div>
 
       <div class="pl-drafts mj-stagger">
@@ -184,14 +195,54 @@
           @keydown.enter.exact.prevent="send"
         ></textarea>
         <div class="pl-input-side">
+          <!-- 跑着的时候，那个按钮就是"停下" —— 它比"发送"更有用 -->
+          <button v-if="sending" class="mj-btn mj-btn-ghost" @click="stop">
+            <Icon name="stop" :size="12" />
+            停下
+          </button>
           <button
+            v-else
             class="mj-btn mj-btn-primary"
-            :disabled="sending || (!draftMessage.trim() && !citations.length)"
+            :disabled="!draftMessage.trim() && !citations.length"
             @click="send"
           >
-            {{ sending ? '思考中…' : '发送' }}
+            发送
           </button>
         </div>
+      </div>
+
+      <!--
+        采纳模式。照 DSH 的权限选择：手动 = 起草后逐条问你，自动 = 直接写入。
+        默认手动 —— 逐条审阅正是"人工确认"这套机制存在的意义，
+        自动模式是给"我已经信任它了，别再打断我"的场景准备的。
+      -->
+      <div class="pl-mode">
+        <button class="pl-mode-btn" @click="modeMenuOpen = !modeMenuOpen">
+          <Icon name="shield" :size="13" />
+          采纳模式：{{ autoApprove ? '自动' : '手动' }}
+          <span class="pl-mode-caret">▾</span>
+        </button>
+
+        <div v-if="modeMenuOpen" class="pl-mode-menu mj-fade">
+          <button
+            class="pl-mode-item"
+            :class="{ active: !autoApprove }"
+            @click="setAutoApprove(false)"
+          >
+            <span class="pl-mode-name">手动采纳</span>
+            <span class="pl-mode-desc">起草后逐条让你确认</span>
+          </button>
+          <button
+            class="pl-mode-item"
+            :class="{ active: autoApprove }"
+            @click="setAutoApprove(true)"
+          >
+            <span class="pl-mode-name">自动采纳</span>
+            <span class="pl-mode-desc">起草后直接写入你的书，不再询问</span>
+          </button>
+        </div>
+
+        <span v-if="autoNotice" class="pl-mode-notice mj-fade">{{ autoNotice }}</span>
       </div>
     </footer>
   </div>
@@ -200,6 +251,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
+  acceptAllDrafts,
   acceptDraft,
   getConversationMessages,
   listConversations,
@@ -212,6 +264,7 @@ import {
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import { useLibraryStore } from '../../stores/library'
+import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
 
 const props = defineProps({
@@ -227,6 +280,40 @@ const props = defineProps({
 const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed'])
 
 const library = useLibraryStore()
+
+/** 采纳模式：手动（默认）/ 自动 */
+const autoApprove = ref(localStorage.getItem('mojian.autoApprove') === '1')
+const modeMenuOpen = ref(false)
+const autoNotice = ref('')
+/** 正在跑的请求，用来中止 */
+const controller = ref(null)
+
+function setAutoApprove(value) {
+  autoApprove.value = value
+  localStorage.setItem('mojian.autoApprove', value ? '1' : '0')
+  modeMenuOpen.value = false
+}
+
+/**
+ * 中止正在跑的这一轮。
+ *
+ * <p>中止必须真的传到后端：axios 的 abort 会断开连接，
+ * 后端那次模型调用随之结束 —— 否则用户按了"停下"，钱还在花。
+ */
+function stop() {
+  controller.value?.abort()
+  controller.value = null
+  sending.value = false
+  phase.value = ''
+  // 在对话里留一条说明。否则界面上就是"你说了话，然后什么都没有" -
+  // 那看起来像发送失败，而不是像你主动停的
+  messages.value = [...messages.value, {
+    role: 'assistant',
+    text: '（已按你的要求停下）',
+    cancelled: true
+  }]
+  scrollToBottom()
+}
 
 const messages = ref([])
 const draftMessage = ref('')
@@ -439,8 +526,11 @@ async function send() {
   // 阶段提示：真实耗时在十几秒到一分钟，让用户知道它在干什么
   const timer = setTimeout(() => { phase.value = '正在梳理走向…' }, 8000)
 
+  controller.value = new AbortController()
+
   try {
-    const data = await plannerChat(props.projectId, conversationId.value, outgoing)
+    const data = await plannerChat(props.projectId, conversationId.value, outgoing,
+      controller.value.signal)
     const wasNew = !conversationId.value
     conversationId.value = data.conversationId
     if (wasNew) {
@@ -457,12 +547,58 @@ async function send() {
       usage: data.usage
     })
     await refreshSide()
+    await applyAutoApprove()
   } catch (e) {
-    error.value = e.message || '这次对话失败了'
+    // 主动中止不算失败：界面上已经留了"已按你的要求停下"
+    if (e.name !== 'CanceledError' && e.name !== 'AbortError' && !controller.value?.signal.aborted) {
+      error.value = e.message || '这次对话失败了'
+    }
   } finally {
     clearTimeout(timer)
+    controller.value = null
     sending.value = false
     scrollToBottom()
+  }
+}
+
+/**
+ * 自动采纳模式下，把这一轮起草的内容直接写进书里。
+ *
+ * <p>这是"跳过审阅"的代价换来的顺畅 —— 开着它的人已经明确表示
+ * "别再每条都问我"。但要告诉他收了几条：不声不响地改了他的书，
+ * 比打断他更糟。
+ */
+async function applyAutoApprove() {
+  if (!autoApprove.value) return
+  try {
+    const result = await acceptAllDrafts(props.projectId)
+    if (result.accepted > 0) {
+      autoNotice.value = `已自动采纳 ${result.accepted} 条`
+      if (result.failed?.length) {
+        autoNotice.value += `，${result.failed.length} 条失败`
+      }
+      setTimeout(() => { autoNotice.value = '' }, 5000)
+      await refreshSide()
+      library.touch()
+    }
+  } catch (e) {
+    autoNotice.value = '自动采纳失败：' + e.message
+    setTimeout(() => { autoNotice.value = '' }, 6000)
+  }
+}
+
+/** 全部采纳。单条失败不影响其余，所以要把结果如实报出来 */
+async function acceptAll() {
+  try {
+    const result = await acceptAllDrafts(props.projectId)
+    autoNotice.value = result.failed?.length
+      ? `采纳 ${result.accepted} 条，${result.failed.length} 条失败`
+      : `已采纳全部 ${result.accepted} 条`
+    setTimeout(() => { autoNotice.value = '' }, 5000)
+    await refreshSide()
+    library.touch()
+  } catch (e) {
+    error.value = e.message
   }
 }
 
@@ -811,5 +947,93 @@ async function discardDraft(draft) {
   padding: 12px 26px 18px;
 }
 
-.pl-input-side { display: flex; align-items: flex-end; }
+.pl-input-side { display: flex; align-items: flex-end; gap: 8px; }
+
+/* ---------- 全部采纳 ---------- */
+.pl-accept-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-brown-deep);
+  transition: border-color var(--dur) var(--ease-out);
+}
+.pl-accept-all:hover { border-color: var(--color-brown); }
+
+/* ---------- 采纳模式（底部权限条） ---------- */
+.pl-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 26px 12px;
+  position: relative;
+}
+
+.pl-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-muted);
+  transition: color var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+}
+.pl-mode-btn:hover { color: var(--color-brown-deep); background: var(--color-paper-warm); }
+
+.pl-mode-caret { font-size: 10px; }
+
+/* 菜单往上弹：它在页面底部，往下弹会跑出屏幕 */
+.pl-mode-menu {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: 26px;
+  z-index: 80;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-float);
+}
+
+.pl-mode-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.pl-mode-item:hover { background: var(--color-paper-warm); }
+.pl-mode-item.active .pl-mode-name { color: var(--color-brown-deep); }
+
+.pl-mode-name { font-size: 13px; color: var(--color-ink); }
+.pl-mode-desc { font-size: 11px; color: var(--color-muted); }
+
+.pl-mode-notice {
+  font-size: 12px;
+  color: var(--color-brown);
+}
+
+/* 中止留下的一条说明：不做成普通回答的样子，它不是一个回答 */
+.pl-msg.is-cancelled .pl-bubble {
+  border-style: dashed;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+}
 </style>

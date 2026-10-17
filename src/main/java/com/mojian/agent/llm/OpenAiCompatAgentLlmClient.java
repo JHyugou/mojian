@@ -159,6 +159,18 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
 
         String line;
         while ((line = reader.readLine()) != null) {
+            /*
+             * 读流的循环里也要看中断。
+             *
+             * 光靠"循环每轮开始时检查"是不够的 —— 读流会一直阻塞到模型返回，
+             * 用户在这期间点终止的话，得等这次调用跑完才生效，那期间照样计费。
+             * 好在流式响应是持续到达的：readLine 频繁返回，这里就能及时看到中断标记。
+             * （如果模型长时间不吐字，这一层就拦不住，但那是少数情况。）
+             */
+            if (Thread.currentThread().isInterrupted()) {
+                throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "已按你的要求终止");
+            }
+
             if (!line.startsWith("data:")) {
                 continue;
             }

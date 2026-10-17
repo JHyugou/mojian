@@ -19,7 +19,9 @@ public record AgentResult(Status status, String answer, List<AgentStep> trace, i
         /** 正常出口：模型不再要求调工具，给出了回答 */
         FINISHED,
         /** 异常出口：转到最大步数被刹住 */
-        MAX_STEPS
+        MAX_STEPS,
+        /** 用户主动终止 */
+        CANCELLED
     }
 
     public AgentResult {
@@ -29,6 +31,18 @@ public record AgentResult(Status status, String answer, List<AgentStep> trace, i
 
     public static AgentResult finished(String answer, List<AgentStep> trace, int steps, TokenUsage usage) {
         return new AgentResult(Status.FINISHED, answer, trace, steps, usage);
+    }
+
+    /**
+     * 用户点了终止。
+     *
+     * <p>要如实说"是你停的"，而不是伪装成"我做完了" ——
+     * 后者会让用户以为结果完整，实际只跑了一半。
+     */
+    public static AgentResult cancelled(List<AgentStep> trace, int steps, TokenUsage usage) {
+        return new AgentResult(Status.CANCELLED,
+                "已按你的要求停下。",
+                trace, steps, usage);
     }
 
     /**

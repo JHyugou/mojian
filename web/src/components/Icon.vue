@@ -32,7 +32,13 @@ const PATHS = {
   // 展开/折叠
   caret: '<path d="M8 10l4 4 4-4"/>',
   // 搜索
-  search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>'
+  search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>',
+  // 采纳模式（盾牌：权限的通用隐喻）
+  shield: '<path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/>',
+  // 终止
+  stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
+  // 全部采纳（双勾）
+  checkAll: '<path d="M2 13l4 4L14 9"/><path d="M11 15l1.5 1.5L21 8"/>'
 }
 </script>
 
