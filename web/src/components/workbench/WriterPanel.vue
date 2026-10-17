@@ -113,7 +113,9 @@
       <footer class="wr-input-wrap">
         <div v-if="citations.length" class="wr-cites mj-rise">
           <div v-for="(c, i) in citations" :key="i" class="wr-cite">
-            <span class="wr-cite-label">{{ c.kind || '正文' }}</span>
+            <span class="wr-cite-label">
+              {{ c.targetName }}<span v-if="c.locator" class="wr-cite-locator">{{ c.locator }}</span>
+            </span>
             <span class="wr-cite-text">{{ citationPreview(c.text) }}</span>
             <button class="wr-cite-x" title="移除" @click="citations.splice(i, 1)">×</button>
           </div>
@@ -205,7 +207,7 @@ import {
   startWritingTask,
   subscribeWritingTask
 } from '../../api/agent'
-import { buildCitedMessage, citationPreview } from '../../utils/citation'
+import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
 import VersionPanel from '../VersionPanel.vue'
 import MemoryPanel from '../MemoryPanel.vue'
 
@@ -420,7 +422,10 @@ function onContextMenu(event) {
   menu.value = {
     x: Math.min(event.clientX, window.innerWidth - 220),
     y: Math.min(event.clientY, window.innerHeight - 100),
-    text: selected
+    text: selected,
+    // 段号：让模型知道"这里"是正文的哪一段。
+    // 只给选中的文字不够 —— 同一句话在整章里可能出现好几次
+    segment: segmentIndexOf(bodyEl.value, selection)
   }
 }
 
@@ -430,10 +435,17 @@ function closeMenu() {
 
 function cite() {
   if (!menu.value) return
+  const chapterNo = props.chapters.findIndex((c) => c.id === props.chapter?.id) + 1
   const citation = {
     kind: '本章正文',
-    targetName: full.value?.title || '当前章节',
-    text: menu.value.text
+    // 用章节序号而不是标题：标题会重名（作者数据里已经有两章都叫「坊市奇遇」），
+    // 序号是唯一的。标题只作为补充信息附在后面
+    targetName: chapterNo > 0 ? `第 ${chapterNo} 章` : '当前章节',
+    text: menu.value.text,
+    locator: [
+      props.full?.title ? `标题「${props.full.title}」` : '',
+      menu.value.segment ? `第 ${menu.value.segment} 段` : ''
+    ].filter(Boolean).join(' · ')
   }
   // 同一条不要重复加，否则会挂一排一样的引用
   if (!citations.value.some((c) => c.text === citation.text)) {
@@ -746,6 +758,14 @@ async function start() {
 }
 
 .wr-cite-label { color: var(--color-brown-deep); white-space: nowrap; }
+
+/* 定位信息（段号/标题）用等宽小字：它是给模型用的精确坐标 */
+.wr-cite-locator {
+  margin-left: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--color-muted);
+}
 .wr-cite-text {
   color: var(--color-muted);
   overflow: hidden;

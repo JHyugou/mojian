@@ -1,5 +1,19 @@
 <template>
   <div class="pl">
+    <!-- 对话标题栏。项目与对话解耦：这里是当前这一段对话，可以随时新开一段重来 -->
+    <header class="pl-head">
+      <span class="mj-title mj-title-sm">{{ conversationTitle }}</span>
+      <span v-if="messages.length" class="mj-muted pl-head-hint">{{ messages.length }} 条</span>
+      <button
+        v-if="messages.length"
+        class="mj-btn mj-btn-text pl-new-btn"
+        title="开一段新对话（当前这段不会丢，下次仍可继续）"
+        @click="newConversation"
+      >
+        新对话
+      </button>
+    </header>
+
     <!-- ========== 对话流 ========== -->
     <div ref="scrollEl" class="pl-stream mj-scroll">
       <div v-if="!messages.length" class="pl-empty mj-rise">
@@ -103,7 +117,9 @@
            它会被组装进消息最前面，模型由此知道"你说的是哪一段"。 -->
       <div v-if="citations.length" class="pl-cites mj-rise">
         <div v-for="(c, i) in citations" :key="i" class="pl-cite">
-          <span class="pl-cite-label">引用 · {{ c.nodeName }}</span>
+          <span class="pl-cite-label">
+            {{ c.targetName }}<span v-if="c.locator" class="pl-cite-locator">{{ c.locator }}</span>
+          </span>
           <span class="pl-cite-text">{{ preview(c.text) }}</span>
           <button class="pl-cite-x" title="移除这条引用" @click="$emit('remove-citation', i)">×</button>
         </div>
@@ -137,9 +153,11 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import {
   acceptDraft,
+  getConversationMessages,
+  listConversations,
   listDrafts,
   listPlanOptions,
   plannerChat,
@@ -165,6 +183,48 @@ const sending = ref(false)
 const phase = ref('正在读你的资料…')
 const error = ref('')
 const scrollEl = ref(null)
+const conversationTitle = ref('新对话')
+
+/**
+ * 进来先续上最近那段对话。
+ *
+ * 刷新页面不该等于"重新开始"—— 策划的上下文是整本书的思路，
+ * 每次刷新都从零开始，谈过的东西就白谈了。
+ */
+onMounted(loadLatestConversation)
+
+async function loadLatestConversation() {
+  if (!props.projectId) return
+  try {
+    const list = (await listConversations(props.projectId, 'PLANNER')) || []
+    if (!list.length) return
+    const latest = list[0]
+    conversationId.value = latest.id
+    conversationTitle.value = latest.title || '新对话'
+    const history = (await getConversationMessages(latest.id)) || []
+    messages.value = history.map((m) => ({ role: m.role, text: m.content }))
+    await refreshSide()
+    scrollToBottom()
+  } catch (e) {
+    // 读不到历史不该让面板打不开
+    console.warn('读取策划对话失败', e)
+  }
+}
+
+/**
+ * 开一段新对话。
+ *
+ * 旧的那段不会删 —— 它还在会话列表里，下次进来仍可继续。
+ * "推倒重来"要的是换个思路重新谈，不是把谈过的都烧掉。
+ */
+function newConversation() {
+  conversationId.value = null
+  conversationTitle.value = '新对话'
+  messages.value = []
+  planOptions.value = []
+  drafts.value = []
+  error.value = ''
+}
 
 const TOOL_LABELS = {
   query_character: '查了人物卡',
@@ -223,7 +283,12 @@ async function send() {
 
   try {
     const data = await plannerChat(props.projectId, conversationId.value, outgoing)
+    const wasNew = !conversationId.value
     conversationId.value = data.conversationId
+    if (wasNew) {
+      // 标题由后端从首条消息派生，这里跟随一下，免得切走再回来标题不一样
+      conversationTitle.value = outgoing.replace(/\s+/g, ' ').slice(0, 20)
+    }
     messages.value.push({
       role: 'assistant',
       text: data.answer,
@@ -295,6 +360,20 @@ async function discardDraft(draft) {
   height: 100%;
   min-height: 0;
 }
+
+/* ---------- 对话标题栏 ---------- */
+.pl-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 26px;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-panel);
+  flex-shrink: 0;
+}
+
+.pl-head-hint { font-size: 12px; }
+.pl-new-btn { margin-left: auto; font-size: 12px; }
 
 /* ---------- 对话流 ---------- */
 .pl-stream {
@@ -462,6 +541,15 @@ async function discardDraft(draft) {
 .pl-cite-label {
   color: var(--color-brown-deep);
   white-space: nowrap;
+}
+
+/* 定位信息（记录ID / 段号）用等宽小字：它是给模型用的精确坐标，
+   视觉上要让位给正文内容，但不能看不见 */
+.pl-cite-locator {
+  margin-left: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--color-muted);
 }
 
 .pl-cite-text {

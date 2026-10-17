@@ -28,6 +28,22 @@ export function selectPlanOption(conversationId, optionIndex) {
   return http.post(`/agent/conversations/${conversationId}/plan-options/${optionIndex}/select`)
 }
 
+// ==================== 会话（项目与对话解耦） ====================
+
+/**
+ * 某项目下某个角色的会话列表（最近用过的在前）。
+ *
+ * 一个项目可以有很多段对话：对某轮不满意就新开一段，也可以回去续之前那段。
+ */
+export function listConversations(projectId, role = 'PLANNER') {
+  return http.get('/agent/conversations', { params: { projectId, role } })
+}
+
+/** 一段会话的"人话"历史，用于界面上回看 */
+export function getConversationMessages(conversationId) {
+  return http.get(`/agent/conversations/${conversationId}/messages`)
+}
+
 // ==================== 草稿（人工确认） ====================
 
 /** pendingOnly=true 就是"待确认"列表 */

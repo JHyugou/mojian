@@ -128,7 +128,10 @@ function cite() {
     targetId: menu.value.targetId,
     targetName: menu.value.targetName,
     kind: menu.value.kind,
-    text: menu.value.text
+    text: menu.value.text,
+    // 记录 ID 一起带上：名称会重名，ID 不会。
+    // 模型拿到它就能直接调用 update_*，不必再查一遍
+    locator: menu.value.targetId ? `(记录ID ${menu.value.targetId})` : ''
   })
   // 引用完把选中清掉，否则下一次右键还会带着旧选区
   window.getSelection()?.removeAllRanges()

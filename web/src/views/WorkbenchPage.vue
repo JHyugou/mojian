@@ -7,6 +7,27 @@
         <span class="mj-muted wb-brand-sub">创作工作台</span>
       </div>
 
+      <!-- 项目选择。项目与对话解耦：换项目等于换一本书，
+           它下面各自的对话、人物、设定、蓝图都跟着切 -->
+      <div class="wb-project">
+        <button class="wb-project-current" @click="projectMenuOpen = !projectMenuOpen">
+          <span>{{ projectStore.current?.name || '选择项目' }}</span>
+          <span class="wb-project-caret">▾</span>
+        </button>
+        <div v-if="projectMenuOpen" class="wb-project-menu mj-fade">
+          <button
+            v-for="p in projects"
+            :key="p.id"
+            class="wb-project-item"
+            :class="{ active: p.id === projectId }"
+            @click="switchProject(p)"
+          >
+            {{ p.name }}
+          </button>
+          <div v-if="!projects.length" class="wb-project-empty mj-muted">还没有项目</div>
+        </div>
+      </div>
+
       <nav class="wb-modes">
         <button
           v-for="m in modes"
@@ -170,6 +191,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useProjectStore } from '../stores/project'
+import { listProjects } from '../api/project'
 import { createChapter, listChapters } from '../api/chapter'
 import { listCharacters } from '../api/character'
 import { listSettings } from '../api/setting'
@@ -188,6 +210,24 @@ const modes = [
 ]
 
 const mode = ref('planner')
+const projects = ref([])
+const projectMenuOpen = ref(false)
+
+/** 换项目 = 换一本书，下面所有内容都要重取 */
+async function switchProject(project) {
+  projectMenuOpen.value = false
+  if (project.id === projectId.value) return
+  projectStore.select(project)
+  // 清掉旧书的状态，避免换项目瞬间还显示着上一本的章节/人物
+  chapters.value = []
+  activeChapter.value = null
+  outlineTree.value = []
+  characters.value = []
+  settings.value = []
+  reports.value = { PLANNER: null, WRITER: null }
+  await loadAll()
+}
+
 const rightTab = ref('info')
 const rightTabs = [
   { key: 'info', label: '资料' },
@@ -342,7 +382,8 @@ function countOutline(nodes) {
   return nodes.reduce((sum, n) => sum + 1 + countOutline(n.children), 0)
 }
 
-onMounted(async () => {
+/** 把当前项目的所有资料取一遍。换项目时也走它 */
+async function loadAll() {
   if (!projectId.value) return
 
   // 各块互不依赖，一起发；某一块失败不该让整页空白。
@@ -388,6 +429,16 @@ onMounted(async () => {
   } catch (e) {
     console.warn('读取上下文用量失败', e)
   }
+}
+
+onMounted(async () => {
+  // 项目列表：工作台自己就能换项目，不必回项目页
+  try {
+    projects.value = (await listProjects()) || []
+  } catch (e) {
+    console.warn('读取项目列表失败', e)
+  }
+  await loadAll()
 })
 </script>
 
@@ -415,6 +466,57 @@ onMounted(async () => {
 
 .wb-brand { display: flex; align-items: baseline; gap: 8px; }
 .wb-brand-sub { font-size: 12px; letter-spacing: 0.1em; }
+
+/* ---------- 项目选择 ---------- */
+.wb-project { position: relative; }
+
+.wb-project-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-s);
+  background: var(--color-paper-warm);
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--color-brown-deep);
+  transition: border-color var(--dur) var(--ease-out);
+}
+.wb-project-current:hover { border-color: var(--color-brown); }
+.wb-project-caret { font-size: 10px; color: var(--color-muted); }
+
+.wb-project-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 80;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-float);
+}
+
+.wb-project-item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.wb-project-item:hover { background: var(--color-paper-warm); }
+.wb-project-item.active { color: var(--color-brown-deep); background: var(--color-paper-warm); }
+.wb-project-empty { padding: 10px; font-size: 12px; }
 
 .wb-modes {
   display: flex;

@@ -205,6 +205,36 @@ public class AgentController {
         return ApiResponse.ok(chapterService.updateWritingRequirement(chapterId, request.requirement()));
     }
 
+    // ==================== 会话（项目与对话解耦） ====================
+
+    /**
+     * 某项目下某个角色的会话列表（最近用过的在前）。
+     *
+     * <p>项目与会话解耦：一个项目可以有很多段对话，作者对某轮不满意时可以新开一段，
+     * 也可以回到之前某一段继续。
+     */
+    @GetMapping("/conversations")
+    public ApiResponse<List<Map<String, Object>>> conversations(
+            @RequestParam Long projectId,
+            @RequestParam(defaultValue = AgentRole.PLANNER) String role) {
+        return ApiResponse.ok(conversationService.list(projectId, role).stream()
+                .map(c -> Map.<String, Object>of(
+                        "id", c.getId(),
+                        "title", c.getTitle() == null ? "未命名对话" : c.getTitle(),
+                        "updatedAt", c.getUpdatedAt() == null ? "" : c.getUpdatedAt().toString()))
+                .toList());
+    }
+
+    /** 一段会话的"人话"历史（用户的指令 + 助手的回答），用于界面上回看 */
+    @GetMapping("/conversations/{conversationId}/messages")
+    public ApiResponse<List<Map<String, String>>> conversationMessages(@PathVariable Long conversationId) {
+        conversationService.require(conversationId);
+        return ApiResponse.ok(conversationService.loadTextHistory(conversationId).stream()
+                .map(m -> Map.of("role", m.role(),
+                        "content", m.content() == null ? "" : m.content()))
+                .toList());
+    }
+
     // ==================== 草稿（人工确认） ====================
 
     /**
