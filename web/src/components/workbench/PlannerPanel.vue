@@ -160,13 +160,14 @@ import {
   acceptDraft,
   getConversationMessages,
   listConversations,
-  listDrafts,
   listPlanOptions,
+  listProjectDrafts,
   plannerChat,
   rejectDraft,
   selectPlanOption
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
+import { useLibraryStore } from '../../stores/library'
 import MarkdownText from '../MarkdownText.vue'
 
 const props = defineProps({
@@ -180,6 +181,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed'])
+
+const library = useLibraryStore()
 
 const messages = ref([])
 const draftMessage = ref('')
@@ -348,11 +351,14 @@ async function send() {
 }
 
 async function refreshSide() {
-  if (!conversationId.value) return
+  if (!props.projectId) return
   try {
     const [options, pending] = await Promise.all([
-      listPlanOptions(conversationId.value),
-      listDrafts(conversationId.value, true)
+      // 走向方案跟着会话走（它是这段对话的产物）
+      conversationId.value ? listPlanOptions(conversationId.value) : Promise.resolve([]),
+      // 待确认草稿按**项目**查：写作 Agent 起草的人物卡挂在写作会话上，
+      // 只查策划会话就会永远看不到它们
+      listProjectDrafts(props.projectId, true)
     ])
     planOptions.value = options || []
     drafts.value = pending || []
@@ -379,6 +385,8 @@ async function confirmDraft(draft) {
   try {
     await acceptDraft(draft.id)
     await refreshSide()
+    // 采纳会真的写进人物/设定/蓝图表 —— 喊一声，右栏的数字才会跟着变
+    library.touch()
   } catch (e) {
     error.value = e.message
   }

@@ -263,6 +263,20 @@ public class AgentController {
     // ==================== 草稿（人工确认） ====================
 
     /**
+     * 本书的草稿。
+     *
+     * <p><b>按项目查，不按会话查</b>：写作 Agent 也会起草人物卡（写到一半发现缺角色），
+     * 那些草稿挂在写作会话上。只查策划会话的话，它们永远不会出现在"待你确认"里。
+     */
+    @GetMapping("/projects/{projectId}/drafts")
+    public ApiResponse<List<AgentDraft>> projectDrafts(@PathVariable Long projectId,
+                                                       @RequestParam(defaultValue = "true") boolean pendingOnly) {
+        return ApiResponse.ok(pendingOnly
+                ? draftService.listPendingByProject(projectId)
+                : draftService.listByProject(projectId));
+    }
+
+    /**
      * 某会话的草稿。
      *
      * <p>{@code pendingOnly=true} 就是界面上的"待确认"列表。

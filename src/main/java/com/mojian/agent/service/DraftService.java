@@ -84,9 +84,28 @@ public class DraftService {
         return draftMapper.selectByConversation(conversationId);
     }
 
+    /** 本书全部草稿（最近的在前面） */
+    public List<AgentDraft> listByProject(Long projectId) {
+        return draftMapper.selectByProject(projectId);
+    }
+
     /** 界面上的"待确认"列表 */
     public List<AgentDraft> listPending(Long conversationId) {
         return draftMapper.selectPendingByConversation(conversationId);
+    }
+
+    /**
+     * 本书全部待确认草稿（不看是哪段会话起草的）。
+     *
+     * <p><b>为什么必须按项目查而不是按会话</b>：写作 Agent 也会起草人物卡
+     * （写到一半发现缺个角色），而那些草稿挂在<b>写作会话</b>上。
+     * 如果界面只查策划会话，它们就永远不会出现在"待你确认"里 ——
+     * 用户看不到、也确认不了，那条草稿等于凭空消失。
+     */
+    public List<AgentDraft> listPendingByProject(Long projectId) {
+        return draftMapper.selectByProject(projectId).stream()
+                .filter(draft -> DraftStatus.PENDING.equals(draft.getStatus()))
+                .toList();
     }
 
     public AgentDraft require(Long draftId) {

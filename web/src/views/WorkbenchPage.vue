@@ -176,6 +176,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/project'
+import { useLibraryStore } from '../stores/library'
 import { createChapter, listChapters } from '../api/chapter'
 import { listCharacters } from '../api/character'
 import { listSettings } from '../api/setting'
@@ -187,6 +188,7 @@ import ResourceBrowser from '../components/workbench/ResourceBrowser.vue'
 import Resizer from '../components/workbench/Resizer.vue'
 
 const projectStore = useProjectStore()
+const library = useLibraryStore()
 const projectId = computed(() => projectStore.currentId)
 const route = useRoute()
 const router = useRouter()
@@ -355,6 +357,8 @@ async function createNewChapterFromPanel(title) {
     const created = await createChapter(projectId.value, { title, status: 'DRAFT' })
     chapters.value = [...chapters.value, created]
     counts.value = { ...counts.value, chapters: chapters.value.length }
+    // 章节数变了，右栏的统计要跟上
+    library.touch()
     // 新建完直接切过去写：点"新建"的人多半就是想马上写这一章
     activeChapter.value = created
     mode.value = 'writer'
@@ -423,6 +427,15 @@ onMounted(loadAll)
 // 左栏换项目（或换会话）后要重取这本书的资料。
 // 面板本身用 :key 绑项目 id，换书会重新挂载，所以它们的状态不用在这里清。
 watch(projectId, () => loadAll())
+
+/*
+ * 右栏的统计与条目要跟着资料变化走。
+ *
+ * 只在"进页面"和"换项目"时取一次是不够的 —— 你停在页面上时资料照样会变，
+ * 最典型的就是确认采纳了 Agent 起草的人物/设定/蓝图，
+ * 数字却还停在改动前，看着像没生效。
+ */
+watch(() => library.version, () => loadAll())
 </script>
 
 <style scoped>

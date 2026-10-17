@@ -61,6 +61,16 @@ export function listDrafts(conversationId, pendingOnly = false) {
   return http.get(`/agent/conversations/${conversationId}/drafts`, { params: { pendingOnly } })
 }
 
+/**
+ * 本书的待确认草稿（不看是哪段会话起草的）。
+ *
+ * 写作 Agent 也会起草人物卡，那些挂在写作会话上 ——
+ * 只查策划会话的话，它们永远不会出现在"待确认"里。
+ */
+export function listProjectDrafts(projectId, pendingOnly = true) {
+  return http.get(`/agent/projects/${projectId}/drafts`, { params: { pendingOnly } })
+}
+
 /** 确认草稿 —— 到这一步才真正写进人物/设定/蓝图表 */
 export function acceptDraft(draftId) {
   return http.post(`/agent/drafts/${draftId}/accept`)
