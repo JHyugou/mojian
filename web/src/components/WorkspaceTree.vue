@@ -668,11 +668,18 @@ onBeforeUnmount(() => {
   outline: none;
 }
 
-/* 被 Teleport 到 body 的菜单：脱离文档流、盖在所有东西上面 */
+/* 被 Teleport 到 body 的右键菜单：钉在鼠标位置、盖在所有东西上面 */
 .ws-menu.is-floating {
   position: fixed;
   z-index: 3000;
   min-width: 168px;
+  /*
+   * 必须把 right 清掉。
+   * .ws-menu 为"贴着项目行右侧"的菜单设了 right: 6px，而右键菜单用的是 left。
+   * 两者同时存在时，浏览器会把它当成"左右都锚定"，
+   * 于是宽度 = 从鼠标到屏幕右边 —— 整个菜单被撑成一条横贯屏幕的长条。
+   */
+  right: auto;
 }
 
 .ws-conv-del {
