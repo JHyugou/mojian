@@ -233,6 +233,16 @@ public class AgentController {
                 .toList());
     }
 
+    /** 给会话改名。标题原本是从首条消息里截出来的，往往不像人话 */
+    @PutMapping("/conversations/{conversationId}/title")
+    public ApiResponse<Map<String, Object>> renameConversation(@PathVariable Long conversationId,
+                                                               @RequestBody Map<String, String> body) {
+        AgentConversation conversation = conversationService.rename(conversationId, body.get("title"));
+        return ApiResponse.ok(Map.of(
+                "id", conversation.getId(),
+                "title", conversation.getTitle() == null ? "" : conversation.getTitle()));
+    }
+
     /** 删除一段会话（连同它的消息）—— 工作区树不能只增不减 */
     @DeleteMapping("/conversations/{conversationId}")
     public ApiResponse<Void> deleteConversation(@PathVariable Long conversationId) {

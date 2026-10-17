@@ -15,15 +15,15 @@ const sideWidth = ref(Number(localStorage.getItem('mojian.sideWidth')) || 232)
 watch(sideWidth, (value) => localStorage.setItem('mojian.sideWidth', String(value)))
 
 /*
- * 导航只剩四页：工作台、项目、成书、模型接入。
- * 「人物档案」「故事设定库」「剧情蓝图」已移除 —— 它们在工作台右栏分屏里都能看，
- * 两处入口是重复的（删掉的是入口，功能一处没少）。
+ * 导航只剩三页。
+ * 「创作工作台」已移除 —— 工作台不再是一个"页面入口"，
+ * 而是从左栏工作区点项目/会话直接进去的地方，再放一个导航项就是重复。
+ * 「人物档案」「故事设定库」「剧情蓝图」也早已移除：它们在工作台右栏分屏里都能看。
  */
 const navItems = [
-  { path: '/workbench', label: '创作工作台', num: '壹' },
-  { path: '/', label: '创作项目', num: '貳' },
-  { path: '/book', label: '成书', num: '叁' },
-  { path: '/ai-settings', label: '模型接入', num: '肆' }
+  { path: '/', label: '创作项目', num: '壹' },
+  { path: '/book', label: '成书', num: '貳' },
+  { path: '/ai-settings', label: '模型接入', num: '叁' }
 ]
 
 
@@ -42,7 +42,6 @@ const navItems = [
       </svg>
       <span class="mist mist-1"></span>
       <span class="mist mist-2"></span>
-      <span class="vertical-verse brush">落笔惊风雨 · 诗成泣鬼神</span>
     </div>
     <header class="app-header">
       <div class="brand">
@@ -160,23 +159,15 @@ const navItems = [
 }
 .mist-1 { top: 16%; left: -80px; animation: mist-drift 24s ease-in-out infinite alternate; }
 .mist-2 { bottom: 18%; right: -100px; animation: mist-drift 30s ease-in-out infinite alternate-reverse; }
-.vertical-verse {
-  position: absolute;
-  top: 96px;
-  right: 18px;
-  writing-mode: vertical-rl;
-  font-size: 19px;
-  letter-spacing: 0.4em;
-  color: rgba(43, 38, 32, 0.28);
-  animation: verse-float 9s ease-in-out infinite alternate;
-}
+
+/*
+ * 这里原本有一行竖排诗句装饰（「落笔惊风雨 · 诗成泣鬼神」）。
+ * 已移除：它在工作区里会从透明的栏背景后面透出来，
+ * 看着像一排莫名其妙的符号 —— 装饰不该被误认成内容。
+ */
 @keyframes mist-drift {
   from { transform: translateX(-46px); }
   to { transform: translateX(46px); }
-}
-@keyframes verse-float {
-  from { transform: translateY(-7px); }
-  to { transform: translateY(7px); }
 }
 
 .app-header,

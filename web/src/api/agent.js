@@ -44,6 +44,11 @@ export function getConversationMessages(conversationId) {
   return http.get(`/agent/conversations/${conversationId}/messages`)
 }
 
+/** 给会话改名 */
+export function renameConversation(conversationId, title) {
+  return http.put(`/agent/conversations/${conversationId}/title`, { title })
+}
+
 /** 删除一段会话（连同它的消息） */
 export function deleteConversation(conversationId) {
   return http.delete(`/agent/conversations/${conversationId}`)

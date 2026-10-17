@@ -160,6 +160,22 @@ public class ConversationService {
     }
 
     /**
+     * 给会话改名。
+     *
+     * <p>标题原本是从首条消息里截出来的，往往又长又不像人话（"我想让主角在第十三章…"）。
+     * 作者自己起的名字，才是他之后找得回来的那一个。
+     */
+    @Transactional
+    public AgentConversation rename(Long conversationId, String title) {
+        AgentConversation conversation = require(conversationId);
+        String clean = StringUtils.hasText(title) ? title.trim() : "未命名对话";
+        // 侧栏只有那么宽，太长的标题除了撑破布局没有别的用处
+        conversation.setTitle(clean.length() > 60 ? clean.substring(0, 60) : clean);
+        conversationMapper.updateById(conversation);
+        return conversation;
+    }
+
+    /**
      * 删除一段会话（连同它的消息与方案）。
      *
      * <p>工作区树会越积越长 —— 试验性的对话、走过的死胡同、重复的尝试，

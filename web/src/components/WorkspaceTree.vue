@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/project'
 import { listProjects, updateProject } from '../api/project'
-import { listConversations, deleteConversation } from '../api/agent'
+import { listConversations, deleteConversation, renameConversation } from '../api/agent'
 import Icon from './Icon.vue'
 
 /**
@@ -26,6 +26,52 @@ const menuFor = ref(null)
 const pickerOpen = ref(false)
 const renameFor = ref(null)
 const renameText = ref('')
+
+/** 会话的右键菜单与就地改名 */
+const convMenu = ref(null)
+const renamingConv = ref(null)
+const convTitle = ref('')
+
+function onConvMenu(event, conversation) {
+  event.preventDefault()
+  event.stopPropagation()
+  // 同时只留一个浮层，否则菜单会叠在一起
+  menuFor.value = null
+  pickerOpen.value = false
+  convMenu.value = {
+    x: Math.min(event.clientX, window.innerWidth - 180),
+    y: Math.min(event.clientY, window.innerHeight - 110),
+    conversation
+  }
+}
+
+function startConvRename() {
+  const conversation = convMenu.value?.conversation
+  convMenu.value = null
+  if (!conversation) return
+  renamingConv.value = conversation.id
+  convTitle.value = conversation.title
+}
+
+async function submitConvRename(conversation) {
+  renamingConv.value = null
+  const title = convTitle.value.trim()
+  if (!title || title === conversation.title) return
+  try {
+    const updated = await renameConversation(conversation.id, title)
+    conversation.title = updated.title
+    // 重建数组触发更新：改的是对象内部字段，Vue 靠引用变化才知道要重渲染
+    conversations.value = [...conversations.value]
+  } catch (e) {
+    window.alert(e.message || '改名失败')
+  }
+}
+
+function removeFromMenu() {
+  const conversation = convMenu.value?.conversation
+  convMenu.value = null
+  if (conversation) removeConversation(conversation)
+}
 
 /**
  * 被"关闭"的工作区。
@@ -210,6 +256,7 @@ defineExpose({ reload })
 function closeAll() {
   menuFor.value = null
   pickerOpen.value = false
+  convMenu.value = null
 }
 
 function onKeydown(event) {
@@ -329,13 +376,24 @@ onBeforeUnmount(() => {
             class="ws-conv"
             :class="{ active: String(route.query.conv) === String(c.id) }"
             @click="openConversation(p, c)"
+            @contextmenu="onConvMenu($event, c)"
           >
             <span class="ws-conv-mark">{{ c.role === 'WRITER' ? '文' : '策' }}</span>
-            <span class="ws-conv-title">{{ c.title }}</span>
-            <span class="ws-conv-time">{{ relativeTime(c.updatedAt) }}</span>
-            <span class="ws-conv-del" title="删除这段对话" @click.stop="removeConversation(c)">
-              <Icon name="trash" :size="13" />
-            </span>
+
+            <!-- 就地改名：改个名字不该跳到别处 -->
+            <input
+              v-if="renamingConv === c.id"
+              v-model="convTitle"
+              class="ws-conv-rename"
+              @click.stop
+              @keydown.enter="submitConvRename(c)"
+              @keydown.esc="renamingConv = null"
+              @blur="submitConvRename(c)"
+            />
+            <template v-else>
+              <span class="ws-conv-title">{{ c.title }}</span>
+              <span class="ws-conv-time">{{ relativeTime(c.updatedAt) }}</span>
+            </template>
           </button>
           <p v-if="!conversationsOf(p.id).length" class="ws-empty">还没有对话</p>
         </div>
@@ -345,6 +403,25 @@ onBeforeUnmount(() => {
         工作区是空的。<br />用上面的文件夹图标添加一个。
       </p>
     </div>
+
+    <!-- 会话右键菜单。Teleport 到 body：侧栏有 overflow 滚动，留在里面会被裁掉 -->
+    <Teleport to="body">
+      <div
+        v-if="convMenu"
+        class="ws-menu is-floating mj-fade"
+        :style="{ left: convMenu.x + 'px', top: convMenu.y + 'px' }"
+        @click.stop
+      >
+        <button class="ws-menu-item" @click="startConvRename">
+          <Icon name="edit" :size="14" />
+          <span>重命名</span>
+        </button>
+        <button class="ws-menu-item is-danger" @click="removeFromMenu">
+          <Icon name="trash" :size="14" />
+          <span>删除这段对话</span>
+        </button>
+      </div>
+    </Teleport>
   </section>
 </template>
 
@@ -577,6 +654,26 @@ onBeforeUnmount(() => {
 
 .ws-conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ws-conv-time { flex-shrink: 0; font-size: 11px; opacity: 0.75; }
+
+/* 就地改名：占满标题那一格，宽度与标题一致，视觉上不跳动 */
+.ws-conv-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--color-brown);
+  border-radius: 3px;
+  background: var(--color-panel);
+  font-size: 12px;
+  color: var(--color-ink);
+  outline: none;
+}
+
+/* 被 Teleport 到 body 的菜单：脱离文档流、盖在所有东西上面 */
+.ws-menu.is-floating {
+  position: fixed;
+  z-index: 3000;
+  min-width: 168px;
+}
 
 .ws-conv-del {
   flex-shrink: 0;

@@ -1,14 +1,11 @@
 <template>
   <div class="mj-page wb">
     <!-- ==================== 顶栏 ==================== -->
+    <!--
+      品牌区不在这里重复：外壳顶部已经有「墨笺 · AI 长篇小说创作工作台」。
+      工作台顶部只留真正要用的东西 —— 模式切换与上下文用量。
+    -->
     <header class="wb-top">
-      <div class="wb-brand">
-        <span class="mj-title mj-title-md">墨笺</span>
-        <span class="mj-muted wb-brand-sub">创作工作台</span>
-      </div>
-
-      <!-- 项目与会话的选择统一在左栏工作区树里，这里不再重复放一个下拉 -->
-
       <nav class="wb-modes">
         <button
           v-for="m in modes"
@@ -30,7 +27,6 @@
         >
           {{ mode === 'planner' ? '策划' : '写作' }}上下文 {{ activeReport.usagePercent }}%
         </span>
-        <button class="mj-btn mj-btn-text" @click="$router.push('/')">返回项目</button>
       </div>
     </header>
 
@@ -445,14 +441,13 @@ watch(projectId, () => loadAll())
   align-items: center;
   gap: 24px;
   padding: 0 22px;
-  height: 58px;
+  height: 52px;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-panel);
   flex-shrink: 0;
 }
 
-.wb-brand { display: flex; align-items: baseline; gap: 8px; }
-.wb-brand-sub { font-size: 12px; letter-spacing: 0.1em; }
+/* 顶栏里的模式切换顶到左边；没有品牌区之后它就该占住起始位置 */
 
 /* ---------- 项目选择 ---------- */
 .wb-project { position: relative; }
@@ -535,7 +530,15 @@ watch(projectId, () => loadAll())
 /* ---------- 三栏 ---------- */
 .wb-body { flex: 1; min-height: 0; display: flex; }
 
-.wb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wb-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* 每栏都要有不透明底色：外壳的背景装饰层（远山、流霭）会从透明区域透出来，
+     在白色工作区里看着像一团莫名其妙的污渍 */
+  background: var(--color-paper);
+}
 
 .wb-right {
   border-left: 1px solid var(--color-line);
