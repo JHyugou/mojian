@@ -21,8 +21,12 @@
       </nav>
 
       <div class="wb-meta">
-        <span v-if="report" class="mj-tag" :class="{ 'mj-tag-brown': report.usagePercent > 60 }">
-          上下文 {{ report.usagePercent }}%
+        <span
+          v-if="activeReport"
+          class="mj-tag"
+          :class="{ 'mj-tag-brown': activeReport.usagePercent > 60 }"
+        >
+          {{ mode === 'planner' ? '策划' : '写作' }}上下文 {{ activeReport.usagePercent }}%
         </span>
         <button class="mj-btn mj-btn-text" @click="$router.push('/')">返回项目</button>
       </div>
@@ -30,73 +34,12 @@
 
     <!-- ==================== 主体三栏 ==================== -->
     <div class="wb-body">
-      <!-- 左：随模式切换。
-           策划管整本书的框架，所以它看的是蓝图树；写作管某一章，所以它看的是章节目录。
-           两边共用一个左栏、内容不同，比做两套布局更贴合"两个 Agent 各管一摊"。 -->
-      <aside class="wb-left">
-        <template v-if="mode === 'planner'">
-          <div class="wb-side-head">
-            <span class="mj-title mj-title-sm">剧情蓝图</span>
-            <span class="mj-muted">{{ counts.outline }} 节点</span>
-          </div>
-          <div class="wb-left-list mj-scroll">
-            <button
-              v-for="node in flatOutline"
-              :key="node.id"
-              class="wb-outline-item"
-              :style="{ paddingLeft: 10 + node._depth * 14 + 'px' }"
-              :class="{ 'is-volume': node.nodeType === 'VOLUME' }"
-              @click="pickOutlineNode(node)"
-            >
-              <span class="wb-outline-name">{{ node.name || '未命名' }}</span>
-              <span class="mj-tag">{{ nodeTypeLabel(node.nodeType) }}</span>
-            </button>
-            <div v-if="!flatOutline.length" class="wb-empty-hint mj-muted">
-              还没有蓝图。<br />
-              在右边和策划 Agent 聊，它会帮你把走向规划成蓝图节点。
-            </div>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="wb-side-head">
-            <span class="mj-title mj-title-sm">章节目录</span>
-            <div class="wb-side-head-right">
-              <span class="mj-muted">{{ chapters.length }} 章</span>
-              <button class="wb-icon-btn" title="新建章节" @click="toggleNewChapter">＋</button>
-            </div>
-          </div>
-
-          <!-- 新建章节：原来在「章节创作」页里，那一页被工作台取代后挪到这里 -->
-          <div v-if="creatingChapter" class="wb-new-row mj-fade">
-            <input
-              v-model="newChapterTitle"
-              class="mj-input"
-              placeholder="章节标题，回车创建"
-              @keydown.enter="createNewChapter"
-              @keydown.esc="toggleNewChapter"
-            />
-          </div>
-          <p v-if="sideError" class="wb-side-error">{{ sideError }}</p>
-
-          <div class="wb-left-list mj-scroll">
-            <button
-              v-for="(c, i) in chapters"
-              :key="c.id"
-              class="wb-chapter"
-              :class="{ active: c.id === activeChapter?.id }"
-              @click="pickChapter(c)"
-            >
-              <span class="wb-chapter-no">{{ i + 1 }}</span>
-              <span class="wb-chapter-title">{{ c.title }}</span>
-              <span v-if="c.status === 'COMPLETED'" class="mj-tag">完成</span>
-            </button>
-            <div v-if="!chapters.length" class="wb-empty-hint mj-muted">
-              这本书还没有章节。<br />先去「剧情蓝图」里规划，或在这里和策划 Agent 聊。
-            </div>
-          </div>
-        </template>
-      </aside>
+      <!--
+        这里原本有一个左栏（策划模式显示蓝图树、写作模式显示章节目录）。
+        已移除：它显示的东西右栏分屏里都能看，两处重复。
+        章节选择移到了写作面板标题栏的下拉里；蓝图浏览在右栏「蓝图」页签。
+        腾出来的宽度给了交互区与正文 —— 那两块才是真正要看内容的地方。
+      -->
 
       <!-- 中：策划 / 写作 -->
       <main class="wb-main">
@@ -114,7 +57,10 @@
             key="writer"
             :project-id="projectId"
             :chapter="activeChapter"
+            :chapters="chapters"
             :blueprint="activeBlueprint"
+            @select-chapter="pickChapter"
+            @create-chapter="createNewChapterFromPanel"
           />
         </Transition>
       </main>
@@ -161,32 +107,35 @@
 
             <div class="wb-side-head">
               <span class="mj-title mj-title-sm">上下文</span>
+              <span class="mj-muted">主副各一套</span>
             </div>
-            <div v-if="report" class="wb-report">
+
+            <!-- 主副 Agent 是两套完全不同的上下文（材料侧重不同、预算不同），
+                 所以分开显示。合在一起会让作者以为它们共用一个。 -->
+            <div v-for="r in agentReports" :key="r.role" class="wb-report">
+              <div class="wb-report-head">
+                <span class="wb-report-name">{{ r.label }}</span>
+                <span class="mj-muted">{{ r.percent }}%</span>
+              </div>
               <div class="wb-report-bar">
-                <div
-                  class="wb-report-fill"
-                  :style="{ width: Math.min(report.usagePercent, 100) + '%' }"
-                ></div>
+                <div class="wb-report-fill" :style="{ width: Math.min(r.percent, 100) + '%' }"></div>
               </div>
               <p class="mj-muted wb-report-text">
-                {{ report.usedTokens }} / {{ report.usableTokens }} token
-              </p>
-              <p class="mj-muted wb-report-text">
-                装入 {{ report.keptSections?.length || 0 }} 段{{
-                  report.trimmedSections?.length ? `，裁掉 ${report.trimmedSections.length} 段` : ''
+                {{ r.used }} / {{ r.usable }} token · 装入 {{ r.kept }} 段{{
+                  r.trimmed ? `，裁掉 ${r.trimmed} 段` : ''
                 }}
               </p>
-              <!-- 到 80% 就该启用检索了；这件事该由数据提醒，不该靠人凭感觉判断 -->
-              <p v-if="report.usagePercent > 80" class="wb-warn">
-                上下文已用到 {{ report.usagePercent }}%。<br />
-                再写下去就该启用检索了 —— 现在还是全部塞进去（更准，但空间有限）。
-              </p>
-              <p v-else class="mj-muted wb-report-text">
-                装得下就全塞，不做检索 —— 筛选必然丢东西。
+              <p v-if="r.percent > 80" class="wb-warn">
+                已用到 {{ r.percent }}%，该启用检索了 ——
+                现在是全部塞进去（更准，但空间有限）。
               </p>
             </div>
-            <div v-else class="mj-muted wb-report-text">正在读取…</div>
+            <p v-if="!reports.PLANNER && !reports.WRITER" class="mj-muted wb-report-text">
+              正在读取…
+            </p>
+            <p v-else class="mj-muted wb-report-text">
+              装得下就全塞，不做检索 —— 筛选必然丢东西。
+            </p>
           </template>
 
           <ResourceBrowser
@@ -274,8 +223,30 @@ const activeChapter = ref(null)
 const outlineTree = ref([])
 const characters = ref([])
 const settings = ref([])
-const counts = ref({ characters: 0, settings: 0, outline: 0 })
-const report = ref(null)
+const counts = ref({ characters: 0, settings: 0, outline: 0, chapters: 0 })
+const reports = ref({ PLANNER: null, WRITER: null })
+const sideError = ref('')
+
+/** 顶栏徽标跟着当前模式走 —— 策划模式看策划的，写作模式看写作的 */
+const activeReport = computed(() =>
+  mode.value === 'planner' ? reports.value.PLANNER : reports.value.WRITER
+)
+
+/** 右栏把两套上下文并排摆出来 */
+const agentReports = computed(() =>
+  [
+    { role: 'PLANNER', label: '策划 Agent', report: reports.value.PLANNER },
+    { role: 'WRITER', label: '写作 Agent', report: reports.value.WRITER }
+  ].map(({ role, label, report }) => ({
+    role,
+    label,
+    percent: report?.usagePercent ?? 0,
+    used: report?.usedTokens ?? 0,
+    usable: report?.usableTokens ?? 0,
+    kept: report?.keptSections?.length ?? 0,
+    trimmed: report?.trimmedSections?.length ?? 0
+  }))
+)
 
 /** 数字上绑了页签名：点一下就能过去看条目，而不是只能看到一个数 */
 const stats = computed(() => [
@@ -351,39 +322,18 @@ function pickChapter(chapter) {
   mode.value = 'writer'
 }
 
-const creatingChapter = ref(false)
-const newChapterTitle = ref('')
-const sideError = ref('')
-
-function toggleNewChapter() {
-  creatingChapter.value = !creatingChapter.value
-  newChapterTitle.value = ''
-  sideError.value = ''
-}
-
-async function createNewChapter() {
-  const title = newChapterTitle.value.trim()
-  if (!title) return
+/** 写作面板里新建章节：标题由那边输入，这里负责落库与切换 */
+async function createNewChapterFromPanel(title) {
   try {
     const created = await createChapter(projectId.value, { title, status: 'DRAFT' })
     chapters.value = [...chapters.value, created]
-    // 新建完直接切过去写：作者点"新建"多半就是想马上写这一章
+    counts.value = { ...counts.value, chapters: chapters.value.length }
+    // 新建完直接切过去写：点"新建"的人多半就是想马上写这一章
     activeChapter.value = created
     mode.value = 'writer'
-    creatingChapter.value = false
-    newChapterTitle.value = ''
     sideError.value = ''
   } catch (e) {
     sideError.value = e.message || '新建章节失败'
-  }
-}
-
-function pickOutlineNode(node) {
-  // 点蓝图节点 → 找它对应的章节；有就直接切过去写作，没有就提示
-  const matched = chapters.value.find((c) => c.outlineNodeId === node.id)
-  if (matched) {
-    activeChapter.value = matched
-    mode.value = 'writer'
   }
 }
 
@@ -426,7 +376,15 @@ onMounted(async () => {
   }
 
   try {
-    report.value = await getContextReport(projectId.value, 'PLANNER')
+    // 主副两套上下文一起取：它们材料侧重与预算都不同，作者该同时看得到
+    const [plannerReport, writerReport] = await Promise.allSettled([
+      getContextReport(projectId.value, 'PLANNER'),
+      getContextReport(projectId.value, 'WRITER')
+    ])
+    reports.value = {
+      PLANNER: plannerReport.status === 'fulfilled' ? plannerReport.value : null,
+      WRITER: writerReport.status === 'fulfilled' ? writerReport.value : null
+    }
   } catch (e) {
     console.warn('读取上下文用量失败', e)
   }
@@ -487,105 +445,6 @@ onMounted(async () => {
 
 /* ---------- 三栏 ---------- */
 .wb-body { flex: 1; min-height: 0; display: flex; }
-
-.wb-left {
-  width: 232px;
-  border-right: 1px solid var(--color-line);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-
-.wb-left-list { flex: 1; min-height: 0; padding: 8px; }
-
-.wb-chapter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  color: var(--color-ink);
-  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-}
-.wb-chapter:hover { background: var(--color-paper-warm); }
-.wb-chapter.active { background: var(--color-paper-warm); color: var(--color-brown-deep); }
-
-.wb-chapter-no {
-  width: 18px;
-  flex-shrink: 0;
-  text-align: right;
-  font-size: 12px;
-  color: var(--color-muted);
-}
-.wb-chapter-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wb-empty-hint { padding: 16px 10px; font-size: 12px; line-height: 1.9; }
-
-.wb-side-head-right { display: flex; align-items: center; gap: 6px; }
-
-.wb-icon-btn {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-s);
-  background: var(--color-panel);
-  color: var(--color-brown-deep);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  transition: border-color var(--dur) var(--ease-out);
-}
-.wb-icon-btn:hover { border-color: var(--color-brown); }
-
-.wb-new-row { padding: 0 8px 8px; }
-.wb-side-error {
-  padding: 0 12px 8px;
-  font-size: 12px;
-  color: var(--color-danger);
-}
-
-/* 蓝图节点：按层级缩进，卷/段/章用不同类型标签区分 */
-.wb-outline-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  color: var(--color-ink);
-  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-}
-.wb-outline-item:hover { background: var(--color-paper-warm); }
-.wb-outline-item.is-volume .wb-outline-name {
-  font-family: var(--font-serif);
-  color: var(--color-brown-deep);
-}
-
-.wb-outline-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .wb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -681,7 +540,21 @@ onMounted(async () => {
 }
 
 /* ---------- 上下文用量 ---------- */
-.wb-report { padding: 0 4px; }
+.wb-report { padding: 0 4px; margin-bottom: 14px; }
+
+.wb-report-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.wb-report-name {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--color-brown-deep);
+}
 
 .wb-report-bar {
   height: 4px;

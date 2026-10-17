@@ -97,7 +97,30 @@ public class WriterService {
             broker.finish(taskId, STATUS_SUCCEEDED, null);
         } catch (Exception e) {
             log.warn("写作任务 {} 失败: {}", taskId, e.getMessage());
+            recordFailure(chapterId, e.getMessage());
             broker.finish(taskId, STATUS_FAILED, e.getMessage());
+        }
+    }
+
+    /**
+     * 失败也要在会话里留一条回复。
+     *
+     * <p>用户消息是在任务开始前就落库的，失败如果不补一条回答，
+     * 会话里就会出现"用户说了话、没人应"的孤立消息。它下次会被当作历史带上，
+     * 模型读到一个没有下文的问题，只会莫名困惑。
+     *
+     * <p>而且从交互上说，对话式界面里"没有回复"比"回复说失败了"更糟 ——
+     * 后者至少告诉作者发生了什么、下一步怎么办。
+     */
+    private void recordFailure(Long chapterId, String message) {
+        try {
+            Long projectId = chapterService.requireById(chapterId).getProjectId();
+            AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
+            conversationService.append(conversation.getId(), 0, AgentMessage.assistant(
+                    "这次没能完成：" + message + "\n\n正文没有被改动，你可以直接再试一次。", null));
+        } catch (Exception e) {
+            // 记录失败信息时又失败：只能放弃，绝不能让它盖掉真正的失败原因
+            log.warn("记录失败信息时出错（已忽略）: {}", e.getMessage());
         }
     }
 

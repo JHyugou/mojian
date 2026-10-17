@@ -3,10 +3,41 @@
     <!-- ==================== 左：交互区 ==================== -->
     <section class="wr-chat">
       <header class="wr-chat-head">
-        <span class="mj-title mj-title-sm">{{ chapter?.title || '未选择章节' }}</span>
+        <!-- 章节选择。原来在左栏的章节目录里，左栏与右栏内容重复，已移除 -->
+        <div class="wr-chapter">
+          <button class="wr-chapter-current" @click="chapterMenuOpen = !chapterMenuOpen">
+            <span class="mj-title mj-title-sm">{{ chapter?.title || '选择章节' }}</span>
+            <span class="wr-chapter-caret">▾</span>
+          </button>
+          <div v-if="chapterMenuOpen" class="wr-chapter-menu mj-fade">
+            <button
+              v-for="(c, i) in chapters"
+              :key="c.id"
+              class="wr-chapter-item"
+              :class="{ active: c.id === chapter?.id }"
+              @click="pick(c)"
+            >
+              <span class="wr-chapter-no">{{ i + 1 }}</span>
+              <span class="wr-chapter-name">{{ c.title }}</span>
+            </button>
+            <div v-if="!chapters.length" class="wr-chapter-empty mj-muted">
+              这本书还没有章节
+            </div>
+            <div class="wr-chapter-new">
+              <input
+                v-model="newChapterTitle"
+                class="mj-input"
+                placeholder="新章节标题，回车创建"
+                @keydown.enter="createChapter"
+                @keydown.esc="chapterMenuOpen = false"
+              />
+            </div>
+          </div>
+        </div>
+
         <span v-if="full" class="mj-tag">{{ text.length }} 字</span>
         <span v-if="full?.currentVersionNo" class="mj-tag">版本 {{ full.currentVersionNo }}</span>
-        <span v-if="statusText" class="mj-tag mj-tag-brown">{{ statusText }}</span>
+        <span v-if="running" class="mj-tag mj-tag-brown">{{ statusText }}</span>
         <button
           class="mj-btn mj-btn-text wr-req-toggle"
           :class="{ 'is-on': showRequirement }"
@@ -43,6 +74,12 @@
         </div>
       </section>
 
+      <!-- 非写作类的小错（读取章节、保存要求等）。写作失败走对话流，不在这里 -->
+      <div v-if="error" class="wr-mini-error mj-fade">
+        {{ error }}
+        <button class="wr-mini-error-x" @click="error = ''">×</button>
+      </div>
+
       <!-- 对话流。这是副 Agent 与作者长期连续的对话，跨章不重来 -->
       <div ref="streamEl" class="wr-stream mj-scroll">
         <div v-if="!messages.length && !running" class="wr-empty mj-rise">
@@ -56,20 +93,20 @@
           </p>
         </div>
 
-        <div v-for="(m, i) in messages" :key="i" class="wr-msg mj-rise" :class="'is-' + m.role">
+        <div v-for="(m, i) in messages" :key="i" class="wr-msg mj-rise" :class="['is-' + m.role, { 'is-failed': m.failed }]">
           <div class="wr-msg-tag">{{ m.role === 'user' ? '你' : '写作 Agent' }}</div>
           <div class="wr-bubble">{{ m.text }}</div>
         </div>
 
+        <!-- 进行中。要占对话流里的一条，否则看起来像"说了话没人应" -->
         <div v-if="running" class="wr-msg is-assistant mj-fade">
           <div class="wr-msg-tag">写作 Agent</div>
           <div class="wr-bubble wr-thinking">
             <span class="mj-dots"><i></i><i></i><i></i></span>
             <span class="mj-muted">{{ phase }}</span>
+            <span v-for="(p, i) in progress" :key="i" class="mj-tag">{{ p }}</span>
           </div>
         </div>
-
-        <div v-if="error" class="wr-error mj-fade">{{ error }}</div>
       </div>
 
       <!-- 引用条 + 输入 -->
@@ -175,8 +212,12 @@ import MemoryPanel from '../MemoryPanel.vue'
 const props = defineProps({
   projectId: { type: [Number, String], required: true },
   chapter: { type: Object, default: null },
+  /** 章节目录：章节选择移到标题栏的下拉里了（左栏与右栏重复，已移除） */
+  chapters: { type: Array, default: () => [] },
   blueprint: { type: Object, default: null }
 })
+
+const emit = defineEmits(['select-chapter', 'create-chapter'])
 
 const full = ref(null)
 const text = ref('')
@@ -197,6 +238,8 @@ const error = ref('')
 const bodyEl = ref(null)
 const streamEl = ref(null)
 const tab = ref('text')
+const chapterMenuOpen = ref(false)
+const newChapterTitle = ref('')
 
 const tabs = [
   { key: 'text', label: '正文' },
@@ -300,6 +343,41 @@ async function clearMemory() {
   } catch (e) {
     error.value = e.message
   }
+}
+
+// ==================== 章节切换 ====================
+
+function pick(chapter) {
+  chapterMenuOpen.value = false
+  if (chapter.id !== props.chapter?.id) {
+    emit('select-chapter', chapter)
+  }
+}
+
+function createChapter() {
+  const title = newChapterTitle.value.trim()
+  if (!title) return
+  newChapterTitle.value = ''
+  chapterMenuOpen.value = false
+  emit('create-chapter', title)
+}
+
+// ==================== 失败也要说话 ====================
+
+/**
+ * 把失败显示成对话里的一条回复。
+ *
+ * <p>之前失败只在面板下方飘一行红字，看起来就像"你说了话、它没理你" ——
+ * 而这恰恰是对话式界面最不能有的感觉。失败也是一种回答，
+ * 它至少该告诉你为什么没成。
+ */
+function pushFailure(message) {
+  messages.value = [...messages.value, {
+    role: 'assistant',
+    text: '这次没能完成：' + (message || '未知原因') + '\n\n正文没有被改动，你可以直接再试一次。',
+    failed: true
+  }]
+  scrollStreamToBottom()
 }
 
 // ==================== 滚动 ====================
@@ -421,6 +499,7 @@ async function start() {
   }
 
   const timer = setTimeout(() => { phase.value = '正在写正文…' }, 8000)
+  let failed = false
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing)
@@ -442,22 +521,25 @@ async function start() {
         scrollBodyToBottom()
       },
       onError: (message) => {
-        error.value = message
+        // 立刻显示，不等 onEnd —— 失败的当下就该看见原因
+        failed = true
+        pushFailure(message)
       },
       onEnd: async () => {
         running.value = false
         source = null
         clearTimeout(timer)
         await reload()
-        // 从库里重新读一遍对话：这样 Agent 这轮的说明会进来，
-        // 而且格式与刷新页面后看到的完全一致
+        // 后端也会把失败落进会话，所以这里统一重载：
+        // 保证"当场看到的"和"刷新后看到的"完全一致
         await loadConversation()
       }
     })
   } catch (e) {
-    error.value = e.message
+    // 任务都没起来（比如后端没响应）：同样要在对话里说一声
     running.value = false
     clearTimeout(timer)
+    pushFailure(e.message)
   }
 }
 </script>
@@ -497,6 +579,90 @@ async function start() {
 
 .wr-req-toggle { margin-left: auto; font-size: 12px; }
 .wr-req-toggle.is-on { color: var(--color-brown-deep); }
+
+/* ---------- 章节下拉 ---------- */
+.wr-chapter { position: relative; }
+
+.wr-chapter-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+}
+.wr-chapter-current:hover {
+  border-color: var(--color-line);
+  background: var(--color-paper-warm);
+}
+
+.wr-chapter-caret { font-size: 10px; color: var(--color-muted); }
+
+.wr-chapter-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  width: 260px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-float);
+}
+
+.wr-chapter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-ink);
+}
+.wr-chapter-item:hover { background: var(--color-paper-warm); }
+.wr-chapter-item.active { color: var(--color-brown-deep); background: var(--color-paper-warm); }
+
+.wr-chapter-no { width: 18px; text-align: right; color: var(--color-muted); font-size: 12px; }
+.wr-chapter-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.wr-chapter-empty { padding: 10px; font-size: 12px; }
+.wr-chapter-new {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-line);
+}
+
+.wr-mini-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-s);
+  color: var(--color-danger);
+  font-size: 12px;
+}
+.wr-mini-error-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
 
 .wr-clear-btn { font-size: 12px; }
 
@@ -542,15 +708,14 @@ async function start() {
   border-left: 2px solid var(--color-brown);
 }
 
-.wr-thinking { display: flex; align-items: center; gap: 10px; }
-
-.wr-error {
-  padding: 10px 14px;
-  border: 1px solid var(--color-danger);
-  border-radius: var(--radius-s);
-  color: var(--color-danger);
-  font-size: 13px;
+/* 失败也是一条回复。用危险色描边，但仍然是对话流里的一条，
+   而不是飘在角落的一行提示 —— 对话界面里"没有回复"比"回复说失败了"更糟 */
+.wr-msg.is-failed .wr-bubble {
+  border-color: var(--color-danger);
+  background: rgba(166, 43, 31, 0.04);
 }
+
+.wr-thinking { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
 /* ---------- 输入区 ---------- */
 .wr-input-wrap {
