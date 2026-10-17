@@ -130,7 +130,15 @@ function openProject(project) {
 }
 
 function toggleMenu(project) {
+  pickerOpen.value = false
+  convMenu.value = null
   menuFor.value = menuFor.value === project.id ? null : project.id
+}
+
+function togglePicker() {
+  menuFor.value = null
+  convMenu.value = null
+  pickerOpen.value = !pickerOpen.value
 }
 
 function startRename(project) {
@@ -259,25 +267,51 @@ function closeAll() {
   convMenu.value = null
 }
 
+/**
+ * 点别处关掉浮层。
+ *
+ * 用 mousedown 而不是 click：click 要等鼠标松开，菜单会"多活"一小段时间；
+ * 而且如果按下和松开之间鼠标移到了别处，click 可能落在不相干的元素上。
+ *
+ * <b>还踩过一个坑</b>：一开始给根元素加了 @click.stop，结果侧栏内所有点击
+ * 都被拦住、传不到 document，点空白处菜单根本不关 —— 自己把监听挡住了。
+ * 所以这里反过来做：不在"要排除的地方"就一律关掉。
+ */
+function onPointerDown(event) {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    closeAll()
+    return
+  }
+  // 点在菜单里：不关。否则点菜单项之前菜单就没了，点击落空
+  if (target.closest('.ws-menu')) return
+  // 点在气泡按钮上：交给它自己切换（关掉再打开会闪一下）
+  if (target.closest('.ws-bubble')) return
+  closeAll()
+}
+
 function onKeydown(event) {
   if (event.key === 'Escape') closeAll()
 }
 
 onMounted(() => {
   reload()
-  // 点别处关掉浮层；菜单留在屏幕上不走是最烦人的
-  document.addEventListener('click', closeAll)
+  // 捕获阶段监听：即使中途有元素 stopPropagation，关闭依然生效
+  document.addEventListener('mousedown', onPointerDown, true)
   document.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', closeAll)
+  document.removeEventListener('mousedown', onPointerDown, true)
   document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
 <template>
-  <section class="ws" @click.stop>
+  <!-- 曾经这里有个 @click.stop，把所有点击都拦在侧栏里，
+       导致 document 上的"点别处关闭"永远收不到事件。已移除：
+       需要排除的地方由 onPointerDown 精确判断，而不是一刀切地拦住全部 -->
+  <section class="ws">
     <header class="ws-head">
       <span class="ws-title">工作区</span>
       <div class="ws-head-actions">
@@ -286,7 +320,7 @@ onBeforeUnmount(() => {
           class="ws-bubble"
           :class="{ on: pickerOpen }"
           title="新建工作区（选择一个项目）"
-          @click="pickerOpen = !pickerOpen; menuFor = null"
+          @click.stop="togglePicker"
         >
           <Icon name="folder" :size="15" />
         </button>

@@ -480,14 +480,30 @@ function onKeydown(event) {
   if (event.key === 'Escape') closeMenu()
 }
 
+/**
+ * 点别处关掉章节下拉。
+ *
+ * 用 mousedown 而不是 click：click 要等鼠标松开，菜单会"多活"一小段时间，
+ * 而且按下与松开之间鼠标移到别处时，click 可能落在不相干的元素上。
+ */
+function onDocumentPointerDown(event) {
+  const target = event.target
+  if (target instanceof Element && target.closest('.wr-chapter')) {
+    return
+  }
+  chapterMenuOpen.value = false
+}
+
 onMounted(() => {
   document.addEventListener('click', closeMenu)
+  document.addEventListener('mousedown', onDocumentPointerDown, true)
   document.addEventListener('scroll', closeMenu, true)
   document.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeMenu)
+  document.removeEventListener('mousedown', onDocumentPointerDown, true)
   document.removeEventListener('scroll', closeMenu, true)
   document.removeEventListener('keydown', onKeydown)
 })
