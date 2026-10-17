@@ -28,7 +28,9 @@
       <div v-for="(msg, i) in messages" :key="i" class="pl-msg mj-rise" :class="'is-' + msg.role">
         <div class="pl-msg-tag">{{ msg.role === 'user' ? '你' : '策划 Agent' }}</div>
 
-        <div class="pl-bubble">{{ msg.text }}</div>
+        <div class="pl-bubble">
+          <MarkdownText :text="msg.text" />
+        </div>
 
         <!-- 它做了什么：把工具调用摆出来，而不是藏起来 -->
         <div v-if="msg.trace?.length" class="pl-trace">
@@ -165,6 +167,7 @@ import {
   selectPlanOption
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
+import MarkdownText from '../MarkdownText.vue'
 
 const props = defineProps({
   projectId: { type: [Number, String], required: true },
@@ -443,7 +446,6 @@ async function discardDraft(draft) {
   border-radius: var(--radius-m);
   background: var(--color-panel);
   line-height: 1.85;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 

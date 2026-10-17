@@ -95,13 +95,17 @@
 
         <div v-for="(m, i) in messages" :key="i" class="wr-msg mj-rise" :class="['is-' + m.role, { 'is-failed': m.failed }]">
           <div class="wr-msg-tag">{{ m.role === 'user' ? '你' : '写作 Agent' }}</div>
-          <div class="wr-bubble">{{ m.text }}</div>
+          <div class="wr-bubble">
+            <MarkdownText :text="m.text" />
+          </div>
         </div>
 
         <!-- 正在说话：回答逐字出现在对话流里，和右边的正文是两条通道 -->
         <div v-if="running && streamingAnswer" class="wr-msg is-assistant mj-fade">
           <div class="wr-msg-tag">写作 Agent</div>
-          <div class="wr-bubble mj-caret">{{ streamingAnswer }}</div>
+          <div class="wr-bubble mj-caret">
+            <MarkdownText :text="streamingAnswer" />
+          </div>
         </div>
 
         <!-- 还没开口：显示它在干什么 -->
@@ -218,6 +222,7 @@ import {
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
 import Resizer from './Resizer.vue'
+import MarkdownText from '../MarkdownText.vue'
 import VersionPanel from '../VersionPanel.vue'
 import MemoryPanel from '../MemoryPanel.vue'
 
@@ -733,9 +738,7 @@ async function start() {
   border: 1px solid var(--color-line);
   border-radius: var(--radius-m);
   background: var(--color-panel);
-  font-size: 13.5px;
   line-height: 1.85;
-  white-space: pre-wrap;
   word-break: break-word;
 }
 

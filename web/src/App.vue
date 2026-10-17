@@ -1,17 +1,14 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, watch } from 'vue'
 import { useProjectStore } from './stores/project'
 import { useMessageStore } from './stores/message'
-import { listProjects } from './api/project'
-import { listConversations, deleteConversation } from './api/agent'
 import Resizer from './components/workbench/Resizer.vue'
+import WorkspaceTree from './components/WorkspaceTree.vue'
 
 const contextOpen = ref(true)
 const projectStore = useProjectStore()
 const messageStore = useMessageStore()
-const route = useRoute()
-const router = useRouter()
+const workspaceRef = ref(null)
 
 /** 侧栏宽度可拖拽，并记住 —— 调好一次就不用每次再调 */
 const sideWidth = ref(Number(localStorage.getItem('mojian.sideWidth')) || 232)
@@ -29,125 +26,10 @@ const navItems = [
   { path: '/ai-settings', label: '模型接入', num: '肆' }
 ]
 
-// ==================== 工作区树（项目 → 会话） ====================
-/*
- * 结构照 DSH：项目相当于工作区，一个工作区下面可以有多段会话，
- * 折叠展开、点击切换到对应会话。
- */
-const projects = ref([])
-const conversations = ref([])
-const expanded = ref(new Set())
 
-const conversationsOf = (projectId) =>
-  conversations.value.filter((c) => String(c.projectId) === String(projectId))
+// 工作区树已抽成组件：工作区树自己的状态（展开、悬停、菜单、改名）
+// 和外壳无关，放在 App.vue 里只会让它越来越难读
 
-const isExpanded = (projectId) => expanded.value.has(projectId)
-
-function toggleProject(projectId) {
-  const next = new Set(expanded.value)
-  if (next.has(projectId)) {
-    next.delete(projectId)
-  } else {
-    next.add(projectId)
-  }
-  expanded.value = next
-}
-
-/**
- * 删除一段对话。
- *
- * 只删对话记录，人物、设定、蓝图、正文一律不动 ——
- * 作者想清掉的通常是"这条思路走歪了"，不是"把这些成果也烧了"。
- */
-async function removeConversation(conversation) {
-  const ok = window.confirm(
-    `删除这段对话？\n\n${conversation.title}\n\n` +
-    '对话记录会被清掉；人物、设定、蓝图、正文都不受影响。'
-  )
-  if (!ok) return
-  try {
-    await deleteConversation(conversation.id)
-    conversations.value = conversations.value.filter((c) => String(c.id) !== String(conversation.id))
-    // 删掉的正是当前打开的那段：换到一段新的，别停在已经不存在的会话上
-    if (String(route.query.conv) === String(conversation.id)) {
-      router.push({ path: '/workbench', query: { mode: 'planner', fresh: Date.now() } })
-    }
-  } catch (e) {
-    window.alert(e.message || '删除失败')
-  }
-}
-
-/** 点项目名：切到这本书并展开它的会话；再点一次收起 */function openProject(project) {
-  const wasCurrent = String(project.id) === String(projectStore.currentId)
-  const wasExpanded = isExpanded(project.id)
-  projectStore.select(project)
-  if (wasCurrent && wasExpanded) {
-    toggleProject(project.id)
-  } else {
-    expanded.value = new Set([...expanded.value, project.id])
-  }
-  // 清掉会话参数：让工作台载入这本书最近的那段对话
-  router.push({ path: '/workbench', query: {} })
-}
-
-/** 相对时间：会话列表里"多久以前"比绝对时间有用 */
-function relativeTime(value) {
-  if (!value) return ''
-  const then = new Date(String(value).replace(' ', 'T')).getTime()
-  if (Number.isNaN(then)) return ''
-  const minutes = Math.floor((Date.now() - then) / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes}分钟`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时`
-  return `${Math.floor(hours / 24)}天`
-}
-
-/** 打开某段会话：切到它所属的项目，再由工作台按 query 载入 */
-function openConversation(project, conversation) {
-  projectStore.select(project)
-  router.push({
-    path: '/workbench',
-    query: {
-      conv: conversation.id,
-      mode: conversation.role === 'WRITER' ? 'writer' : 'planner'
-    }
-  })
-}
-
-/** 在当前项目里新开一段对话。真正落库发生在发出第一条消息时 */
-function newConversation() {
-  const current = projectStore.current || projects.value[0]
-  if (current) newConversationIn(current)
-}
-
-/** 在指定项目里新开一段对话 */
-function newConversationIn(project) {
-  projectStore.select(project)
-  expanded.value = new Set([...expanded.value, project.id])
-  router.push({ path: '/workbench', query: { mode: 'planner', fresh: Date.now() } })
-}
-
-async function loadWorkspace() {
-  const [projectResult, conversationResult] = await Promise.allSettled([
-    listProjects(),
-    listConversations()
-  ])
-  if (projectResult.status === 'fulfilled') {
-    projects.value = projectResult.value || []
-  }
-  if (conversationResult.status === 'fulfilled') {
-    conversations.value = conversationResult.value || []
-  }
-  // 默认展开当前项目：进来就能看见它的会话
-  if (projectStore.currentId) {
-    expanded.value = new Set([projectStore.currentId])
-  } else if (projects.value.length) {
-    expanded.value = new Set([projects.value[0].id])
-  }
-}
-
-onMounted(loadWorkspace)
 </script>
 
 <template>
@@ -196,56 +78,10 @@ onMounted(loadWorkspace)
         </nav>
 
         <!-- ========== 工作区树 ==========
-             结构照 DSH：项目相当于工作区，展开后是它下面的各段会话，
-             点击即切到那一段。下面的空白区域以前是浪费的，现在放它。
+             项目相当于工作区，展开后是它下面的各段会话。
+             悬停项目会浮现操作按钮；顶部可起草新书或添加工作区。
         -->
-        <section class="ws">
-          <header class="ws-head">
-            <span class="ws-title">工作区</span>
-            <button class="ws-new" title="在当前项目里新建对话" @click="newConversation">＋</button>
-          </header>
-
-          <div class="ws-list">
-            <div v-for="p in projects" :key="p.id" class="ws-project">
-              <button
-                class="ws-project-head"
-                :class="{ active: String(p.id) === String(projectStore.currentId) }"
-                @click="openProject(p)"
-              >
-                <span class="ws-caret">{{ isExpanded(p.id) ? '▾' : '▸' }}</span>
-                <span class="ws-project-name">{{ p.name }}</span>
-                <span class="ws-count">{{ conversationsOf(p.id).length }}</span>
-              </button>
-
-              <div v-if="isExpanded(p.id)" class="ws-convs">
-                <button
-                  v-for="c in conversationsOf(p.id)"
-                  :key="c.id"
-                  class="ws-conv"
-                  :class="{ active: String(route.query.conv) === String(c.id) }"
-                  @click="openConversation(p, c)"
-                >
-                  <span class="ws-conv-mark">{{ c.role === 'WRITER' ? '文' : '策' }}</span>
-                  <span class="ws-conv-title">{{ c.title }}</span>
-                  <span class="ws-conv-time">{{ relativeTime(c.updatedAt) }}</span>
-                  <span
-                    class="ws-conv-del"
-                    title="删除这段对话"
-                    @click.stop="removeConversation(c)"
-                  >×</span>
-                </button>
-                <p v-if="!conversationsOf(p.id).length" class="ws-empty">还没有对话</p>
-                <!-- 新建入口就放在项目下面：这是"想在这里加一段"最自然的位置，
-                     不像顶部那个 ＋ 需要先意识到它是给当前项目的 -->
-                <button class="ws-new-conv" @click.stop="newConversationIn(p)">
-                  ＋ 新建对话
-                </button>
-              </div>
-            </div>
-
-            <p v-if="!projects.length" class="ws-empty">还没有项目</p>
-          </div>
-        </section>
+        <WorkspaceTree ref="workspaceRef" />
       </aside>
 
       <!-- 左栏与主区之间：拖拽调整侧栏宽度 -->
@@ -442,173 +278,6 @@ onMounted(loadWorkspace)
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
-}
-
-/* ---------- 工作区树（项目 → 会话） ---------- */
-.ws {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--color-line);
-  padding: 10px 8px 12px;
-}
-
-.ws-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 6px 8px;
-  flex-shrink: 0;
-}
-
-.ws-title {
-  font-family: var(--font-serif);
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: var(--color-muted);
-}
-
-.ws-new {
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-s);
-  background: var(--color-panel);
-  color: var(--color-brown-deep);
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  transition: border-color var(--dur) var(--ease-out);
-}
-.ws-new:hover { border-color: var(--color-brown); }
-
-.ws-list { flex: 1; min-height: 0; overflow-y: auto; }
-
-.ws-project { margin-bottom: 2px; }
-
-.ws-project-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 13px;
-  color: var(--color-ink);
-  transition: background var(--dur) var(--ease-out);
-}
-.ws-project-head:hover { background: rgba(255, 255, 255, 0.5); }
-.ws-project-head.active { color: var(--color-brown-deep); }
-
-.ws-caret { width: 10px; font-size: 10px; color: var(--color-muted); }
-
-.ws-project-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-serif);
-}
-
-.ws-count { font-size: 11px; color: var(--color-muted); }
-
-.ws-convs { padding-left: 12px; }
-
-.ws-conv {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 12px;
-  color: var(--color-muted);
-  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-}
-.ws-conv:hover { background: rgba(255, 255, 255, 0.5); }
-.ws-conv.active {
-  background: var(--color-panel);
-  color: var(--color-brown-deep);
-}
-
-/* 「策」「文」一个字区分角色：比图标省地方，也一眼看得出这是哪种对话 */
-.ws-conv-mark {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: 2px;
-  font-size: 10px;
-  font-family: var(--font-serif);
-  background: var(--color-panel);
-}
-.ws-conv.active .ws-conv-mark {
-  border-color: var(--color-brown);
-  color: var(--color-brown-deep);
-}
-
-.ws-conv-title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ws-conv-time { flex-shrink: 0; font-size: 11px; opacity: 0.75; }
-
-/* 删除按钮只在悬停时出现：平时不干扰阅读，需要时就在手边 */
-.ws-conv-del {
-  flex-shrink: 0;
-  width: 14px;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1;
-  opacity: 0;
-  color: var(--color-muted);
-  transition: opacity var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-}
-.ws-conv:hover .ws-conv-del { opacity: 1; }
-.ws-conv-del:hover { color: var(--color-danger); }
-
-.ws-empty {
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--color-muted);
-  line-height: 1.7;
-}
-
-/* 项目下面的新建入口：平时低调，悬停时明确 */
-.ws-new-conv {
-  display: block;
-  width: 100%;
-  padding: 5px 10px;
-  border: 1px dashed transparent;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 12px;
-  color: var(--color-muted);
-  transition: color var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
-}
-.ws-new-conv:hover {
-  color: var(--color-brown-deep);
-  border-color: var(--color-line);
 }
 
 .nav-item {
