@@ -67,6 +67,17 @@ const plannerVision = ref(false)
 const plannerModel = ref('')
 const hasImageAttachments = computed(() => attachments.value.some((a) => a.isImage))
 
+/**
+ * 策划请求的"进行中"标记。
+ *
+ * <p>请求是普通 HTTP，不像写作有 SSE；用户切走页面/项目/会话后组件状态会丢。
+ * 标记写进 sessionStorage，回来时若请求还没完成，就轮询会话消息等它落库，
+ * 避免"任务还在跑，但气泡永远不出现"。
+ */
+const PENDING_PLANNER_KEY = 'mojian.planner.pending'
+let loadSeq = 0
+let pendingPollTimer = null
+
 const autoApprove = computed(() => settings.autoApprove)
 
 const draftLints = computed(() => {
@@ -354,6 +365,7 @@ watch(
 )
 
 async function loadConversationById(id) {
+  loadSeq += 1
   try {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     const target = list.find((c) => String(c.id) === String(id))
@@ -374,12 +386,14 @@ async function loadConversationById(id) {
     messages.value = history.map((m) => ({ role: m.role, text: m.content }))
     await refreshSide()
     scrollToBottom()
+    maybeRecoverPending()
   } catch (e) {
     console.warn('读取对话失败', e)
   }
 }
 
 async function loadLatestConversation() {
+  loadSeq += 1
   try {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     if (!list.length) return
@@ -390,12 +404,15 @@ async function loadLatestConversation() {
     messages.value = history.map((m) => ({ role: m.role, text: m.content }))
     await refreshSide()
     scrollToBottom()
+    maybeRecoverPending()
   } catch (e) {
     console.warn('读取对话失败', e)
   }
 }
 
 function newConversation() {
+  loadSeq += 1
+  stopPendingPoll()
   conversationId.value = null
   conversationTitle.value = '新对话'
   messages.value = []
@@ -404,6 +421,90 @@ function newConversation() {
   attachments.value = []
   autoNotice.value = ''
   error.value = ''
+}
+
+// ==================== 进行中请求的恢复 ====================
+
+function readPendingRun() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PLANNER_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function writePendingRun(data) {
+  try {
+    sessionStorage.setItem(PENDING_PLANNER_KEY, JSON.stringify(data))
+  } catch { /* 隐私模式等忽略 */ }
+}
+
+function clearPendingRun() {
+  try {
+    sessionStorage.removeItem(PENDING_PLANNER_KEY)
+  } catch { /* ignore */ }
+}
+
+function stopPendingPoll() {
+  if (pendingPollTimer) {
+    clearInterval(pendingPollTimer)
+    pendingPollTimer = null
+  }
+}
+
+/** 回到页面/会话时，如果上一轮策划请求仍在后台跑，用轮询等它的回答落库 */
+function maybeRecoverPending() {
+  if (sending.value) return
+  const pending = readPendingRun()
+  if (!pending) return
+  if (String(pending.projectId) !== String(props.projectId)) return
+  if (Date.now() - (pending.startedAt || 0) > 5 * 60 * 1000) {
+    clearPendingRun()
+    return
+  }
+  // 用户已经切到别的会话：不要把旧会话的回答灌进当前聊天
+  if (pending.conversationId
+      && conversationId.value
+      && String(pending.conversationId) !== String(conversationId.value)) {
+    return
+  }
+  const targetConversationId = pending.conversationId || conversationId.value
+  if (!targetConversationId) return
+  currentRunId.value = pending.runId || null
+  startPendingPoll(targetConversationId, Number(pending.assistantCount) || 0)
+}
+
+function startPendingPoll(targetConversationId, baselineAssistants) {
+  stopPendingPoll()
+  sending.value = true
+  phase.value = '策划 Agent 仍在思考…'
+  error.value = ''
+  const startedAt = Date.now()
+  pendingPollTimer = setInterval(async () => {
+    if (Date.now() - startedAt > 3 * 60 * 1000) {
+      stopPendingPoll()
+      sending.value = false
+      clearPendingRun()
+      return
+    }
+    try {
+      const history = (await getConversationMessages(targetConversationId)) || []
+      const assistantCount = history.filter((m) => m.role === 'assistant').length
+      if (assistantCount > baselineAssistants) {
+        stopPendingPoll()
+        conversationId.value = targetConversationId
+        messages.value = history.map((m) => ({ role: m.role, text: m.content }))
+        sending.value = false
+        clearPendingRun()
+        await refreshSide()
+        scrollToBottom()
+        emit('resources-changed')
+      }
+    } catch (e) {
+      console.warn('恢复进行中的策划请求失败', e)
+    }
+  }, 2500)
 }
 
 async function refreshSide() {
@@ -426,6 +527,9 @@ async function send() {
   if ((!text && !props.citations.length && !attachments.value.length) || sending.value) return
 
   const outgoing = buildOutgoing()
+  const loadAtSend = loadSeq
+  const conversationAtSend = conversationId.value
+  const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   messages.value.push({ role: 'user', text: outgoing })
   draftMessage.value = ''
   emit('clear-citations')
@@ -433,21 +537,35 @@ async function send() {
   error.value = ''
   phase.value = '正在读你的资料…'
   scrollToBottom()
+  writePendingRun({
+    projectId: props.projectId,
+    conversationId: conversationAtSend,
+    assistantCount: messages.value.filter((m) => m.role === 'assistant').length,
+    startedAt: Date.now(),
+    runId
+  })
 
   const timer = setTimeout(() => (phase.value = '正在梳理走向…'), 8000)
   controller.value = new AbortController()
-  const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   currentRunId.value = runId
 
   try {
     const data = await plannerChat(props.projectId, conversationId.value, outgoing,
       controller.value.signal, runId, currentImages(), autoApprove.value)
+    if (loadAtSend !== loadSeq) {
+      // 请求期间用户切了项目/会话：不要把旧回答灌进当前聊天；
+      // 标记保留，等用户回到原会话时由轮询恢复。
+      await refreshSide()
+      emit('resources-changed')
+      return
+    }
     const wasNew = !conversationId.value
     conversationId.value = data.conversationId
     if (wasNew) {
       conversationTitle.value = outgoing.replace(/\s+/g, ' ').slice(0, 20)
       emit('conversation-changed', data.conversationId)
     }
+    clearPendingRun()
     messages.value.push({
       role: 'assistant',
       text: data.answer,
@@ -459,7 +577,30 @@ async function send() {
     // 发送成功才清空附件；失败/中止时保留，用户不用重新上传一遍
     attachments.value = []
     await refreshSide()
-    await applyAutoApprove()
+    const backendApproved = Array.isArray(data.autoApproved) ? data.autoApproved : []
+    const backendFailed = Array.isArray(data.autoApproveFailed) ? data.autoApproveFailed : []
+    if (backendApproved.length || backendFailed.length) {
+      // 后端在本轮结束前已经自动采纳，切走页面也不会漏；这里只负责把回执显示出来
+      if (backendApproved.length) {
+        messages.value.push({
+          role: 'system',
+          system: true,
+          text: `已自动采纳 ${backendApproved.length} 条草稿：${backendApproved.join('、')}。` +
+            '它们已经写入本书，不再出现在待确认列表里。'
+        })
+      }
+      if (backendFailed.length) {
+        messages.value.push({
+          role: 'system',
+          system: true,
+          text: `自动采纳有 ${backendFailed.length} 条失败：${backendFailed.join('、')}。请到待确认列表手动处理。`
+        })
+      }
+      scrollToBottom()
+    } else {
+      // 兼容旧后端：响应里没有后端采纳结果时，仍由前端补一次
+      await applyAutoApprove()
+    }
     // 让父级刷新右栏统计（自动采纳/Agent 起草都可能改变资料数量）
     emit('resources-changed')
   } catch (e) {
@@ -468,6 +609,9 @@ async function send() {
     }
   } finally {
     clearTimeout(timer)
+    if (loadAtSend === loadSeq) {
+      clearPendingRun()
+    }
     controller.value = null
     sending.value = false
     scrollToBottom()
@@ -477,6 +621,8 @@ async function send() {
 async function stop() {
   const runId = currentRunId.value
   controller.value?.abort()
+  stopPendingPoll()
+  clearPendingRun()
   if (runId) {
     try {
       await cancelPlannerRun(runId)
@@ -593,9 +739,12 @@ onMounted(() => {
  */
 onActivated(() => {
   scrollToBottom()
+  maybeRecoverPending()
 })
 onBeforeUnmount(() => {
-  controller.value?.abort()
+  // 不 abort 请求：后端任务不会因页面切换停止，让它在后台跑完；
+  // 失败/切走时靠 sessionStorage 标记 + 回到会话时轮询恢复。
+  stopPendingPoll()
   document.removeEventListener('click', closeMenus)
 })
 </script>
