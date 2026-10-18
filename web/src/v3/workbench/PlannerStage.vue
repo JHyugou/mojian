@@ -87,6 +87,9 @@ const toolLabels = {
   update_character: '改人物',
   update_setting: '改设定',
   update_blueprint: '改蓝图',
+  delete_character: '删人物',
+  delete_setting: '删设定',
+  delete_blueprint: '删蓝图',
   instruct_writer: '给写作下指令',
   save_chapter_draft: '写正文'
 }

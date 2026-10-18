@@ -105,8 +105,23 @@ const cls = computed(() => [
 }
 .is-outline:hover { background: var(--v3-glow-gold); transform: translateY(-1px); }
 
-.is-danger { color: #ffd9d3; background: var(--v3-cinnabar-soft); border-color: rgba(201, 76, 59, 0.4); }
-.is-danger:hover { background: rgba(201, 76, 59, 0.26); }
+/*
+ * 危险按钮：在亮色主题里旧色 #ffd9d3 落在浅粉底上几乎看不见（实测截图只剩一团浅色）。
+ * 改用主题里的 cinnabar 深色做文字、压低底色透明度，保证两种主题都读得清。
+ */
+.is-danger {
+  color: var(--v3-cinnabar);
+  background: var(--v3-glow-cinnabar);
+  border-color: rgba(201, 76, 59, 0.42);
+  font-weight: 500;
+}
+.is-danger:hover {
+  color: #fff;
+  background: var(--v3-cinnabar);
+  border-color: var(--v3-cinnabar);
+}
+:global(html[data-theme="inksea"]) .is-danger { color: #ffb4a8; }
+:global(html[data-theme="inksea"]) .is-danger:hover { color: #2a0d0a; }
 
 .spinner {
   width: 14px;
