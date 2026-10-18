@@ -16,7 +16,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --create-home --uid 1000 appuser
+    && useradd --system --create-home --uid 1001 appuser
 
 COPY --from=build /app/target/mojian.jar app.jar
 RUN chown -R appuser:appuser /app

@@ -1,7 +1,11 @@
 .git
 .idea
 target
-web/node_modules
-web/dist
+web
+scripts
+docs
+.local-screens
+.local-backup
+*.md
 *.log
 .env

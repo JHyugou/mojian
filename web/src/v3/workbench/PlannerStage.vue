@@ -367,6 +367,9 @@ watch(
 
 async function loadConversationById(id) {
   loadSeq += 1
+  // 切会话时旧请求还在后台跑，但当前界面不再显示它的思考态
+  stopPendingPoll()
+  sending.value = false
   try {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     const target = list.find((c) => String(c.id) === String(id))
@@ -395,6 +398,8 @@ async function loadConversationById(id) {
 
 async function loadLatestConversation() {
   loadSeq += 1
+  stopPendingPoll()
+  sending.value = false
   try {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     if (!list.length) return
@@ -414,6 +419,8 @@ async function loadLatestConversation() {
 function newConversation() {
   loadSeq += 1
   stopPendingPoll()
+  sending.value = false
+  phase.value = ''
   conversationId.value = null
   conversationTitle.value = '新对话'
   messages.value = []
@@ -478,11 +485,17 @@ function maybeRecoverPending() {
 
 function startPendingPoll(targetConversationId, baselineAssistants) {
   stopPendingPoll()
+  const pollLoadSeq = loadSeq
   sending.value = true
   phase.value = '策划 Agent 仍在思考…'
   error.value = ''
   const startedAt = Date.now()
   pendingPollTimer = setInterval(async () => {
+    // 用户在轮询期间切了会话/项目：停止恢复，别把旧回答灌进新聊天
+    if (pollLoadSeq !== loadSeq) {
+      stopPendingPoll()
+      return
+    }
     if (Date.now() - startedAt > 3 * 60 * 1000) {
       stopPendingPoll()
       sending.value = false
@@ -491,6 +504,10 @@ function startPendingPoll(targetConversationId, baselineAssistants) {
     }
     try {
       const history = (await getConversationMessages(targetConversationId)) || []
+      if (pollLoadSeq !== loadSeq) {
+        stopPendingPoll()
+        return
+      }
       const assistantCount = history.filter((m) => m.role === 'assistant').length
       if (assistantCount > baselineAssistants) {
         stopPendingPoll()
