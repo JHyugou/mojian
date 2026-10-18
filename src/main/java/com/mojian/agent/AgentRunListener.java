@@ -86,6 +86,10 @@ public interface AgentRunListener {
             }
 
             @Override
+            public boolean cancelled() {
+                return self.cancelled();
+            }
+            @Override
             public void onToolCallStarted() {
                 self.onToolCallStarted();
             }

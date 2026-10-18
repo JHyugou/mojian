@@ -6,6 +6,7 @@ import com.mojian.agent.context.ContextSectionPolicy;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.entity.ChapterMemory;
 import com.mojian.chapter.mapper.ChapterMemoryMapper;
+import com.mojian.agent.entity.AgentDraft;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.mapper.PlotOutlineMapper;
 import com.mojian.project.entity.StoryProject;
@@ -63,6 +64,14 @@ public class AgentMaterialLoader {
 
     /** 前情摘要：连续性优先 */
     public static final int PRIORITY_MEMORY = 10;
+    /**
+     * 待确认草稿。
+     *
+     * <p>排得很前：它是"我上一轮刚跟你提的方案"，比任何背景资料都更该先看到。
+     * 拿不到它的后果很具体 —— 换个对话，Agent 会反问"杜渐是谁"，
+     * 而那明明是它自己刚起草的。
+     */
+    public static final int PRIORITY_DRAFT = 12;
     /** 已有蓝图：策划必须先知道"已经规划到哪了"，否则会重复规划或前后矛盾 */
     public static final int PRIORITY_OUTLINE = 15;
     /** 人物档案 */
@@ -82,6 +91,7 @@ public class AgentMaterialLoader {
     private final ChapterIndex chapterIndex;
     private final ChapterMemoryMapper chapterMemoryMapper;
     private final PlotOutlineMapper plotOutlineMapper;
+    private final com.mojian.agent.mapper.AgentDraftMapper draftMapper;
 
     /**
      * 取该项目的<b>全部</b>可注入材料。
@@ -105,6 +115,7 @@ public class AgentMaterialLoader {
         // 比任何细节都更该先看到。漏了它，Agent 就会在完全不知道题材的情况下
         // 追问"你要写玄幻还是都市"，而作者明明已经在项目里填过了。
         addIfPresent(sections, projectSection(projectId));
+        addIfPresent(sections, draftSection(projectId));
         addIfPresent(sections, memorySection(projectId));
         addIfPresent(sections, outlineSection(projectId));
         addIfPresent(sections, characterSection(projectId));
@@ -278,6 +289,46 @@ public class AgentMaterialLoader {
      * <p>策划 Agent 必须先知道"已经规划到哪了"：否则它会重复规划已经定好的部分，
      * 或者新加的节点和已有结构前后矛盾。这是最容易漏、后果也最直接的一类材料。
      */
+    /**
+     * 本书待作者确认的草稿。
+     *
+     * <p><b>为什么草稿要进上下文</b>：草稿是 Agent 自己上一轮提的方案，
+     * 但还没写进书里。不注入的话会出现一个很怪的现象 ——
+     * 同一个项目、换一段新对话，它就完全不认识自己刚起草的角色了，
+     * 会反问"杜渐是谁"。用户看到的是"它失忆了"。
+     *
+     * <p>草稿属于<b>整本书</b>，不是某一段对话的产物，所以按 projectId 查，
+     * 而不是按 conversationId。
+     *
+     * <p>内容给全文（payloadJson 本身就是模型自己写的结构），
+     * 不做摘要 —— 它要拿这个跟用户讨论"这条怎么改"，摘要反而会丢细节。
+     */
+    private AgentContextSection draftSection(Long projectId) {
+        List<AgentDraft> pending = draftMapper.selectByProject(projectId).stream()
+                .filter(draft -> "PENDING".equals(draft.getStatus()))
+                .toList();
+        if (pending.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (AgentDraft draft : pending) {
+            sb.append("■ [草稿ID ").append(draft.getId()).append("] ")
+                    .append(draft.getDraftType()).append("｜")
+                    .append(draft.getTitle() == null ? "未命名" : draft.getTitle()).append('\n');
+            if (StringUtils.hasText(draft.getAgentReason())) {
+                sb.append("   起草理由：").append(draft.getAgentReason().trim()).append('\n');
+            }
+            if (StringUtils.hasText(draft.getPayloadJson())) {
+                sb.append("   内容：").append(draft.getPayloadJson().trim()).append('\n');
+            }
+        }
+        sb.append("\n以上草稿<b>还没进书</b>，正在等作者点确认。")
+                .append("作者再提到它们时，直接按这里的内容讨论即可，不要说自己不知道。");
+
+        return AgentContextSection.optional("草稿", "待作者确认的草稿", sb.toString().trim(),
+                PRIORITY_DRAFT, ContextSectionPolicy.TRUNCATE_TO_FIT);
+    }
     private AgentContextSection outlineSection(Long projectId) {
         List<PlotOutline> nodes = plotOutlineMapper.selectList(
                 new LambdaQueryWrapper<PlotOutline>().eq(PlotOutline::getProjectId, projectId));

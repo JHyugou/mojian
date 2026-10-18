@@ -14,6 +14,18 @@ public interface LlmStreamListener {
     LlmStreamListener NOOP = new LlmStreamListener() {
     };
 
+    /**
+     * 用户是否已经要求终止。
+     *
+     * <p>为什么这一层也要问：Agent 循环只在"步与步之间"检查取消，
+     * 而一次模型调用可能要跑几十秒。如果这一轮模型直接给最终答案、不调工具，
+     * 循环会在第 1 步就正常退出 —— 中间没有检查点，那一次正在生成的调用拦不住。
+     *
+     * <p>读流循环里每收到一行就问一次，就能在生成中途停下。
+     */
+    default boolean cancelled() {
+        return false;
+    }
     /** 正文增量。拼起来就是这一步的完整回答 */
     default void onDelta(String delta) {
     }

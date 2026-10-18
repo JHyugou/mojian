@@ -179,7 +179,15 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
              * 好在流式响应是持续到达的：readLine 频繁返回，这里就能及时看到中断标记。
              * （如果模型长时间不吐字，这一层就拦不住，但那是少数情况。）
              */
-            if (Thread.currentThread().isInterrupted()) {
+            /*
+             * 读流循环里也要问一次"用户是不是已经点了停止"。
+             *
+             * 光靠循环在"步与步之间"检查是不够的：一次模型调用可能跑几十秒，
+             * 而如果这一轮它直接给最终答案、不调工具，循环会在第 1 步就正常退出 ——
+             * 中间没有检查点，那一次正在生成的调用拦不住。
+             * 好在流式响应是持续到达的：readLine 频繁返回，这里就能及时看到取消标记。
+             */
+            if (Thread.currentThread().isInterrupted() || listener.cancelled()) {
                 throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "已按你的要求终止");
             }
 

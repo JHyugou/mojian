@@ -114,8 +114,22 @@ public class AgentLoopService {
             sink.onStepStart(step);
 
             // ① 想：问模型下一步干什么（流式回调透传下去，界面上能看到字一个个出来）
-            AgentLlmResponse response = llmClient.chat(context, List.copyOf(messages),
-                    toolRegistry.all(), sink.asLlmListener());
+            /*
+             * 模型调用期间可能被叫停（读流循环会抛出来）。
+             * 这里要把它翻译成"被取消"而不是"出错了" —— 否则用户主动停的，
+             * 界面上却显示一条失败记录。
+             */
+            AgentLlmResponse response;
+            try {
+                response = llmClient.chat(context, List.copyOf(messages),
+                        toolRegistry.all(), sink.asLlmListener());
+            } catch (com.mojian.common.exception.BusinessException e) {
+                if (sink.cancelled()) {
+                    log.info("[{}] 模型调用被用户叫停（第 {} 轮），已生成的部分丢弃", context.agentRole(), step);
+                    return AgentResult.cancelled(trace, step - 1, totalUsage);
+                }
+                throw e;
+            }
 
             // 自愈：流式解析偶尔会拿到"没有名字的工具调用"（服务方的流式结构和预期不一致时）。
             // 这种情况绝不能把"工具不存在"这种假错误回传给模型 —— 它只会反复重试，白烧钱又转不出结果。
