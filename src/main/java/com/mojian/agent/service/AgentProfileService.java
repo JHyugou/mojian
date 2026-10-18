@@ -35,8 +35,16 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class AgentProfileService {
 
+    /**
+     * 目录里的上下文是"理论最大值"，取用时留一档余量。
+     *
+     * <p>少用一点只是浪费；撞墙是生成到一半断掉、用户还得重来 —— 两者代价不对等。
+     */
+    private static final double CATALOG_SAFETY_RATIO = 0.9;
+
     private final AgentProfileMapper profileMapper;
     private final LlmSettingsService llmSettingsService;
+    private final com.mojian.settings.llm.ModelsDevCatalog catalog;
     private final LocalSecretCipher cipher;
 
     public List<AgentProfile> list() {
@@ -201,21 +209,40 @@ public class AgentProfileService {
     }
 
     /**
-     * 上下文上限的取值顺序：<b>存储值（学到的/手工配的）→ 实测对照表 → 保守默认</b>。
+     * 上下文上限的取值顺序：
+     * <b>存储值（学到的/手工配的）→ 实测对照表 → 模型目录 → 保守默认</b>。
      *
      * <p>值为 0 表示"未知"。这个语义是必需的：如果数据库默认就写一个保守值（比如 131072），
      * 系统会永远撞不到真实的墙，也就永远学不到真实上限 —— 保守值变成自我实现的预言。
      * 之前正是这样：真实上限是 1M，界面却已经显示"上下文占用 79%，该启用检索了"。
+     *
+     * <p>第三级（模型目录）是 2026-10 补的，起因是一次真实故障：
+     * 换用 deepseek-flash 后，它不在实测对照表里，于是落到保守默认 131072，
+     * 而它的真实上限是 1M —— 结果是整本书只装得下 87%，全量注入险些塞不进去。
+     * 目录里的上下文是<b>理论最大值</b>，所以取用时留一档余量：
+     * 少用一点只是浪费，撞墙则是生成到一半断掉。
      */
     private int resolveContextLimit(AgentProfile profile) {
         Integer stored = profile.getContextLimit();
         if (stored != null && stored > 0) {
             return stored;
         }
+
         int fromTable = ModelContextWindow.of(profile.getModel());
-        log.debug("{} 的上下文上限未知，按对照表取 {}（模型 {}，实测过={}）",
-                profile.getRole(), fromTable, profile.getModel(),
-                ModelContextWindow.measured(profile.getModel()));
+        if (ModelContextWindow.measured(profile.getModel())) {
+            return fromTable;
+        }
+
+        int fromCatalog = catalog.contextLimitFor(profile.getModel());
+        if (fromCatalog > 0) {
+            int safe = (int) (fromCatalog * CATALOG_SAFETY_RATIO);
+            log.info("{} 的上下文上限未实测，按模型目录取值 {} → 留 {}% 余量后 {}",
+                    profile.getRole(), fromCatalog, Math.round(CATALOG_SAFETY_RATIO * 100), safe);
+            return safe;
+        }
+
+        log.debug("{} 的上下文上限未知，对照表与目录都没查到，退回保守默认 {}（模型 {}）",
+                profile.getRole(), fromTable, profile.getModel());
         return fromTable;
     }
 

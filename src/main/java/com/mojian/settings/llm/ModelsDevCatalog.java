@@ -139,6 +139,36 @@ public class ModelsDevCatalog {
         }
     }
 
+    /**
+     * 按模型名查上下文上限。
+     *
+     * <p>不按接口地址查：调用方（角色配置）在算预算时可能还没有确切的地址
+     * （常常是沿用全局设置），而模型名本身已经足够唯一。
+     *
+     * <p>同名模型在不同服务商下上限不同时取<b>最大的</b>：宁可乐观一点，
+     * 真撞墙了会被 {@code ContextLimitParser} 学回来 —— 而这里取小了，
+     * 系统会永远撞不到真实的墙，保守值就变成自我实现的预言。
+     *
+     * @return 0 表示目录里也查不到
+     */
+    public int contextLimitFor(String modelId) {
+        if (!StringUtils.hasText(modelId)) {
+            return 0;
+        }
+        if (isStale()) {
+            refresh();
+        }
+        int best = 0;
+        for (List<ModelInfo> models : byApi.values()) {
+            for (ModelInfo model : models) {
+                if (modelId.equals(model.id()) && model.contextLimit() != null) {
+                    best = Math.max(best, model.contextLimit());
+                }
+            }
+        }
+        return best;
+    }
+
     private boolean isStale() {
         return byApi.isEmpty() || Instant.now().isAfter(loadedAt.plus(TTL));
     }
