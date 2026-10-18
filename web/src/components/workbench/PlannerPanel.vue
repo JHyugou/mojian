@@ -664,617 +664,506 @@ async function discardDraft(draft) {
 </script>
 
 <style scoped>
+/* ==================================================================== */
+/* 策划面板：素笺流韵 v2                                                */
+/* ==================================================================== */
+
 .pl {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* ---------- 对话标题栏 ---------- */
+/* ==================== 头部 ==================== */
+
 .pl-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 26px;
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-panel);
+  gap: 12px;
+  padding: 4px 26px 12px;
   flex-shrink: 0;
 }
 
-.pl-head-hint { font-size: 12px; }
-.pl-new-btn { margin-left: auto; font-size: 12px; }
+.pl-head-hint {
+  font-size: 12px;
+  color: var(--color-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* ---------- 对话流 ---------- */
+/* 新对话：一个极淡的胶囊，hover 才亮起来 —— 它是次要操作 */
+.pl-new-btn {
+  margin-left: auto;
+  flex: none;
+  padding: 6px 15px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-spring);
+}
+.pl-new-btn:hover { background: var(--tint); color: var(--color-brown-deep); }
+.pl-new-btn:active { transform: scale(0.96); }
+
+/* ==================== 对话流 ==================== */
+
 .pl-stream {
   flex: 1;
   min-height: 0;
-  padding: 22px 26px 8px;
+  padding: 16px 30px 12px;
+  overflow-y: auto;
 }
 
+/* 空态：一段留白里的一小段说明，不要图标堆砌 */
 .pl-empty {
-  max-width: 560px;
-  margin: 40px auto 0;
+  max-width: 500px;
+  margin: 64px auto 0;
   text-align: center;
-  line-height: 2;
-}
-.pl-empty p { margin-top: 8px; font-size: 13px; }
-
-.pl-msg { margin-bottom: 22px; max-width: 760px; }
-
-.pl-msg-tag {
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  line-height: 2.15;
   color: var(--color-muted);
-  margin-bottom: 6px;
+  animation: mj-rise var(--dur-slower) var(--ease-out) both;
+}
+.pl-empty p { margin-top: 10px; font-size: 13px; }
+
+.pl-msg {
+  max-width: 780px;
+  margin-bottom: 28px;
+  animation: mj-rise var(--dur-slow) var(--ease-out) both;
 }
 
-.pl-bubble {
-  padding: 12px 16px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-m);
-  background: var(--color-panel);
-  line-height: 1.85;
-  word-break: break-word;
-}
-
-/* 用户说的话用暖白底 + 左棕线，和自己的资料区分开 */
-.pl-msg.is-user .pl-bubble {
-  background: var(--color-paper-warm);
-  border-left: 2px solid var(--color-brown);
-}
-
-.pl-thinking { display: flex; align-items: center; gap: 10px; }
-
-.pl-trace {
-  display: flex;
-  flex-wrap: wrap;
+/* 说话人：一根小棕线 + 小字。比纯文字有归属感，又不如头像抢眼 */
+.pl-msg-tag {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-bottom: 9px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--color-muted);
 }
-.pl-trace-meta { font-size: 12px; }
+.pl-msg-tag::before {
+  content: "";
+  width: 16px;
+  height: 1px;
+  background: var(--color-brown-soft);
+}
+
+/* 气泡：扁平 —— 一条极淡的边 + 白底，没有投影 */
+.pl-bubble {
+  padding: 16px 21px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-m) var(--radius-m) var(--radius-m) var(--radius-xs);
+  background: var(--color-panel);
+  line-height: 1.92;
+  word-break: break-word;
+  transition: border-color var(--dur) var(--ease-out);
+}
+.pl-bubble:hover { border-color: var(--color-line); }
+
+/* 用户消息：整块棕雾。比"左侧一根竖线"柔和得多 */
+.pl-msg.is-user { margin-left: auto; }
+.pl-msg.is-user .pl-msg-tag { justify-content: flex-end; }
+.pl-msg.is-user .pl-msg-tag::before { order: 2; }
+
+.pl-msg.is-user .pl-bubble {
+  border-color: transparent;
+  border-radius: var(--radius-m) var(--radius-m) var(--radius-xs) var(--radius-m);
+  background: linear-gradient(0deg, var(--tint), var(--tint)), var(--color-paper-warm);
+}
+
+/* 中止提示：虚线、淡字。它不是一个回答 */
+.pl-msg.is-cancelled .pl-bubble {
+  border-style: dashed;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 12.5px;
+}
+
+/* 思考中：三点 + 一句轻说明 */
+.pl-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: var(--radius-m);
+  background: var(--color-paper-warm);
+  font-size: 12.5px;
+  color: var(--color-muted);
+}
+
+/* 工具调用轨迹 */
+.pl-trace {
+  margin-top: 10px;
+  padding: 9px 13px;
+  border-radius: var(--radius-s);
+  background: var(--color-paper-warm);
+  font-size: 11.5px;
+  line-height: 1.85;
+  color: var(--color-muted);
+}
+
+.pl-trace-meta { color: var(--color-brown-deep); }
 
 .pl-error {
-  padding: 10px 14px;
-  border: 1px solid var(--color-danger);
+  margin-top: 10px;
+  padding: 11px 16px;
   border-radius: var(--radius-s);
+  background: var(--tint-accent);
+  font-size: 12.5px;
+  line-height: 1.8;
   color: var(--color-danger);
-  font-size: 13px;
 }
 
-/* ---------- 侧块 ---------- */
+/* ==================== 待确认 / 方案区 ==================== */
+/*
+ * 一块独立的浅色面板，四角圆，和上面的对话流之间用留白隔开 —— 不画线。
+ */
+
 .pl-block {
-  border-top: 1px solid var(--color-line);
-  padding: 16px 26px;
-  background: var(--color-paper-warm);
-  max-height: 42vh;
+  flex-shrink: 0;
+  max-height: 44vh;
   overflow-y: auto;
+  margin: 0 20px 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-l);
+  background: var(--color-paper-warm);
 }
 
 .pl-block-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   font-size: 12px;
 }
 
-/* ---------- 方案卡 ---------- */
-.pl-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
+/* 全部采纳：文字按钮，不做成主操作 —— 全收等于跳过审阅 */
+.pl-accept-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-brown-deep);
+  transition: background var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-spring);
 }
+.pl-accept-all:hover { background: var(--tint-strong); transform: translateY(-1px); }
+.pl-accept-all:active { transform: scale(0.97); }
+
+/* ---------- 方案卡 ---------- */
+
+.pl-options { display: grid; gap: 10px; }
 
 .pl-option {
+  padding: 14px 17px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
   text-align: left;
   cursor: pointer;
-  background: var(--color-panel);
+  transition: background var(--dur) var(--ease-out),
+              border-color var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out);
+}
+.pl-option:not(:disabled):hover {
+  border-color: var(--color-brown-soft);
+  transform: translateY(-2px);
 }
 .pl-option:disabled { cursor: default; }
 
-.pl-option-head { display: flex; align-items: center; gap: 8px; }
+.pl-option-head { display: flex; align-items: center; gap: 9px; }
 
+/* 序号：圆形徽标。方形徽章更像表单编号，圆的更像"选项" */
 .pl-option-no {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--color-brown);
-  border-radius: var(--radius-s);
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: var(--tint-strong);
   color: var(--color-brown-deep);
+  font-family: var(--font-serif);
   font-size: 12px;
 }
 
 .pl-option-title { flex: 1; }
 
 .pl-option-summary {
-  margin-top: 8px;
+  margin-top: 9px;
   font-size: 13px;
-  color: var(--color-ink);
-  line-height: 1.75;
+  color: var(--color-ink-soft);
+  line-height: 1.85;
 }
 
 .pl-option-detail {
-  margin-top: 8px;
+  margin-top: 9px;
   font-size: 12px;
   color: var(--color-muted);
-  line-height: 1.7;
-  max-height: 5.1em;
+  line-height: 1.75;
+  max-height: 5.4em;
   overflow: hidden;
 }
 
-/* ---------- 草稿 ---------- */
-.pl-drafts { display: grid; gap: 10px; }
+/* ---------- 草稿卡 ---------- */
 
-.pl-draft-head { display: flex; align-items: center; gap: 8px; }
+.pl-drafts { display: grid; gap: 11px; }
+
+.pl-draft {
+  padding: 15px 18px;
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+}
+
+.pl-draft-head { display: flex; align-items: center; gap: 9px; }
 
 .pl-draft-toggle {
   margin-left: auto;
+  padding: 3px 10px;
   border: 0;
+  border-radius: var(--radius-pill);
   background: none;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--color-brown);
-  padding: 2px 4px;
-  transition: color var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.pl-draft-toggle:hover { color: var(--color-brown-deep); text-decoration: underline; }
+.pl-draft-toggle:hover { background: var(--tint); color: var(--color-brown-deep); }
 
-/* 草稿内容区：限高可滚。它是"待审阅的全文"，不该把整个列表推到屏幕外 */
+/* 草稿正文：左侧一条棕色竖条 + 略深的底，像"折角的一页" */
 .pl-draft-body {
-  margin-top: 10px;
-  padding: 12px;
-  border-left: 2px solid var(--color-brown-soft);
-  background: var(--color-paper-warm);
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--color-brown-soft);
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
-  max-height: 320px;
+  background: var(--color-paper-warm);
+  max-height: 330px;
   overflow-y: auto;
 }
 
-.pl-draft-field + .pl-draft-field { margin-top: 12px; }
+.pl-draft-field + .pl-draft-field { margin-top: 14px; }
 
 .pl-draft-key {
   display: block;
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  margin-bottom: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
   color: var(--color-brown-deep);
-  margin-bottom: 4px;
 }
 
-.pl-draft-value { font-size: 13px; line-height: 1.8; }
+.pl-draft-value { font-size: 13px; line-height: 1.9; }
 
-.pl-draft-reason {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.75;
-}
+.pl-draft-reason { margin-top: 12px; font-size: 12.5px; line-height: 1.85; }
 
 /* ---------- 内容体检 ---------- */
+
 .pl-draft-lint {
-  margin-top: 10px;
-  padding: 9px 11px;
-  border: 1px solid var(--color-gold);
+  margin-top: 12px;
+  padding: 11px 14px;
   border-radius: var(--radius-s);
-  background: rgba(184, 134, 11, 0.05);
+  background: rgba(208, 154, 46, 0.1);
 }
 
-.pl-lint-item {
-  font-size: 12px;
-  line-height: 1.75;
-  color: #8a6608;
-}
-.pl-lint-item + .pl-lint-item { margin-top: 4px; }
+.pl-lint-item { font-size: 11.5px; line-height: 1.8; color: #8a6608; }
+.pl-lint-item + .pl-lint-item { margin-top: 5px; }
 
 .pl-lint-label { font-weight: 700; margin-right: 6px; }
-
 .pl-lint-detail { word-break: break-word; }
 
 .pl-lint-fix {
-  margin-top: 8px;
-  padding: 4px 10px;
-  border: 1px solid var(--color-gold);
-  border-radius: var(--radius-s);
-  background: transparent;
+  margin-top: 9px;
+  padding: 5px 13px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(208, 154, 46, 0.2);
   cursor: pointer;
-  font-size: 12px;
-  color: #8a6608;
+  font-size: 11.5px;
+  color: #7d5c07;
   transition: background var(--dur) var(--ease-out);
 }
-.pl-lint-fix:hover { background: rgba(184, 134, 11, 0.12); }
+.pl-lint-fix:hover { background: rgba(208, 154, 46, 0.34); }
 
-.pl-draft-actions { display: flex; gap: 8px; margin-top: 12px; }
+.pl-draft-actions { display: flex; gap: 8px; margin-top: 13px; }
 
-/* ---------- 输入区 ---------- */
+/* ==================== 输入区 ==================== */
+/*
+ * 一块浮起来的圆角卡片。之前是"贴边直角色带"，是整页最硬的地方。
+ */
+
 .pl-input-wrap {
-  border-top: 1px solid var(--color-line);
+  flex-shrink: 0;
+  margin: 0 20px 16px;
+  border-radius: var(--radius-l);
   background: var(--color-panel);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow var(--dur) var(--ease-out);
 }
+.pl-input-wrap:focus-within { box-shadow: var(--shadow-mid); }
 
-/* 引用条：一眼能看出"这一条来自哪个蓝图节点" */
+/* 引用卡片 */
 .pl-cites {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 26px 0;
+  flex-direction: column;
+  gap: 7px;
+  padding: 13px 16px 0;
 }
 
 .pl-cite {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 460px;
-  padding: 5px 8px 5px 10px;
-  border: 1px solid var(--color-brown-soft);
-  border-left: 2px solid var(--color-brown);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 13px;
   border-radius: var(--radius-s);
-  background: var(--color-paper-warm);
-  font-size: 12px;
+  background: var(--tint);
+  animation: mj-pop var(--dur) var(--ease-spring) both;
 }
 
 .pl-cite-label {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--tint-strong);
+  font-size: 10.5px;
   color: var(--color-brown-deep);
-  white-space: nowrap;
 }
 
-/* 定位信息（记录ID / 段号）用等宽小字：它是给模型用的精确坐标，
-   视觉上要让位给正文内容，但不能看不见 */
-.pl-cite-locator {
-  margin-left: 4px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 11px;
-  color: var(--color-muted);
-}
+.pl-cite-locator { flex: none; font-size: 10.5px; color: var(--color-muted); }
 
 .pl-cite-text {
-  color: var(--color-muted);
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-ink-soft);
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .pl-cite-x {
+  flex: none;
+  width: 20px;
+  height: 20px;
   border: 0;
+  border-radius: 50%;
   background: none;
   cursor: pointer;
   color: var(--color-muted);
-  font-size: 14px;
-  line-height: 1;
-  padding: 0 2px;
-  transition: color var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.pl-cite-x:hover { color: var(--color-danger); }
+.pl-cite-x:hover { background: var(--tint-strong); color: var(--color-danger); }
 
-.pl-cite-clear { font-size: 12px; }
+.pl-cite-clear { align-self: flex-end; padding: 2px 8px; }
 
 .pl-input {
   display: flex;
-  gap: 10px;
-  padding: 12px 26px 18px;
+  gap: 12px;
+  padding: 13px 16px 10px;
 }
 
-.pl-input-side { display: flex; align-items: flex-end; gap: 8px; }
-
-/* ---------- 全部采纳 ---------- */
-.pl-accept-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 3px 9px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-s);
-  background: var(--color-panel);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--color-brown-deep);
-  transition: border-color var(--dur) var(--ease-out);
-}
-.pl-accept-all:hover { border-color: var(--color-brown); }
-
-/* ---------- 采纳模式（底部权限条） ---------- */
-.pl-mode {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 2px 26px 14px;
-  position: relative;
-}
-
-/* 模型选择靠右：它是"这颗脑子怎么配"，与左边的审阅策略分属两类设定 */
-.pl-mode-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-}
-
-.pl-mode-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-pill);
-  background: var(--color-panel);
-  cursor: pointer;
-  font-size: 12.5px;
-  color: var(--color-muted);
-  transition: color var(--dur) var(--ease-out),
-              background var(--dur) var(--ease-out),
-              border-color var(--dur) var(--ease-out);
-}
-.pl-mode-btn:hover {
-  color: var(--color-brown-deep);
-  background: var(--color-brown-tint);
-  border-color: var(--color-brown-soft);
-}
-
-.pl-mode-caret { font-size: 10px; }
-
-/* 菜单往上弹：它在页面底部，往下弹会跑出屏幕 */
-.pl-mode-menu {
-  position: absolute;
-  bottom: calc(100% - 4px);
-  left: 26px;
-  z-index: 80;
-  min-width: 220px;
-  padding: 4px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-m);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-float);
-}
-
-.pl-mode-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-}
-.pl-mode-item:hover { background: var(--color-paper-warm); }
-.pl-mode-item.active .pl-mode-name { color: var(--color-brown-deep); }
-
-.pl-mode-name { font-size: 13px; color: var(--color-ink); }
-.pl-mode-desc { font-size: 11px; color: var(--color-muted); }
-
-.pl-mode-notice {
-  font-size: 12px;
-  color: var(--color-brown);
-}
-
-/* 中止留下的一条说明：不做成普通回答的样子，它不是一个回答 */
-.pl-msg.is-cancelled .pl-bubble {
-  border-style: dashed;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-/* ==================================================================== */
-/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
-/* ==================================================================== */
-
-/* ---------- 对话流 ---------- */
-
-.pl-stream { padding: 26px 30px 10px; }
-
-.pl-msg { margin-bottom: 26px; }
-
-/* 说话人标签：前面加一根小小的棕线，比纯文字更"有归属" */
-.pl-msg-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  font-size: 11.5px;
-  letter-spacing: 0.1em;
-  color: var(--color-muted);
-}
-.pl-msg-tag::before {
-  content: "";
-  width: 14px;
-  height: 1px;
-  background: var(--color-brown-soft);
-}
-
-.pl-bubble {
-  padding: 15px 20px;
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-m);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-  line-height: 1.9;
-  word-break: break-word;
-}
-
-/*
- * 用户消息不再用"左侧 2px 竖线"（那是硬笔触），
- * 改成整块淡棕底 + 短圆角。整块的色块比一根线柔和得多。
- */
-.pl-msg.is-user .pl-bubble {
-  background: var(--color-brown-tint);
-  border-color: transparent;
-  border-left: 0;
-  border-radius: var(--radius-m) var(--radius-m) var(--radius-m) var(--radius-xs);
-  box-shadow: none;
-}
-
-/* 助手气泡：左上角收窄一点，形成"从这边说出来的"方向感 */
-.pl-msg.is-assistant .pl-bubble {
-  border-radius: var(--radius-xs) var(--radius-m) var(--radius-m) var(--radius-m);
-}
-
-/* ---------- 空态 ---------- */
-
-.pl-empty {
-  max-width: 520px;
-  margin: 56px auto 0;
-  line-height: 2.1;
-}
-
-/* ---------- 待确认 / 方案区 ---------- */
-
-/*
- * 原来用 border-top 硬线分隔。
- * 现在改成"浅底 + 上方一段渐白"，让下半区像是从纸面里浮出来的另一层。
- */
-.pl-block {
-  border-top: 0;
-  padding: 18px 30px;
-  background: var(--color-paper-warm);
-  box-shadow: inset 0 12px 16px -14px rgba(70, 52, 36, 0.18);
-}
-
-.pl-block-head { margin-bottom: 14px; }
-
-.pl-option {
-  border-radius: var(--radius-m);
-  transition: border-color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out);
-}
-.pl-option:not(:disabled):hover {
-  border-color: var(--color-brown-soft);
-  box-shadow: var(--shadow-soft);
-  transform: translateY(-2px);
-}
-
-/* 方案序号：圆形徽标，比方形徽章更像个"编号" */
-.pl-option-no {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  font-family: var(--font-serif);
-}
-
-/* ---------- 输入区 ---------- */
-
-/* 去掉顶部硬线，改成一层向上的柔和阴影：输入区"托"在内容之上 */
-.pl-input-wrap {
-  border-top: 0;
-  background: linear-gradient(180deg, rgba(253, 251, 247, 0), var(--color-paper) 26px);
-  box-shadow: 0 -10px 24px -18px rgba(70, 52, 36, 0.3);
-}
-
-.pl-input { padding: 14px 30px 8px; }
-
-/* 输入框做成一块浮起来的纸：圆角加大 + 更软的边框 */
-.pl-input .mj-textarea {
-  padding: 13px 17px;
-  border-radius: var(--radius-l);
-  border-color: var(--color-line-soft);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-  line-height: 1.8;
-  transition: border-color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out);
-}
-.pl-input .mj-textarea:hover { border-color: var(--color-line); }
-.pl-input .mj-textarea:focus {
-  border-color: var(--color-brown);
-  box-shadow: 0 0 0 3px var(--color-brown-tint-strong), var(--shadow-soft);
-}
-
-/* 发送按钮：稍大一点、加一点阴影，让它明显是这一屏的主操作 */
-.pl-input-side .mj-btn-primary {
-  padding: 10px 22px;
-  border-radius: var(--radius-pill);
-  font-size: 13.5px;
-}
-
-/* ---------- 引用卡片 ---------- */
-
-.pl-cites { padding: 0 30px 8px; }
-
-.pl-cite {
-  border-radius: var(--radius-s);
-  border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
-}
-
-/* ---------- 全部采纳 ---------- */
-
-.pl-accept-all {
-  border-radius: var(--radius-pill);
-  border-color: var(--color-line-soft);
-  padding: 5px 13px;
-  transition: border-color var(--dur) var(--ease-out),
-              background var(--dur) var(--ease-out);
-}
-.pl-accept-all:hover {
-  border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
-}
-
-/* ---------- 草稿卡片 ---------- */
-
-.pl-draft {
-  border-radius: var(--radius-m);
-  border-color: var(--color-line-soft);
-  box-shadow: var(--shadow-xs);
-}
-
-.pl-draft-body {
-  border-left-width: 3px;
-  border-radius: 0 var(--radius-s) var(--radius-s) 0;
-}
-
-
-/* ==================================================================== */
-/* 输入区：从"贴边的直角色带"改成"浮起的圆角卡片"                        */
-/* ==================================================================== */
-/*
- * 之前是整条贴到边缘、四角直角的色带 —— 旁边所有元素都是圆的，
- * 就它一个方框钉在底部，观感很割裂。
- * 现在把它抬起来：留出边距、四角圆、加一层柔和阴影。
- */
-
-.pl-input-wrap {
-  margin: 0 20px 16px;
-  padding-bottom: 2px;
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-l);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-mid);
-  transition: box-shadow var(--dur) var(--ease-out);
-}
-
-/* 输入时把整块稍微"点亮"：焦点在输入框里，但反馈给整个容器 */
-.pl-input-wrap:focus-within {
-  box-shadow: var(--shadow-float);
-}
-
-.pl-input { padding: 14px 16px 8px; }
-
-/* 容器已经圆了，输入框自己就不用再圆一次，改成"嵌在卡里" */
+/* 输入框：不套边框，嵌在卡片里。焦点反馈交给整个容器（focus-within） */
 .pl-input .mj-textarea {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
   padding: 4px 2px;
+  min-height: 56px;
 }
-.pl-input .mj-textarea:hover { border-color: transparent; }
 .pl-input .mj-textarea:focus {
   border-color: transparent;
+  background: transparent;
   box-shadow: none;
 }
 
-.pl-cites { padding: 0 20px 10px; }
+.pl-input-side { display: flex; align-items: flex-end; gap: 8px; }
 
-.pl-mode {
-  padding: 0 16px 12px;
+.pl-input-side .mj-btn-primary {
+  padding: 10px 24px;
+  font-size: 13.5px;
 }
 
-/* 待确认区不要顶到圆角卡片：给它留一点呼吸 */
-.pl-block { padding-bottom: 20px; }
+/* ==================== 底部工具条 ==================== */
 
+.pl-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 13px;
+  position: relative;
+}
+
+.pl-mode-right { margin-left: auto; display: flex; align-items: center; }
+
+.pl-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-paper-warm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-muted);
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-spring);
+}
+.pl-mode-btn:hover { background: var(--tint-strong); color: var(--color-brown-deep); }
+.pl-mode-btn:active { transform: scale(0.97); }
+
+.pl-mode-caret { font-size: 9px; transition: transform var(--dur) var(--ease-out); }
+.pl-mode-btn:hover .pl-mode-caret { transform: translateY(1px); }
+
+/* 菜单往上弹：它在页面底部 */
+.pl-mode-menu {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 16px;
+  z-index: 90;
+  min-width: 236px;
+  padding: 8px;
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-float);
+  animation: mj-pop var(--dur) var(--ease-spring) both;
+}
+
+.pl-mode-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 13px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease-out);
+}
+.pl-mode-item:hover { background: var(--tint); }
+.pl-mode-item.active { background: var(--tint-strong); }
+.pl-mode-item.active .pl-mode-name { color: var(--color-brown-deep); }
+
+.pl-mode-name { font-size: 13px; color: var(--color-ink); }
+.pl-mode-desc { font-size: 11px; color: var(--color-muted); }
+
+.pl-mode-notice { font-size: 11.5px; color: var(--color-brown); animation: mj-fade var(--dur) both; }
 </style>

@@ -1,18 +1,19 @@
 /*
- * 墨笺 · 创作工作台设计系统
- * ============================
- * 白 + 棕的温润国风：暖白纸底、棕色主调、大圆角、柔和阴影、有呼吸的动效。
+ * 墨笺 · 素笺流韵 · 设计系统 v2
+ * ==============================
+ * 三条纪律：
+ *   1. **扁平**：层次靠「色块 + 大圆角 + 留白」。只有真浮起来的层才给阴影。
+ *      给每个元素都加投影，会让整页像一堆贴纸。
+ *   2. **圆润**：圆角从 --radius-xs(8) 一路到 --radius-2xl(34) 与药丸。
+ *   3. **华丽靠运动**：入场交错、悬停位移、按下回弹、光晕游走。
+ *      同一个静态界面，动起来就贵 —— 这是"华丽"最便宜的来源。
  *
- * 三条设计纪律：
- *   1. 分层靠「阴影 + 底色差」，不再只靠 1px 细线 ——
- *      只画线的话，几块浅色区域拼在一起就成了"色块拼接"，
- *      分区之间没有厚度差，看起来是硬邦邦的平面图
- *   2. 动效统一用 --ease-out / --ease-spring 与三档时长；
- *      各写各的缓动是"不自然"的根因
- *   3. 命名空间前缀 mj- ：旧页面继续用 theme.css，两套互不干扰
+ * 命名空间 mj-：旧页面继续用 theme.css，两套互不干扰。
  */
 
-/* ==================== 基础容器 ==================== */
+/* ==================================================================== */
+/* 基础                                                                */
+/* ==================================================================== */
 
 .mj-page {
   min-height: 100%;
@@ -21,35 +22,31 @@
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 标题用衬线，字号越大越吃得出文气 */
 .mj-title {
   font-family: var(--font-serif);
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--color-brown-deep);
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
-.mj-title-lg { font-size: 24px; }
+.mj-title-lg { font-size: 25px; }
 .mj-title-md { font-size: 17px; }
 .mj-title-sm { font-size: 15px; }
 
-/* 品牌字：毛笔行楷。只给「墨笺」这两个字用，用多了就俗 */
+/* 品牌字：毛笔行楷。只给「墨笺」用，用多了就俗 */
 .mj-brand {
   font-family: var(--font-display);
   font-size: 30px;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--color-brown-deep);
 }
 
-/* 小字说明：字距拉开一点，小字号会显得更从容 */
-.mj-muted {
-  color: var(--color-muted);
-  letter-spacing: 0.02em;
-}
+.mj-muted { color: var(--color-muted); letter-spacing: 0.01em; }
 
 .mj-mono {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -57,71 +54,81 @@
   letter-spacing: 0;
 }
 
-/* ==================== 分隔 ==================== */
+/* ==================================================================== */
+/* 分隔                                                                */
+/* ==================================================================== */
 
-.mj-hr {
-  height: 1px;
-  border: 0;
-  background: var(--color-line-soft);
-}
+.mj-hr { height: 1px; border: 0; background: var(--color-line-soft); }
 
-/* 卷轴式分隔：两端渐隐，比实线更"国风" */
 .mj-hr-scroll {
   height: 1px;
   border: 0;
   background: linear-gradient(90deg,
-      transparent, var(--color-brown-soft) 18%, var(--color-brown-soft) 82%, transparent);
+      transparent, var(--color-brown-soft) 16%, var(--color-brown-soft) 84%, transparent);
 }
 
-/* ==================== 卡片 ==================== */
+/* ==================================================================== */
+/* 卡片                                                                */
+/* ==================================================================== */
 
+/*
+ * 扁平卡片：一条极淡的边 + 白底。**没有投影** —— 投影留给浮层。
+ * hover 时不是"浮起来"，而是"染上一层同色系的雾"，这是扁平风的做法。
+ */
 .mj-card {
   background: var(--color-panel);
   border: 1px solid var(--color-line-soft);
   border-radius: var(--radius-m);
   padding: 16px;
-  box-shadow: var(--shadow-xs);
-  transition: box-shadow var(--dur) var(--ease-out),
+  transition: background var(--dur) var(--ease-out),
               border-color var(--dur) var(--ease-out),
               transform var(--dur) var(--ease-out);
 }
 
-/* 悬浮：抬起一点点 + 阴影变深。比"边框变棕"更接近真实世界的浮起 */
 .mj-card-hover:hover {
   border-color: var(--color-brown-soft);
-  box-shadow: var(--shadow-soft);
+  background: linear-gradient(0deg, var(--tint), var(--tint)), var(--color-panel);
   transform: translateY(-2px);
 }
 
 .mj-card-selected {
   border-color: var(--color-brown);
-  background: var(--color-panel);
-  box-shadow: var(--shadow-soft);
+  background: linear-gradient(0deg, var(--tint), var(--tint)), var(--color-panel);
 }
 
-/* 无边框的表面：用于"嵌在深色底上的浮层" */
 .mj-surface {
   background: var(--color-panel);
   border-radius: var(--radius-m);
   box-shadow: var(--shadow-mid);
 }
 
-/* ==================== 按钮 ==================== */
+/* 磨砂玻璃：给浮在内容上的东西用（顶栏、浮层头部） */
+.mj-glass {
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* ==================================================================== */
+/* 按钮                                                                */
+/* ==================================================================== */
 
 .mj-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 18px;
+  padding: 9px 20px;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  font-size: 14px;
+  font-size: 13.5px;
   font-family: var(--font-sans);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   cursor: pointer;
   background: none;
   color: var(--color-ink);
+  overflow: hidden;
   transition: background var(--dur) var(--ease-out),
               border-color var(--dur) var(--ease-out),
               color var(--dur) var(--ease-out),
@@ -129,17 +136,30 @@
               transform var(--dur-fast) var(--ease-spring);
 }
 
-.mj-btn:disabled { opacity: 0.42; cursor: not-allowed; }
-.mj-btn:active:not(:disabled) { transform: scale(0.97); }
+.mj-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.mj-btn:active:not(:disabled) { transform: scale(0.96); }
+
+/* 悬停时从中心铺开一层极淡的白雾 —— 扁平风的"高光" */
+.mj-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.4), transparent 70%);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out);
+  pointer-events: none;
+}
+.mj-btn:hover:not(:disabled)::after { opacity: 1; transform: scale(1); }
 
 .mj-btn-primary {
-  background: var(--color-brown);
+  background: linear-gradient(135deg, #b0744a, var(--color-brown));
   color: #fff;
-  box-shadow: 0 2px 8px rgba(169, 118, 79, 0.28);
+  box-shadow: 0 2px 10px -2px rgba(162, 101, 60, 0.42);
 }
 .mj-btn-primary:hover:not(:disabled) {
-  background: var(--color-brown-deep);
-  box-shadow: 0 4px 14px rgba(107, 67, 38, 0.3);
+  background: linear-gradient(135deg, var(--color-brown), var(--color-brown-deep));
+  box-shadow: 0 6px 20px -6px rgba(109, 61, 28, 0.55);
 }
 
 .mj-btn-ghost {
@@ -149,7 +169,7 @@
 }
 .mj-btn-ghost:hover:not(:disabled) {
   border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
+  background: var(--tint);
   color: var(--color-brown-deep);
 }
 
@@ -159,134 +179,139 @@
 }
 .mj-btn-text:hover:not(:disabled) {
   color: var(--color-brown-deep);
-  background: var(--color-brown-tint);
+  background: var(--tint);
 }
 
-.mj-btn-danger { color: var(--color-danger); border-color: transparent; }
-.mj-btn-danger:hover:not(:disabled) { background: rgba(179, 68, 51, 0.07); }
+.mj-btn-danger { color: var(--color-danger); }
+.mj-btn-danger:hover:not(:disabled) { background: var(--tint-accent); }
 
-/* ==================== 表单 ==================== */
+/* 圆形图标按钮 */
+.mj-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-spring);
+}
+.mj-icon-btn:hover { background: var(--tint); color: var(--color-brown-deep); transform: scale(1.08); }
+.mj-icon-btn:active { transform: scale(0.94); }
+
+/* ==================================================================== */
+/* 表单                                                                */
+/* ==================================================================== */
 
 .mj-input,
 .mj-textarea {
   width: 100%;
-  padding: 10px 14px;
+  padding: 11px 16px;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-s);
-  background: var(--color-panel);
+  background: var(--color-paper-warm);
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.65;
   transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
               box-shadow var(--dur) var(--ease-out);
 }
 
-/* 聚焦时给一圈淡棕光晕，而不是只换边框色 —— 后者的提示太弱 */
+/* 聚焦：底色转白 + 一圈淡棕光晕。只换边框色的提示太弱了 */
 .mj-input:focus,
 .mj-textarea:focus {
   outline: none;
+  background: var(--color-panel);
   border-color: var(--color-brown);
-  box-shadow: 0 0 0 3px var(--color-brown-tint-strong);
+  box-shadow: 0 0 0 4px var(--tint-strong);
 }
 
 .mj-input::placeholder,
-.mj-textarea::placeholder { color: #b3a698; }
+.mj-textarea::placeholder { color: #b5a999; }
 
 .mj-textarea { resize: vertical; min-height: 84px; }
 
-/* ==================== 标签 ==================== */
+/* ==================================================================== */
+/* 标签                                                                */
+/* ==================================================================== */
 
 .mj-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  border: 1px solid var(--color-line);
+  padding: 3px 11px;
+  border: 0;
   border-radius: var(--radius-pill);
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--color-muted);
   background: var(--color-paper-warm);
   white-space: nowrap;
-  transition: border-color var(--dur) var(--ease-out),
-              background var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
 
-.mj-tag-brown {
-  color: var(--color-brown-deep);
-  border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
-}
-.mj-tag-gold { color: #8a6608; border-color: rgba(201, 151, 31, 0.4); background: rgba(201, 151, 31, 0.08); }
+.mj-tag-brown { color: var(--color-brown-deep); background: var(--tint-strong); }
+.mj-tag-gold { color: #96700f; background: rgba(208, 154, 46, 0.14); }
 
-/* 朱砂印章：只用于"已确认/已完成"这类少数状态，用多了就俗 */
+/* 朱砂印章：只用于"已确认/已完成"这类少数状态 */
 .mj-seal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 3px 10px;
-  border: 1px solid var(--color-cinnabar);
   border-radius: var(--radius-xs);
-  color: var(--color-cinnabar);
+  color: #fff;
+  background: linear-gradient(140deg, #cf6552, var(--color-cinnabar));
   font-family: var(--font-serif);
   font-size: 12px;
   letter-spacing: 0.1em;
   transform: rotate(-1.5deg);
+  box-shadow: 0 2px 8px -2px rgba(196, 85, 63, 0.5);
 }
 
-/* ==================== 动效 ==================== */
+/* ==================================================================== */
+/* 动效库                                                              */
+/* ==================================================================== */
 /*
- * 统一用 --ease-out：先快后缓，东西"落"下来的感觉。
- * 线性或 ease 在两个方向上速度对称，反而显机械。
+ * 六条曲线 + 七种动画，够拼出大部分"华丽"了。
+ * 关键是**缓动统一**：各写各的缓动，动得再多也显廉价。
  */
 
-@keyframes mj-rise {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: none; }
-}
-
-@keyframes mj-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-/* 从中心轻轻撑开：用于弹出菜单、选择器 */
-@keyframes mj-pop {
-  from { opacity: 0; transform: translateY(6px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
-}
-
-@keyframes mj-breathe {
-  0%, 100% { opacity: 0.3; transform: scale(0.85); }
-  50%      { opacity: 1; transform: scale(1); }
-}
-
-@keyframes mj-blink {
-  0%, 49%  { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-/* 缓慢流动的暖光：给大面积空白加一点"活着"的感觉 */
-@keyframes mj-glow {
-  0%, 100% { opacity: 0.5; }
-  50%      { opacity: 0.85; }
-}
+@keyframes mj-rise     { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes mj-fade     { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mj-pop      { from { opacity: 0; transform: translateY(8px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes mj-slide-in { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes mj-breathe  { 0%, 100% { opacity: 0.28; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
+@keyframes mj-blink    { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes mj-shimmer  { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+@keyframes mj-float    { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes mj-spin     { to { transform: rotate(360deg); } }
 
 .mj-rise { animation: mj-rise var(--dur-slow) var(--ease-out) both; }
 .mj-fade { animation: mj-fade var(--dur) var(--ease-out) both; }
 .mj-pop  { animation: mj-pop var(--dur) var(--ease-spring) both; }
+.mj-slide{ animation: mj-slide-in var(--dur-slow) var(--ease-out) both; }
 
 /* 错峰入场：列表逐条出现，比一次性全出现更像"正在生成" */
 .mj-stagger > * { animation: mj-rise var(--dur-slow) var(--ease-out) both; }
 .mj-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.mj-stagger > *:nth-child(2) { animation-delay: 45ms; }
-.mj-stagger > *:nth-child(3) { animation-delay: 90ms; }
-.mj-stagger > *:nth-child(4) { animation-delay: 135ms; }
-.mj-stagger > *:nth-child(5) { animation-delay: 180ms; }
-.mj-stagger > *:nth-child(6) { animation-delay: 225ms; }
-.mj-stagger > *:nth-child(n+7) { animation-delay: 270ms; }
+.mj-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.mj-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.mj-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.mj-stagger > *:nth-child(5) { animation-delay: 160ms; }
+.mj-stagger > *:nth-child(6) { animation-delay: 200ms; }
+.mj-stagger > *:nth-child(7) { animation-delay: 240ms; }
+.mj-stagger > *:nth-child(8) { animation-delay: 280ms; }
+.mj-stagger > *:nth-child(n+9) { animation-delay: 320ms; }
 
-/* 流式输出光标：一根细细的棕线一闪一闪，表示"还在写" */
+/* 流式光标：一根细棕线一闪一闪 */
 .mj-caret::after {
   content: "";
   display: inline-block;
@@ -299,59 +324,68 @@
   animation: mj-blink 1s steps(1, end) infinite;
 }
 
-/* 三点呼吸：表示"正在等模型"，比转圈更安静 */
-.mj-dots {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
-}
+/* 三点呼吸：等模型时用，比转圈安静 */
+.mj-dots { display: inline-flex; gap: 5px; align-items: center; }
 .mj-dots i {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--color-brown);
   animation: mj-breathe 1.4s ease-in-out infinite;
 }
-.mj-dots i:nth-child(2) { animation-delay: 0.18s; }
-.mj-dots i:nth-child(3) { animation-delay: 0.36s; }
+.mj-dots i:nth-child(2) { animation-delay: 0.16s; }
+.mj-dots i:nth-child(3) { animation-delay: 0.32s; }
 
-/* Vue 过渡：面板切换 */
+/* 骨架屏 / 加载条：一道光从左扫到右 */
+.mj-shimmer {
+  background: linear-gradient(90deg,
+      var(--color-paper-warm) 25%, var(--color-panel) 50%, var(--color-paper-warm) 75%);
+  background-size: 200% 100%;
+  animation: mj-shimmer 1.6s linear infinite;
+}
+
+/* ==================== Vue 过渡 ==================== */
+
 .mj-swap-enter-active,
 .mj-swap-leave-active {
   transition: opacity var(--dur) var(--ease-out),
               transform var(--dur) var(--ease-out);
 }
-.mj-swap-enter-from { opacity: 0; transform: translateY(8px); }
-.mj-swap-leave-to   { opacity: 0; transform: translateY(-8px); }
+.mj-swap-enter-from { opacity: 0; transform: translateY(10px) scale(0.99); }
+.mj-swap-leave-to   { opacity: 0; transform: translateY(-10px) scale(0.99); }
 
-/* 列表项增删 */
 .mj-list-enter-active,
 .mj-list-leave-active {
   transition: opacity var(--dur) var(--ease-out),
               transform var(--dur) var(--ease-out);
 }
-.mj-list-enter-from { opacity: 0; transform: translateY(12px); }
-.mj-list-leave-to   { opacity: 0; transform: translateX(16px); }
-.mj-list-move { transition: transform var(--dur) var(--ease-out); }
+.mj-list-enter-from { opacity: 0; transform: translateY(14px) scale(0.98); }
+.mj-list-leave-to   { opacity: 0; transform: translateX(18px) scale(0.98); }
+.mj-list-move { transition: transform var(--dur-slow) var(--ease-out); }
 
-/* 尊重"减少动态效果"偏好：这不是可选项，是基本礼貌 */
+/* 尊重"减少动态效果"：这不是可选项，是基本礼貌 */
 @media (prefers-reduced-motion: reduce) {
-  .mj-rise, .mj-fade, .mj-pop, .mj-stagger > * { animation: none; }
-  .mj-caret::after { animation: none; }
-  * { transition-duration: 1ms !important; }
+  .mj-rise, .mj-fade, .mj-pop, .mj-slide, .mj-stagger > * { animation: none; }
+  .mj-caret::after, .mj-dots i, .mj-shimmer { animation: none; }
+  * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
 }
 
-/* ==================== 滚动条：细、淡、不抢视线 ==================== */
+/* ==================================================================== */
+/* 滚动条：细、圆、鼠标不用精准对准                                     */
+/* ==================================================================== */
 
 .mj-scroll { overflow-y: auto; }
 
-.mj-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.mj-scroll::-webkit-scrollbar { width: 12px; height: 12px; }
 .mj-scroll::-webkit-scrollbar-track { background: transparent; }
-/* 透明边框 + background-clip 让滑块看起来比轨道窄，鼠标不用精准对准 */
 .mj-scroll::-webkit-scrollbar-thumb {
-  background: rgba(169, 118, 79, 0.22);
-  border: 3px solid transparent;
+  background: rgba(162, 101, 60, 0.2);
+  border: 4px solid transparent;
   background-clip: padding-box;
   border-radius: var(--radius-pill);
+  transition: background 200ms;
 }
-.mj-scroll::-webkit-scrollbar-thumb:hover { background: rgba(169, 118, 79, 0.4); background-clip: padding-box; }
+.mj-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(162, 101, 60, 0.42);
+  background-clip: padding-box;
+}

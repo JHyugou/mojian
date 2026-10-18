@@ -767,7 +767,7 @@ async function doReset() {
   color: var(--color-brown-deep);
   padding: 2px 10px;
   border-radius: var(--radius-pill);
-  background: var(--color-brown-tint);
+  background: var(--tint);
 }
 
 .ai-model-list {
@@ -786,7 +786,7 @@ async function doReset() {
   cursor: pointer;
   transition: background var(--dur) var(--ease-out);
 }
-.ai-model-row:hover { background: var(--color-brown-tint); }
+.ai-model-row:hover { background: var(--tint); }
 
 /* 关闭的行整体降一档饱和度：一眼能看出"这个我没在用" */
 .ai-model-row:not(.on) .ai-model-id { color: var(--color-muted); }

@@ -43,7 +43,7 @@ const navItems = [
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 32 32">
-            <rect width="32" height="32" rx="10" fill="var(--color-brown-tint-strong)" />
+            <rect width="32" height="32" rx="10" fill="var(--tint-strong)" />
             <path d="M7 23 L13 12 L18 20 L21.5 15 L26 23 Z" fill="var(--color-brown)" opacity=".85" />
             <circle cx="23.5" cy="9" r="2.6" fill="var(--color-cinnabar)" />
           </svg>
@@ -124,15 +124,21 @@ const navItems = [
 </template>
 
 <style scoped>
+/* ==================================================================== */
+/* 外壳：素笺流韵 v2                                                    */
+/* 扁平 + 大圆角 + 磨砂 + 大量微动效                                    */
+/* ==================================================================== */
+
 .app-shell {
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 /* ==================== 背景装饰 ==================== */
-
+/* 极淡的远山 + 两团游走的暖光。扁平设计里，氛围靠"色"不靠"影" */
 .backdrop {
   position: absolute;
   inset: 0;
@@ -147,110 +153,107 @@ const navItems = [
   right: 0;
   bottom: 0;
   width: 100%;
-  height: 32vh;
+  height: 34vh;
+  opacity: 0.55;
 }
 
-/* 两团缓慢漂移的雾：给大面积空白一点"活着"的感觉，比纯色底柔和得多 */
 .mist {
   position: absolute;
-  width: 560px;
-  height: 170px;
+  width: 620px;
+  height: 200px;
   border-radius: 50%;
-  filter: blur(64px);
-  background: rgba(169, 118, 79, 0.13);
+  filter: blur(72px);
+  background: radial-gradient(circle, rgba(162, 101, 60, 0.16), transparent 68%);
 }
-.mist-1 { top: 12%; left: -100px; animation: mist-drift 26s ease-in-out infinite alternate; }
-.mist-2 { bottom: 14%; right: -120px; animation: mist-drift 34s ease-in-out infinite alternate-reverse; }
+.mist-1 { top: 8%; left: -140px; animation: mist-drift 28s ease-in-out infinite alternate; }
+.mist-2 { bottom: 10%; right: -160px; animation: mist-drift 36s ease-in-out infinite alternate-reverse; }
 
 @keyframes mist-drift {
-  from { transform: translateX(-52px) scale(1); }
-  to { transform: translateX(52px) scale(1.08); }
+  from { transform: translate3d(-60px, 0, 0) scale(1); }
+  to   { transform: translate3d(60px, -18px, 0) scale(1.12); }
 }
 
 .app-header,
 .app-body,
-.toast-area {
-  position: relative;
-  z-index: 1;
-}
+.toast-area { position: relative; z-index: 1; }
 
 /* ==================== 顶栏 ==================== */
-
 /*
- * 顶栏不再用"1px 硬线"分隔，改成"同色底 + 一层很淡的阴影"。
- * 硬线会在大白底上切出一道很锋利的口子，而这套设计要的是柔。
+ * 磨砂玻璃 + 一条极淡的底边。
+ * 不用实底也不用重阴影 —— 让下面的背景隐约透上来，是扁平风里最"贵"的做法。
  */
 .app-header {
-  position: relative;
-  height: 66px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 0 22px;
-  background: var(--color-panel);
-  box-shadow: 0 1px 0 rgba(236, 227, 215, 0.9), 0 6px 18px rgba(70, 52, 36, 0.035);
-  z-index: 3;
+  gap: 18px;
+  height: 68px;
+  padding: 0 24px 0 22px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow: 0 1px 0 var(--color-line-soft);
+  flex-shrink: 0;
+  z-index: 20;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   min-width: 0;
 }
 
 .brand-mark {
   display: block;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   flex: none;
-  transform: rotate(-3deg);
+  transform: rotate(-4deg);
   transition: transform var(--dur-slow) var(--ease-spring);
 }
-.brand:hover .brand-mark { transform: rotate(3deg) scale(1.06); }
+.brand:hover .brand-mark { transform: rotate(5deg) scale(1.1); }
 
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
 
-/* 品牌字单独一层字族：毛笔行楷。整页只有这里用，所以它很"值钱" */
+/* 品牌字：整页唯一的毛笔行楷，所以它很"值钱" */
 .brand-name {
   font-family: var(--font-display);
-  font-size: 27px;
+  font-size: 28px;
   line-height: 1;
   letter-spacing: 0.04em;
   color: var(--color-brown-deep);
+  transition: color var(--dur) var(--ease-out);
 }
+.brand:hover .brand-name { color: var(--color-cinnabar); }
 
 .brand-sub {
-  margin-top: 3px;
-  font-size: 11px;
-  letter-spacing: 0.16em;
+  margin-top: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
   color: var(--color-muted);
   white-space: nowrap;
 }
 
-/* 当前项目：一颗小圆点 + 药丸底，比一块方色块轻 */
+/* 当前项目：一颗呼吸的小圆点 + 药丸底 */
 .current-project {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   margin-left: auto;
-  padding: 6px 16px;
+  padding: 7px 17px;
   border-radius: var(--radius-pill);
   font-size: 12.5px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   color: var(--color-ink-soft);
   background: var(--color-paper-warm);
-  border: 1px solid var(--color-line-soft);
-  max-width: 320px;
+  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: background var(--dur) var(--ease-out);
 }
+.current-project:hover { background: var(--tint-strong); }
 
 .cp-dot {
   flex: none;
@@ -258,32 +261,35 @@ const navItems = [
   height: 6px;
   border-radius: 50%;
   background: var(--color-brown);
-  box-shadow: 0 0 0 3px var(--color-brown-tint);
+  animation: mj-breathe 2.6s ease-in-out infinite;
 }
 
-/* 印章：圆角加大，投影变柔 —— 原文物感更强 */
+/* 印章：大圆角 + 柔和投影 + 盖下去的回弹 */
 .seal-stamp {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   font-family: var(--font-serif);
   font-size: 15px;
   line-height: 1.05;
   letter-spacing: 0.02em;
-  color: #fdf5ea;
-  background: linear-gradient(150deg, #c0503c, var(--color-cinnabar));
-  border-radius: 11px;
-  box-shadow: inset 0 0 0 2px rgba(253, 245, 234, 0.55), 0 4px 14px rgba(179, 68, 51, 0.32);
+  color: #fff8ee;
+  background: linear-gradient(145deg, #d16a55, var(--color-cinnabar));
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 2px rgba(255, 248, 238, 0.5),
+              0 6px 18px -6px rgba(196, 85, 63, 0.6);
   transform: rotate(-5deg);
-  animation: seal-stamp-in 0.75s 0.3s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+  animation: seal-stamp-in 0.85s 0.35s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+  transition: transform var(--dur-slow) var(--ease-spring);
 }
+.seal-stamp:hover { transform: rotate(4deg) scale(1.06); }
 
 @keyframes seal-stamp-in {
-  0% { opacity: 0; transform: rotate(-14deg) scale(1.85); }
-  60% { opacity: 1; transform: rotate(-4deg) scale(0.95); }
+  0%   { opacity: 0; transform: rotate(-16deg) scale(2); }
+  55%  { opacity: 1; transform: rotate(-3deg) scale(0.93); }
   100% { opacity: 1; transform: rotate(-5deg) scale(1); }
 }
 
@@ -293,73 +299,68 @@ const navItems = [
   flex: 1;
   display: flex;
   min-height: 0;
+  padding: 12px 12px 12px 0;
+  gap: 12px;
 }
 
+/* 侧栏：一块凹陷的色块，四角全圆，与主区之间留缝 */
 .app-side {
-  background: var(--color-dai);
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex-shrink: 0;
-  /* 侧栏用内阴影做"凹进去"的层次，而不是画一条硬分隔线 */
-  box-shadow: inset -8px 0 16px -12px rgba(70, 52, 36, 0.16);
+  margin-left: 12px;
+  border-radius: var(--radius-l);
+  background: var(--color-dai);
+  overflow: hidden;
 }
 
 .app-nav {
   padding: 14px 12px 8px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
-/* 导航项做成药丸形：hover 时浮起一点，active 时白底 + 柔和阴影 */
+/* 导航项：药丸形。hover 只染一层雾，不位移（位移留给卡片） */
 .nav-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 15px;
   border-radius: var(--radius-pill);
   color: var(--color-ink-soft);
   text-decoration: none;
   transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-spring);
+              color var(--dur) var(--ease-out);
 }
 
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.55);
-  transform: translateX(2px);
-}
+.nav-item:hover { background: var(--tint-white); }
 
 .nav-item.active {
   background: var(--color-panel);
   color: var(--color-brown-deep);
-  box-shadow: var(--shadow-xs);
 }
 
-/* 序号用品牌字：小小的一个"壹/貳/叁"，是这页最容易做出文气的地方 */
+/* 序号：品牌字。这是这排导航最容易做出文气的地方 */
 .nav-num {
   flex: none;
   width: 20px;
   text-align: center;
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1;
   color: var(--color-brown);
-  transition: color var(--dur) var(--ease-out);
+  transition: color var(--dur) var(--ease-out), transform var(--dur) var(--ease-spring);
 }
-
+.nav-item:hover .nav-num { transform: scale(1.12); }
 .nav-item.active .nav-num { color: var(--color-cinnabar); }
 
-.nav-label {
-  font-size: 13.5px;
-  letter-spacing: 0.04em;
-}
+.nav-label { font-size: 13.5px; letter-spacing: 0.03em; }
 
-/* 选中点：只在 active 时出现，比原来那个一直脉冲的黑点安静 */
+/* 选中点：active 时才出现，安静地亮一下 */
 .nav-dot {
   margin-left: auto;
   width: 5px;
@@ -372,37 +373,42 @@ const navItems = [
 }
 .nav-item.active .nav-dot { opacity: 1; transform: scale(1); }
 
+/* 主内容区：一块纯白圆角板，与侧栏同高 */
 .app-main {
   flex: 1;
   min-width: 0;
-  padding: 26px 30px;
+  border-radius: var(--radius-l);
+  background: var(--color-panel);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* ==================== 右栏 ==================== */
 
 .app-context {
   width: var(--context-width);
+  flex-shrink: 0;
   padding: 18px;
+  border-radius: var(--radius-l);
   background: var(--color-paper-warm);
   transition: width var(--dur) var(--ease-out);
   overflow: hidden;
 }
 
-.app-context.collapsed { width: 108px; }
+.app-context.collapsed { width: 112px; }
 
 .context-toggle {
   width: 100%;
-  padding: 7px 12px;
-  border: 1px solid var(--color-line-soft);
+  padding: 8px 14px;
+  border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-panel);
   color: var(--color-muted);
   font-size: 12.5px;
   cursor: pointer;
-  transition: border-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.context-toggle:hover { border-color: var(--color-brown-soft); color: var(--color-brown-deep); }
+.context-toggle:hover { color: var(--color-brown-deep); background: var(--tint-strong); }
 
 .context-body { margin-top: 18px; }
 
@@ -418,7 +424,7 @@ const navItems = [
 .context-empty {
   margin-top: 14px;
   font-size: 12.5px;
-  line-height: 1.9;
+  line-height: 1.95;
   color: var(--color-muted);
   text-align: center;
 }
@@ -427,45 +433,47 @@ const navItems = [
 
 .toast-area {
   position: fixed;
-  bottom: 30px;
+  bottom: 32px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column-reverse;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   z-index: 2000;
   pointer-events: none;
 }
 
 .toast { pointer-events: auto; }
 
+/* 药丸 + 毛玻璃：轻，但有分量 */
 .toast {
-  padding: 11px 22px;
+  padding: 12px 24px;
   border-radius: var(--radius-pill);
-  background: rgba(46, 38, 32, 0.94);
-  backdrop-filter: blur(8px);
-  color: #f7efe4;
-  border: none;
-  box-shadow: 0 10px 32px rgba(46, 38, 32, 0.26);
+  background: rgba(36, 30, 24, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #f8f1e6;
+  box-shadow: var(--shadow-mid);
   font-size: 13.5px;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   cursor: pointer;
-  max-width: 480px;
+  max-width: 500px;
   line-height: 1.6;
-  animation: toast-in 0.32s var(--ease-spring);
+  animation: toast-in 0.4s var(--ease-spring);
+  transition: transform var(--dur) var(--ease-spring);
 }
+.toast:hover { transform: scale(1.02); }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(18px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.toast-success { box-shadow: 0 10px 32px rgba(70, 110, 80, 0.3); }
-.toast-error { box-shadow: 0 10px 32px rgba(179, 68, 51, 0.34); }
+.toast-success { box-shadow: 0 12px 36px -10px rgba(78, 154, 99, 0.5); }
+.toast-error   { box-shadow: 0 12px 36px -10px rgba(196, 85, 63, 0.55); }
 
 @media (prefers-reduced-motion: reduce) {
-  .seal-stamp { animation: none; }
-  .mist { animation: none; }
+  .seal-stamp, .mist, .cp-dot { animation: none; }
 }
 </style>

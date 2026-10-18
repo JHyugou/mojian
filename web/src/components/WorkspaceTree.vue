@@ -474,172 +474,325 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* ==================================================================== */
+/* 工作区树：素笺流韵 v2                                                */
+/* ==================================================================== */
+
+/*
+ * 溢出问题的根子在这里：这是一棵树，每层都有「可伸缩的标题 + 右侧操作按钮」。
+ * flex 子元素默认 min-width:auto，标题一长就会把整行撑得比容器宽，
+ * 白色选中底就"溢出"到侧栏外面去了。
+ * 所以每一层都要 min-width:0 + overflow:hidden，容器再兜一层 overflow-x:hidden。
+ */
 .ws {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--color-line);
-  padding: 10px 8px 12px;
-  position: relative;
+  padding: 0 10px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
+
+/* ==================== 头部 ==================== */
 
 .ws-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 2px 4px 8px 6px;
+  gap: 8px;
+  padding: 6px 6px 10px;
   flex-shrink: 0;
 }
 
 .ws-title {
   font-family: var(--font-serif);
-  font-size: 12px;
-  letter-spacing: 0.12em;
+  font-size: 11.5px;
+  letter-spacing: 0.16em;
   color: var(--color-muted);
 }
 
-.ws-head-actions { display: flex; gap: 2px; }
+.ws-head-actions { margin-left: auto; display: flex; gap: 2px; }
 
-/* ---------- 气泡图标按钮（替代原生按钮）----------
-   平时完全隐形，只在悬停时浮出一个圆形底色。
-   这样一排图标不会把侧栏切碎，需要时又立刻找得到。 */
+/* 悬浮图标按钮：圆形。hover 时染一层雾 + 轻微放大 */
 .ws-bubble {
-  width: 24px;
-  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 50%;
-  background: transparent;
+  background: none;
   color: var(--color-muted);
   cursor: pointer;
-  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-spring);
 }
-.ws-bubble:hover { background: rgba(255, 255, 255, 0.85); color: var(--color-brown-deep); }
+.ws-bubble:hover { background: var(--tint-white); color: var(--color-brown-deep); transform: scale(1.1); }
+.ws-bubble:active { transform: scale(0.94); }
 .ws-bubble.on { background: var(--color-panel); color: var(--color-brown-deep); }
 
-/* ---------- 项目选择器 ---------- */
+/* ==================== 项目选择器 ==================== */
+
 .ws-picker {
-  margin: 0 4px 8px;
-  padding: 6px;
-  border: 1px solid var(--color-line);
+  margin: 0 2px 10px;
+  padding: 10px;
   border-radius: var(--radius-m);
   background: var(--color-panel);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-float);
+  animation: mj-pop var(--dur) var(--ease-spring) both;
 }
 
 .ws-picker-title {
-  padding: 4px 8px 8px;
+  padding: 2px 8px 9px;
   font-size: 11px;
+  letter-spacing: 0.1em;
   color: var(--color-muted);
-  letter-spacing: 0.06em;
 }
 
 .ws-picker-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
-  padding: 7px 8px;
+  min-width: 0;
+  padding: 9px 10px;
   border: 0;
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-xs);
   background: none;
   cursor: pointer;
   text-align: left;
   font-size: 13px;
   color: var(--color-ink);
+  transition: background var(--dur) var(--ease-out);
 }
-.ws-picker-item:hover { background: var(--color-paper-warm); }
+.ws-picker-item:hover { background: var(--tint); }
 .ws-picker-item.used { color: var(--color-muted); }
 
-.ws-picker-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-picker-hint { font-size: 10px; color: var(--color-muted); }
+.ws-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* ---------- 项目行 ---------- */
-.ws-list { flex: 1; min-height: 0; overflow-y: auto; }
+.ws-picker-hint { flex: none; font-size: 10.5px; color: var(--color-muted); }
 
-.ws-project { margin-bottom: 2px; }
+/* ==================== 列表 ==================== */
 
+.ws-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.ws-project { min-width: 0; }
+
+/* 项目行：药丸。选中时白底 + 极淡投影 —— 扁平里最克制的"选中"表达 */
 .ws-project-row {
   position: relative;
   display: flex;
   align-items: center;
-  border-radius: var(--radius-s);
+  gap: 2px;
+  min-width: 0;
+  border-radius: var(--radius-pill);
   transition: background var(--dur) var(--ease-out);
 }
-.ws-project-row:hover { background: rgba(255, 255, 255, 0.55); }
+.ws-project-row:hover { background: var(--tint-white); }
 
 .ws-project-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
-  padding: 7px 4px 7px 6px;
+  padding: 9px 12px;
   border: 0;
+  border-radius: var(--radius-pill);
   background: none;
   cursor: pointer;
   text-align: left;
-  font-size: 13px;
-  color: var(--color-ink);
+  font-size: 13.5px;
+  color: var(--color-ink-soft);
+  transition: color var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
 }
 
-.ws-caret-icon {
-  color: var(--color-muted);
-  transition: transform var(--dur) var(--ease-out);
+.ws-project-head.active {
+  background: var(--color-panel);
+  color: var(--color-brown-deep);
+  box-shadow: 0 1px 3px -1px rgba(60, 44, 30, 0.12);
 }
-.ws-caret-icon.open { transform: rotate(90deg); }
+
+/* 展开箭头：旋转 90° 表示展开。这是最便宜也最清楚的展开反馈 */
+.ws-caret-icon {
+  flex: none;
+  color: var(--color-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur) var(--ease-spring);
+}
+.ws-caret-icon.open { transform: rotate(0deg); }
 
 .ws-project-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-serif);
+  font-size: 13.5px;
 }
-.ws-project-head.active .ws-project-name { color: var(--color-brown-deep); }
 
-.ws-count { font-size: 11px; color: var(--color-muted); padding-right: 2px; }
+/* 计数：淡棕底药丸 */
+.ws-count {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--tint-strong);
+  color: var(--color-brown-deep);
+  font-size: 10px;
+}
 
+/* 就地改名 */
 .ws-rename {
   flex: 1;
   min-width: 0;
-  margin: 3px 4px;
-  padding: 4px 6px;
-  border: 1px solid var(--color-brown);
-  border-radius: var(--radius-s);
+  margin: 0 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
   background: var(--color-panel);
-  font-family: var(--font-serif);
-  font-size: 13px;
+  box-shadow: 0 0 0 2px var(--color-brown);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   color: var(--color-ink);
   outline: none;
 }
 
-/* 悬停才出现；宽度变化用 opacity+width，避免整行抖动 */
+/* 右侧操作按钮：hover 或菜单打开时浮现 */
 .ws-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   gap: 1px;
-  padding-right: 4px;
+  padding: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--dur) var(--ease-out);
 }
 .ws-actions.show { opacity: 1; pointer-events: auto; }
 
-/* ---------- 菜单 ---------- */
+/* ---------- 会话 ---------- */
+
+.ws-convs {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 4px 14px;
+  margin-left: 8px;
+  border-left: 1px solid var(--color-line);
+  min-width: 0;
+  animation: mj-slide-in var(--dur) var(--ease-out) both;
+}
+
+.ws-conv {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.ws-conv:hover { background: var(--tint-white); }
+.ws-conv.active { background: var(--color-panel); }
+
+/* 角色标记：正方小徽标（策/文），用衬线更像个印记 */
+.ws-conv-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: var(--radius-xs);
+  background: var(--tint-strong);
+  color: var(--color-brown-deep);
+  font-family: var(--font-serif);
+  font-size: 10px;
+  line-height: 1;
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.ws-conv.active .ws-conv-mark {
+  background: linear-gradient(140deg, #cf9f74, var(--color-brown));
+  color: #fff;
+}
+
+.ws-conv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--color-ink-soft);
+}
+.ws-conv.active .ws-conv-title { color: var(--color-brown-deep); }
+
+.ws-conv-time { flex: none; font-size: 10px; color: var(--color-muted); opacity: 0.8; }
+
+.ws-conv-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
+  box-shadow: 0 0 0 2px var(--color-brown);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--color-ink);
+  outline: none;
+}
+
+.ws-empty {
+  padding: 12px 10px;
+  font-size: 11.5px;
+  line-height: 1.95;
+  color: var(--color-muted);
+}
+
+/* ==================== 菜单 ==================== */
+
 .ws-menu {
   position: absolute;
-  top: calc(100% - 2px);
   right: 6px;
+  top: calc(100% - 4px);
   z-index: 90;
-  min-width: 150px;
-  padding: 4px;
-  border: 1px solid var(--color-line);
+  min-width: 168px;
+  padding: 6px;
   border-radius: var(--radius-m);
   background: var(--color-panel);
   box-shadow: var(--shadow-float);
+  animation: mj-pop var(--dur-fast) var(--ease-spring) both;
+}
+
+/* 右键菜单浮到底层：位置由内联 style 给，宽度必须自己定，
+   否则 right:6px 与 left:X 同时生效会把它拉成横贯屏幕的一条 */
+.ws-menu.is-floating {
+  position: fixed;
+  right: auto;
+  top: auto;
+  min-width: 172px;
+  animation: mj-pop var(--dur-fast) var(--ease-spring) both;
 }
 
 .ws-menu-item {
@@ -647,212 +800,17 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 9px;
   width: 100%;
-  padding: 7px 9px;
+  padding: 9px 12px;
   border: 0;
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-xs);
   background: none;
   cursor: pointer;
   text-align: left;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--color-ink);
-}
-.ws-menu-item:hover { background: var(--color-paper-warm); }
-.ws-menu-item.is-danger { color: var(--color-danger); }
-.ws-menu-item.is-danger:hover { background: rgba(166, 43, 31, 0.06); }
-
-/* ---------- 会话 ---------- */
-.ws-convs { padding-left: 14px; }
-
-.ws-conv {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 6px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
-  cursor: pointer;
-  text-align: left;
-  font-size: 12px;
-  color: var(--color-muted);
   transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.ws-conv:hover { background: rgba(255, 255, 255, 0.55); }
-.ws-conv.active { background: var(--color-panel); color: var(--color-brown-deep); }
-
-/* 「策」「文」一个字区分角色：比图标省地方，也一眼看得出是哪种对话 */
-.ws-conv-mark {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-line);
-  border-radius: 2px;
-  font-size: 10px;
-  font-family: var(--font-serif);
-  background: var(--color-panel);
-}
-.ws-conv.active .ws-conv-mark {
-  border-color: var(--color-brown);
-  color: var(--color-brown-deep);
-}
-
-.ws-conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws-conv-time { flex-shrink: 0; font-size: 11px; opacity: 0.75; }
-
-/* 就地改名：占满标题那一格，宽度与标题一致，视觉上不跳动 */
-.ws-conv-rename {
-  flex: 1;
-  min-width: 0;
-  padding: 1px 5px;
-  border: 1px solid var(--color-brown);
-  border-radius: 3px;
-  background: var(--color-panel);
-  font-size: 12px;
-  color: var(--color-ink);
-  outline: none;
-}
-
-/* 被 Teleport 到 body 的右键菜单：钉在鼠标位置、盖在所有东西上面 */
-.ws-menu.is-floating {
-  position: fixed;
-  z-index: 3000;
-  min-width: 168px;
-  /*
-   * 必须把 right 清掉。
-   * .ws-menu 为"贴着项目行右侧"的菜单设了 right: 6px，而右键菜单用的是 left。
-   * 两者同时存在时，浏览器会把它当成"左右都锚定"，
-   * 于是宽度 = 从鼠标到屏幕右边 —— 整个菜单被撑成一条横贯屏幕的长条。
-   */
-  right: auto;
-}
-
-.ws-conv-del {
-  flex-shrink: 0;
-  display: inline-flex;
-  opacity: 0;
-  color: var(--color-muted);
-  transition: opacity var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
-}
-.ws-conv:hover .ws-conv-del { opacity: 1; }
-.ws-conv-del:hover { color: var(--color-danger); }
-
-.ws-empty {
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--color-muted);
-  line-height: 1.8;
-}
-
-/* ==================================================================== */
-/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
-/* ==================================================================== */
-
-/* 标题用衬线、字号拉开，并去掉原来的硬分隔线 */
-.ws-head { padding: 6px 4px 12px; }
-
-.ws-title {
-  font-family: var(--font-serif);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--color-muted);
-}
-
-/* 悬浮气泡：圆形 + 柔和阴影，替代原来的方框 */
-.ws-bubble {
-  border-radius: 50%;
-  transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out),
-              transform var(--dur-fast) var(--ease-spring);
-}
-.ws-bubble:hover {
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-  transform: scale(1.06);
-}
-
-/* ---------- 项目 / 会话 ---------- */
-
-.ws-project-row {
-  border-radius: var(--radius-s);
-  transition: background var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out);
-}
-.ws-project-row:hover { background: rgba(255, 255, 255, 0.55); }
-.ws-project-head.active { background: var(--color-panel); box-shadow: var(--shadow-xs); }
-
-.ws-project-name {
-  font-size: 13.5px;
-  letter-spacing: 0.02em;
-}
-
-/* 计数徽章：药丸形、淡棕底 */
-.ws-count {
-  border-radius: var(--radius-pill);
-  background: rgba(169, 118, 79, 0.12);
-  color: var(--color-brown-deep);
-  padding: 1px 7px;
-  font-size: 10.5px;
-}
-
-/* 会话条目：圆角 + 左侧一条细棕线做"当前"标记 */
-.ws-conv {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out);
-}
-.ws-conv:hover { background: rgba(255, 255, 255, 0.5); }
-.ws-conv.active {
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-}
-
-.ws-conv.active .ws-conv-mark {
-  background: linear-gradient(180deg, #c08f66, var(--color-brown));
-  border-radius: var(--radius-pill);
-}
-
-.ws-conv-title { font-size: 12.5px; }
-.ws-conv-time { font-size: 10.5px; opacity: 0.7; }
-
-/* ---------- 浮层 ---------- */
-
-.ws-picker,
-.ws-menu {
-  border-radius: var(--radius-m);
-  border-color: var(--color-line-soft);
-  box-shadow: var(--shadow-float);
-  padding: 6px;
-  animation: mj-pop var(--dur) var(--ease-spring) both;
-  transform-origin: top left;
-}
-
-.ws-menu.is-floating { transform-origin: top left; }
-
-.ws-picker-title {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--color-muted);
-  padding: 6px 10px 8px;
-}
-
-.ws-picker-item {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out);
-}
-.ws-picker-item:hover { background: var(--color-brown-tint); }
-
-.ws-menu-item {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out);
-}
-.ws-menu-item:hover { background: var(--color-brown-tint); }
-.ws-menu-item.is-danger:hover { background: rgba(179, 68, 51, 0.09); }
-
-.ws-empty { line-height: 1.9; }
-
+.ws-menu-item:hover { background: var(--tint); }
+.ws-menu-item.is-danger { color: var(--color-danger); }
+.ws-menu-item.is-danger:hover { background: var(--tint-accent); }
 </style>

@@ -225,153 +225,140 @@ onBeforeUnmount(() => {
 }
 </style>
 
-<style>
-/*
- * 右键菜单刻意不加 scoped：它被 Teleport 到 body，
- * scoped 会给选择器加上本组件的属性，而移到 body 之后那层属性不在了，样式会失效。
- */
-.rb-menu {
-  position: fixed;
-  z-index: 3000;
-  min-width: 168px;
-  padding: 4px;
-  border: 1px solid var(--color-line);
+<style scoped>
+/* ==================================================================== */
+/* 资料浏览器：素笺流韵 v2                                              */
+/* ==================================================================== */
+
+.rb-tip {
+  padding: 2px 2px 12px;
+  font-size: 11.5px;
+  line-height: 1.85;
+  color: var(--color-muted);
+}
+
+.rb-list { display: flex; flex-direction: column; gap: 2px; }
+
+.rb-item { animation: mj-fade var(--dur) var(--ease-out) both; }
+
+/* 条目头：药丸。hover 染雾，不做位移 —— 这一栏是密集列表，动了会晃眼 */
+.rb-item-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur) var(--ease-out);
+}
+.rb-item-head:hover { background: var(--tint-white); }
+
+/* 展开箭头 */
+.rb-caret {
+  flex: none;
+  width: 12px;
+  font-size: 9px;
+  color: var(--color-muted);
+  transition: color var(--dur) var(--ease-out);
+}
+.rb-item-head:hover .rb-caret { color: var(--color-brown); }
+
+.rb-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--color-ink-soft);
+  word-break: break-word;
+}
+
+/* 分组标题：衬线 + 加粗，和普通条目拉开层次 */
+.rb-title.is-group {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-brown-deep);
+}
+
+/* 条目内容：缩进 + 左侧一条淡线，像"树的一支" */
+.rb-body {
+  margin: 2px 0 4px 18px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--color-line-soft);
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  background: var(--color-paper-warm);
+  animation: mj-slide-in var(--dur) var(--ease-out) both;
+}
+
+.rb-text {
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--color-ink-soft);
+  word-break: break-word;
+}
+
+/* 选中文字：淡棕底。浏览资料时经常要选一段，这个颜色得舒服 */
+.rb-text ::selection {
+  background: var(--tint-strong);
+  color: var(--color-ink);
+}
+
+.rb-empty {
+  padding: 24px 14px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.95;
+  color: var(--color-muted);
+}
+
+.rb-empty-block {
+  padding: 16px 14px;
   border-radius: var(--radius-m);
   background: var(--color-panel);
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--color-muted);
+}
+
+/* ---------- 右键菜单 ---------- */
+
+.rb-menu {
+  position: fixed;
+  z-index: 200;
+  padding: 6px;
+  border-radius: var(--radius-s);
+  background: var(--color-panel);
   box-shadow: var(--shadow-float);
+  animation: mj-pop var(--dur-fast) var(--ease-spring) both;
 }
 
 .rb-menu-preview {
-  padding: 6px 8px 8px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--color-line);
-  font-size: 12px;
+  padding: 6px 11px 8px;
+  font-size: 11px;
   color: var(--color-muted);
-  line-height: 1.6;
   max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rb-menu-item {
   display: block;
   width: 100%;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: var(--radius-s);
+  border-radius: var(--radius-xs);
   background: none;
-  text-align: left;
   cursor: pointer;
-  font-size: 13px;
-  color: var(--color-brown-deep);
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--color-ink);
   transition: background var(--dur) var(--ease-out);
 }
-.rb-menu-item:hover { background: var(--color-paper-warm); }
-
-/* ==================================================================== */
-/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
-/* ==================================================================== */
-
-/* 标题用衬线、字号拉开，并去掉原来的硬分隔线 */
-.ws-head { padding: 6px 4px 12px; }
-
-.ws-title {
-  font-family: var(--font-serif);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--color-muted);
-}
-
-/* 悬浮气泡：圆形 + 柔和阴影，替代原来的方框 */
-.ws-bubble {
-  border-radius: 50%;
-  transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out),
-              transform var(--dur-fast) var(--ease-spring);
-}
-.ws-bubble:hover {
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-  transform: scale(1.06);
-}
-
-/* ---------- 项目 / 会话 ---------- */
-
-.ws-project-row {
-  border-radius: var(--radius-s);
-  transition: background var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out);
-}
-.ws-project-row:hover { background: rgba(255, 255, 255, 0.55); }
-.ws-project-head.active { background: var(--color-panel); box-shadow: var(--shadow-xs); }
-
-.ws-project-name {
-  font-size: 13.5px;
-  letter-spacing: 0.02em;
-}
-
-/* 计数徽章：药丸形、淡棕底 */
-.ws-count {
-  border-radius: var(--radius-pill);
-  background: rgba(169, 118, 79, 0.12);
-  color: var(--color-brown-deep);
-  padding: 1px 7px;
-  font-size: 10.5px;
-}
-
-/* 会话条目：圆角 + 左侧一条细棕线做"当前"标记 */
-.ws-conv {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out);
-}
-.ws-conv:hover { background: rgba(255, 255, 255, 0.5); }
-.ws-conv.active {
-  background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
-}
-
-.ws-conv.active .ws-conv-mark {
-  background: linear-gradient(180deg, #c08f66, var(--color-brown));
-  border-radius: var(--radius-pill);
-}
-
-.ws-conv-title { font-size: 12.5px; }
-.ws-conv-time { font-size: 10.5px; opacity: 0.7; }
-
-/* ---------- 浮层 ---------- */
-
-.ws-picker,
-.ws-menu {
-  border-radius: var(--radius-m);
-  border-color: var(--color-line-soft);
-  box-shadow: var(--shadow-float);
-  padding: 6px;
-  animation: mj-pop var(--dur) var(--ease-spring) both;
-  transform-origin: top left;
-}
-
-.ws-menu.is-floating { transform-origin: top left; }
-
-.ws-picker-title {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--color-muted);
-  padding: 6px 10px 8px;
-}
-
-.ws-picker-item {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out);
-}
-.ws-picker-item:hover { background: var(--color-brown-tint); }
-
-.ws-menu-item {
-  border-radius: var(--radius-xs);
-  transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out);
-}
-.ws-menu-item:hover { background: var(--color-brown-tint); }
-.ws-menu-item.is-danger:hover { background: rgba(179, 68, 51, 0.09); }
-
-.ws-empty { line-height: 1.9; }
-
+.rb-menu-item:hover { background: var(--tint); }
 </style>

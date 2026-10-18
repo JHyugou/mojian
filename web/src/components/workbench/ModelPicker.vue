@@ -333,7 +333,7 @@ watch(view, (value) => {
 .mp-trigger:hover,
 .mp-trigger.open {
   border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
+  background: var(--tint);
   box-shadow: var(--shadow-xs);
 }
 
@@ -349,7 +349,7 @@ watch(view, (value) => {
   flex: none;
   padding: 1px 7px;
   border-radius: var(--radius-pill);
-  background: var(--color-brown-tint-strong);
+  background: var(--tint-strong);
   color: var(--color-brown-deep);
   font-size: 10.5px;
   letter-spacing: 0.02em;
@@ -397,7 +397,7 @@ watch(view, (value) => {
   text-align: left;
   transition: background var(--dur) var(--ease-out);
 }
-.mp-row:hover:not(:disabled) { background: var(--color-brown-tint); }
+.mp-row:hover:not(:disabled) { background: var(--tint); }
 .mp-row:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .mp-row-label {
@@ -448,7 +448,7 @@ watch(view, (value) => {
   color: var(--color-muted);
   transition: background var(--dur) var(--ease-out);
 }
-.mp-back:hover { background: var(--color-brown-tint); }
+.mp-back:hover { background: var(--tint); }
 
 .mp-back-icon { transform: rotate(90deg); }
 
@@ -466,7 +466,7 @@ watch(view, (value) => {
 .mp-search:focus {
   outline: none;
   border-color: var(--color-brown);
-  box-shadow: 0 0 0 3px var(--color-brown-tint);
+  box-shadow: 0 0 0 3px var(--tint);
 }
 
 .mp-sub-title {
@@ -493,8 +493,8 @@ watch(view, (value) => {
   text-align: left;
   transition: background var(--dur) var(--ease-out);
 }
-.mp-item:hover:not(:disabled) { background: var(--color-brown-tint); }
-.mp-item.active { background: var(--color-brown-tint-strong); }
+.mp-item:hover:not(:disabled) { background: var(--tint); }
+.mp-item.active { background: var(--tint-strong); }
 .mp-item:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .mp-item-name {

@@ -440,31 +440,31 @@ watch(() => library.version, () => loadAll())
 
 
 <style scoped>
+/* ==================================================================== */
+/* 创作工作台：素笺流韵 v2                                              */
+/* ==================================================================== */
+
 .wb {
   display: flex;
   flex-direction: column;
-  /* 用 100% 而不是 100vh：工作台渲染在外壳的主内容区里，
-     用视口高度会把外壳的页头和导航挤出屏幕 */
   height: 100%;
   overflow: hidden;
+  background: var(--color-panel);
 }
 
 /* ==================== 顶栏 ==================== */
-
 /*
- * 不再画底部硬线，改用"同色底 + 一层很淡的投影"。
- * 硬线会在白色工作区顶部切出一道锋利的边，而这套设计要的是柔。
+ * 不再是"一条带子 + 底部硬线"。现在是一行留白里的浮块：
+ * 左边项目胶囊、中间分段器、右边上下文用量。
  */
+
 .wb-top {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 0 22px;
-  height: 56px;
-  background: var(--color-panel);
-  box-shadow: 0 1px 0 rgba(236, 227, 215, 0.85), 0 5px 16px rgba(70, 52, 36, 0.03);
+  padding: 14px 22px 10px;
   flex-shrink: 0;
-  z-index: 4;
+  z-index: 6;
 }
 
 /* ==================== 项目选择 ==================== */
@@ -474,40 +474,36 @@ watch(() => library.version, () => loadAll())
 .wb-project-current {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 15px;
-  border: 1px solid var(--color-line-soft);
+  gap: 9px;
+  padding: 8px 17px;
+  border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-paper-warm);
   cursor: pointer;
   font-family: var(--font-serif);
   font-size: 13.5px;
   color: var(--color-brown-deep);
-  transition: border-color var(--dur) var(--ease-out),
-              background var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-spring);
 }
-.wb-project-current:hover {
-  border-color: var(--color-brown-soft);
-  background: var(--color-brown-tint);
-  box-shadow: var(--shadow-xs);
-}
+.wb-project-current:hover { background: var(--tint-strong); transform: translateY(-1px); }
+.wb-project-current:active { transform: scale(0.97); }
+
 .wb-project-caret {
   font-size: 10px;
   color: var(--color-muted);
   transition: transform var(--dur) var(--ease-out);
 }
+.wb-project-current:hover .wb-project-caret { transform: translateY(1px); }
 
 .wb-project-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   left: 0;
-  z-index: 80;
-  min-width: 210px;
-  max-height: 330px;
+  z-index: 90;
+  min-width: 220px;
+  max-height: 340px;
   overflow-y: auto;
-  padding: 6px;
-  border: 1px solid var(--color-line-soft);
+  padding: 8px;
   border-radius: var(--radius-m);
   background: var(--color-panel);
   box-shadow: var(--shadow-float);
@@ -517,7 +513,7 @@ watch(() => library.version, () => loadAll())
 .wb-project-item {
   display: block;
   width: 100%;
-  padding: 8px 12px;
+  padding: 9px 13px;
   border: 0;
   border-radius: var(--radius-xs);
   background: none;
@@ -525,37 +521,33 @@ watch(() => library.version, () => loadAll())
   text-align: left;
   font-size: 13px;
   color: var(--color-ink);
-  transition: background var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
 }
-.wb-project-item:hover { background: var(--color-brown-tint); }
-.wb-project-item.active {
-  color: var(--color-brown-deep);
-  background: var(--color-brown-tint-strong);
-}
+.wb-project-item:hover { background: var(--tint); }
+.wb-project-item.active { color: var(--color-brown-deep); background: var(--tint-strong); }
 .wb-project-empty { padding: 12px; font-size: 12px; }
 
-/* ==================== 模式切换（策划 / 写作） ==================== */
-
+/* ==================== 模式切换 ==================== */
 /*
- * 药丸容器 + 选中项浮起。
- * 原来是一个方盒子 + 内部实心色块，边界和内部块都是直角，
- * 拼在一起像两个色块叠着 —— 现在是"底座 + 一颗被按下的药丸"。
+ * 分段器：一颗"胶囊底座"里滑动的白色药丸。
+ * active 用白底 + 极淡投影，不填色 —— 填色的实心块是最"硬"的那种做法。
  */
+
 .wb-modes {
   display: flex;
   gap: 3px;
-  padding: 3px;
+  padding: 4px;
   border-radius: var(--radius-pill);
   background: var(--color-paper-warm);
-  box-shadow: inset 0 1px 2px rgba(70, 52, 36, 0.05);
 }
 
 .wb-mode {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 1px;
-  padding: 6px 16px;
+  gap: 2px;
+  padding: 7px 18px;
   border: 0;
   border-radius: var(--radius-pill);
   background: none;
@@ -573,13 +565,13 @@ watch(() => library.version, () => loadAll())
 .wb-mode.active {
   background: var(--color-panel);
   color: var(--color-brown-deep);
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 2px 8px -2px rgba(60, 44, 30, 0.14);
 }
 
 .wb-mode-hint {
   font-size: 10px;
   letter-spacing: 0.04em;
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
 .wb-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -593,32 +585,33 @@ watch(() => library.version, () => loadAll())
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* 每栏都要有不透明底色：外壳的背景装饰层（远山、流霭）会从透明区域透出来，
-     在白色工作区里看着像一团莫名其妙的污渍 */
-  background: var(--color-paper);
+  background: var(--color-panel);
+  /* 关键：不给子元素撑破的机会 */
+  overflow: hidden;
 }
 
-/* 右栏用内阴影表达"凹陷"，而不是画一条硬分隔线 */
+/* 右栏：一块独立的凹陷色块，四角全圆，与主区之间留一条缝 */
 .wb-right {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  margin: 0 14px 14px 6px;
+  border-radius: var(--radius-l);
   background: var(--color-paper-warm);
-  box-shadow: inset 8px 0 16px -12px rgba(70, 52, 36, 0.14);
-  /* 宽度由 Resizer 拖拽控制（内联 style） */
+  overflow: hidden;
 }
 
 /* ==================== 右栏页签 ==================== */
 
 .wb-right-tabs {
   display: flex;
-  gap: 4px;
-  padding: 12px 14px 8px;
+  gap: 3px;
+  padding: 12px 12px 8px;
   flex-shrink: 0;
 }
 
 .wb-right-tab {
-  padding: 6px 14px;
+  padding: 6px 15px;
   border: 0;
   border-radius: var(--radius-pill);
   background: none;
@@ -626,20 +619,18 @@ watch(() => library.version, () => loadAll())
   font-size: 12.5px;
   color: var(--color-muted);
   transition: background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out);
+              color var(--dur) var(--ease-out);
 }
-.wb-right-tab:hover { color: var(--color-brown-deep); }
+.wb-right-tab:hover { color: var(--color-brown-deep); background: var(--tint-white); }
 .wb-right-tab.active {
   color: var(--color-brown-deep);
   background: var(--color-panel);
-  box-shadow: var(--shadow-xs);
 }
 
 .wb-right-body {
   flex: 1;
   min-height: 0;
-  padding: 6px 16px 22px;
+  padding: 4px 14px 20px;
 }
 
 /* ==================== 侧栏通用 ==================== */
@@ -656,58 +647,55 @@ watch(() => library.version, () => loadAll())
 .wb-hr { margin: 14px 0; }
 
 /* ==================== 统计卡 ==================== */
+/*
+ * 扁平：白底 + 圆角，没有投影。
+ * 数字用衬线、字号拉开 —— 这是这块区域里最该被一眼看到的东西。
+ */
 
 .wb-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 9px;
+  gap: 10px;
 }
 
 .wb-stat {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-line-soft);
+  gap: 4px;
+  padding: 14px 16px;
+  border: 0;
   border-radius: var(--radius-m);
   background: var(--color-panel);
-  font-size: 12px;
+  font-size: 11.5px;
   text-align: left;
   font-family: inherit;
   color: var(--color-muted);
-  box-shadow: var(--shadow-xs);
-  transition: border-color var(--dur) var(--ease-out),
-              box-shadow var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out);
+  transition: background var(--dur) var(--ease-out), transform var(--dur) var(--ease-spring);
 }
 
-/* 能点的数字给个明确的可点信号：抬起 + 阴影变深 */
 .wb-stat.is-link { cursor: pointer; }
-.wb-stat.is-link:hover {
-  border-color: var(--color-brown-soft);
-  box-shadow: var(--shadow-soft);
-  transform: translateY(-2px);
-}
+.wb-stat.is-link:hover { background: var(--tint-strong); transform: translateY(-2px); }
 .wb-stat:disabled { cursor: default; }
 
-/* 数字用衬线、字号拉开：这是整块区域里最该被一眼看到的 -->
 .wb-stat-num {
   font-family: var(--font-serif);
-  font-size: 22px;
-  line-height: 1.15;
+  font-size: 23px;
+  line-height: 1.1;
   color: var(--color-brown-deep);
+  transition: color var(--dur) var(--ease-out);
 }
+.wb-stat.is-link:hover .wb-stat-num { color: var(--color-cinnabar); }
 
 /* ==================== 上下文用量 ==================== */
 
-.wb-report { padding: 0 4px; margin-bottom: 16px; }
+.wb-report { padding: 0 2px; margin-bottom: 18px; }
 
 .wb-report-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 8px;
 }
 
 .wb-report-name {
@@ -719,26 +707,36 @@ watch(() => library.version, () => loadAll())
 .wb-report-bar {
   height: 6px;
   border-radius: var(--radius-pill);
-  background: var(--color-brown-soft);
+  background: var(--color-dai);
   overflow: hidden;
 }
 
-/* 渐变 + 圆头：一条纯色方块太"仪表盘"，这个要软一些 */
+/* 渐变 + 圆头 + 一道缓慢流动的高光：一条纯色方块太像仪表盘 */
 .wb-report-fill {
+  position: relative;
   height: 100%;
   border-radius: var(--radius-pill);
-  background: linear-gradient(90deg, #c08f66, var(--color-brown));
-  transition: width var(--dur-slow) var(--ease-out);
+  background: linear-gradient(90deg, #cf9f74, var(--color-brown));
+  overflow: hidden;
+  transition: width var(--dur-slower) var(--ease-out);
 }
 
-.wb-report-text { font-size: 12px; line-height: 1.9; margin-top: 8px; }
+.wb-report-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  background-size: 200% 100%;
+  animation: mj-shimmer 2.4s linear infinite;
+}
+
+.wb-report-text { font-size: 12px; line-height: 1.9; margin-top: 9px; }
 
 .wb-warn {
   margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid rgba(201, 151, 31, 0.35);
+  padding: 11px 14px;
   border-radius: var(--radius-s);
-  background: rgba(201, 151, 31, 0.06);
+  background: rgba(208, 154, 46, 0.11);
   font-size: 12px;
   line-height: 1.85;
   color: #8a6608;
