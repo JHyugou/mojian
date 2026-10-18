@@ -1009,7 +1009,28 @@ async function stop() {
 
 .wr-input-side { display: flex; align-items: flex-end; gap: 8px; }
 
-.wr-input-side .mj-btn-primary { padding: 10px 24px; font-size: 13.5px; }
+.wr-input-side .mj-btn-primary {
+  flex: none;
+  white-space: nowrap;
+  min-width: 82px;
+  padding: 12px 28px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.wr-input-side .mj-btn-ghost {
+  flex: none;
+  white-space: nowrap;
+  min-width: 82px;
+  padding: 12px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  line-height: 1;
+}
 
 .wr-mode {
   display: flex;

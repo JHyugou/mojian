@@ -1411,8 +1411,28 @@ async function discardDraft(draft) {
 .pl-input-side { display: flex; align-items: flex-end; gap: 8px; }
 
 .pl-input-side .mj-btn-primary {
-  padding: 10px 24px;
-  font-size: 13.5px;
+  flex: none;
+  /* nowrap 是关键：宁可把输入框挤窄，也不能让按钮上的两个字折行 */
+  white-space: nowrap;
+  min-width: 82px;
+  padding: 12px 28px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+/* 发送中变成「停下」时用同样尺寸，避免按钮宽度跳来跳去 */
+.pl-input-side .mj-btn-ghost {
+  flex: none;
+  white-space: nowrap;
+  min-width: 82px;
+  padding: 12px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  line-height: 1;
 }
 
 /* ==================== 底部工具条 ==================== */
