@@ -205,6 +205,10 @@ public class LlmSettingsService {
                 throw new BusinessException(ErrorCode.PARAM_INVALID,
                         "API Key 不能为空字符串；如需清除请使用「恢复演示模式」");
             }
+            if (newPlainKey == null) {
+                // 首次配置必须给 Key：之前这里对 null 调 trim() 直接 NPE，前端只能看到 500
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "首次接入需要填写 API Key");
+            }
             row.setBaseUrl(request.getBaseUrl().trim());
             row.setModel(request.getModel().trim());
             row.setApiKeyCipher(cipher.encrypt(newPlainKey.trim()));

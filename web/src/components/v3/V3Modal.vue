@@ -16,9 +16,27 @@ const emit = defineEmits(['close'])
 const panel = ref(null)
 
 function onKeydown(event) {
-  if (event.key === 'Escape' && props.visible && props.closable) {
+  if (!props.visible) return
+  if (event.key === 'Escape' && props.closable) {
     event.stopPropagation()
     emit('close')
+    return
+  }
+  // 焦点陷阱：Tab / Shift+Tab 在弹窗内循环，不跑到背后的页面上
+  if (event.key === 'Tab' && panel.value) {
+    const focusables = panel.value.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+    if (!focusables.length) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 }
 

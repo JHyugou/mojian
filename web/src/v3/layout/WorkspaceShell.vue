@@ -28,7 +28,7 @@ const projectStore = useProjectStore()
 const { theme, toggleTheme } = useV3Theme()
 const notify = useV3Notify()
 
-const dockOpen = ref(true)
+const dockOpen = ref(typeof window === 'undefined' ? true : window.innerWidth > 900)
 const paletteOpen = ref(false)
 const projects = ref([])
 const conversations = ref([])
@@ -669,5 +669,16 @@ defineExpose({ reload: load })
 
 @media (max-width: 900px) {
   .ws-dock { position: absolute; left: 70px; top: 0; bottom: 0; z-index: 30; background: var(--v3-surface-solid); box-shadow: var(--v3-shadow-float); }
+}
+@media (max-width: 760px) {
+  .ws-topbar { gap: 8px; padding: 0 12px; }
+  /* 窄屏只留"模式/主题/资料"这些真正常用的入口 */
+  .topbar-crumb { display: none; }
+  .topbar-pill { display: none; }
+  .rail-label { display: none; }
+  .ws-rail { width: 56px; }
+  .rail-item { width: 40px; height: 40px; }
+  .rail-brand { width: 34px; height: 34px; }
+  .ws-dock { left: 56px; }
 }
 </style>

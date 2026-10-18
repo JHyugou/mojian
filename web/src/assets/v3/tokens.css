@@ -73,6 +73,8 @@ html[data-v3-theme="inksea"] {
 
   --v3-glow-gold: rgba(206, 169, 110, 0.26);
   --v3-glow-cinnabar: rgba(201, 76, 59, 0.2);
+  /* 内嵌分区底色：暗色主题是"再深一层"，亮色主题是"再亮一层" */
+  --v3-inset: rgba(0, 0, 0, 0.16);
 
   --v3-grad-gold: linear-gradient(135deg, #f0dcae 0%, #cea96e 52%, #a9854f 100%);
   --v3-grad-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 60%, rgba(255, 255, 255, 0) 100%);
@@ -117,6 +119,7 @@ html[data-v3-theme="sujuan"] {
 
   --v3-glow-gold: rgba(169, 133, 79, 0.16);
   --v3-glow-cinnabar: rgba(178, 69, 47, 0.1);
+  --v3-inset: rgba(255, 255, 255, 0.42);
 
   --v3-grad-gold: linear-gradient(135deg, #c9a46a 0%, #a9854f 55%, #876834 100%);
   --v3-grad-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0) 100%);
@@ -142,6 +145,13 @@ html[data-v3-theme="sujuan"] {
 .v3-root ::selection {
   background: var(--v3-selection);
   color: var(--v3-text);
+}
+
+/* 键盘可达性：所有可交互元素在键盘聚焦时给一条金色轮廓（鼠标点击不显示） */
+.v3-root :where(button, a, [tabindex], input, textarea, select):focus-visible {
+  outline: 2px solid var(--v3-gold);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 .v3-scroll {

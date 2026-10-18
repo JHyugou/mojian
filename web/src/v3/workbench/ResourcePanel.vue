@@ -193,7 +193,7 @@ const reportRows = computed(() => [
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--v3-hairline);
-  background: rgba(0, 0, 0, 0.16);
+  background: var(--v3-inset);
 }
 .side-head { display: flex; align-items: center; gap: 6px; padding: 16px 12px 8px; }
 .side-tabs { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; }

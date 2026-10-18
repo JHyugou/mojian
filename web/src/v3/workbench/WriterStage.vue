@@ -27,7 +27,9 @@ const props = defineProps({
   projectId: { type: [Number, String], required: true },
   chapter: { type: Object, default: null },
   chapters: { type: Array, default: () => [] },
-  blueprint: { type: Object, default: null }
+  blueprint: { type: Object, default: null },
+  /** 可关联的蓝图节点（CHAPTER 类型），由工作台传入 */
+  blueprintOptions: { type: Array, default: () => [] }
 })
 const emit = defineEmits(['select-chapter', 'reload'])
 
@@ -55,6 +57,9 @@ const showRequirement = ref(false)
 const requirementDraft = ref('')
 const chapterMenuOpen = ref(false)
 const newChapterTitle = ref('')
+const showBlueprintPicker = ref(false)
+const blueprintKeyword = ref('')
+const blueprintSaving = ref(false)
 
 const versions = ref([])
 const versionsLoading = ref(false)
@@ -415,6 +420,36 @@ async function createNewChapter() {
   }
 }
 
+// ==================== 章节 ↔ 蓝图关联 ====================
+const filteredBlueprintOptions = computed(() => {
+  const q = blueprintKeyword.value.trim()
+  if (!q) return props.blueprintOptions
+  return props.blueprintOptions.filter((n) => `${n.name} ${n.summary || ''}`.includes(q))
+})
+
+/** 只改关联字段，不产生新版本；正文与状态原样保留 */
+async function saveBlueprintLink(outlineNodeId) {
+  if (!props.chapter?.id) return
+  blueprintSaving.value = true
+  try {
+    const saved = await saveChapter(props.chapter.id, {
+      title: full.value?.title,
+      outlineNodeId,
+      status: full.value?.status || 'DRAFT',
+      content: text.value,
+      createVersion: false
+    })
+    full.value = { ...full.value, ...saved }
+    showBlueprintPicker.value = false
+    notify.success(outlineNodeId ? '已关联本章蓝图' : '已解除蓝图关联')
+    emit('reload')
+  } catch (e) {
+    notify.error(e.message || '关联失败')
+  } finally {
+    blueprintSaving.value = false
+  }
+}
+
 // ==================== 写作要求 ====================
 function openRequirement() {
   requirementDraft.value = requirement.value
@@ -547,6 +582,10 @@ watch(() => props.chapter?.id, () => {
       </div>
 
       <div class="stage-actions">
+        <button class="head-btn" :class="{ 'is-linked': blueprint }" @click="showBlueprintPicker = true">
+          <Icon name="layers" :size="13" />
+          {{ blueprint ? '已关联蓝图' : '关联蓝图' }}
+        </button>
         <button class="head-btn" @click="openRequirement">
           <Icon name="edit" :size="13" /> 写作要求
         </button>
@@ -698,6 +737,39 @@ watch(() => props.chapter?.id, () => {
       </section>
     </div>
 
+    <!-- 关联本章蓝图 -->
+    <V3Modal :visible="showBlueprintPicker" title="关联本章蓝图" width="620px" @close="showBlueprintPicker = false">
+      <p class="modal-hint">
+        写作 Agent 的「本章蓝图」取自这里。没有关联时，它只能按写作要求与你的指令自由发挥；
+        关联后蓝图会作为<b>必备材料</b>注入，永远不会被裁剪。
+      </p>
+      <input v-model="blueprintKeyword" class="bp-search" placeholder="搜索蓝图节点…" />
+      <div class="bp-list v3-scroll">
+        <button
+          v-for="node in filteredBlueprintOptions"
+          :key="node.id"
+          class="bp-item"
+          :class="{ active: String(blueprint?.id) === String(node.id) }"
+          :disabled="blueprintSaving"
+          @click="saveBlueprintLink(node.id)"
+        >
+          <span class="bp-type">{{ node.nodeType === 'VOLUME' ? '卷' : node.nodeType === 'ARC' ? '段' : '章' }}</span>
+          <span class="bp-name">{{ node.name }}</span>
+          <span class="bp-summary">{{ (node.summary || '').slice(0, 40) }}</span>
+          <Icon v-if="String(blueprint?.id) === String(node.id)" name="check" :size="13" />
+        </button>
+        <p v-if="!filteredBlueprintOptions.length" class="muted bp-empty">
+          还没有可关联的章节蓝图。让策划 Agent 先把走向落成蓝图节点。
+        </p>
+      </div>
+      <template #footer>
+        <V3Button variant="ghost" @click="showBlueprintPicker = false">取消</V3Button>
+        <V3Button v-if="blueprint" variant="outline" :loading="blueprintSaving" @click="saveBlueprintLink(null)">
+          解除关联
+        </V3Button>
+      </template>
+    </V3Modal>
+
     <!-- 写作要求 -->
     <V3Modal :visible="showRequirement" title="本章写作要求" width="640px" @close="showRequirement = false">
       <p class="modal-hint">「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。</p>
@@ -828,6 +900,7 @@ watch(() => props.chapter?.id, () => {
   cursor: pointer;
 }
 .head-btn:hover { color: var(--v3-text); border-color: var(--v3-hairline-gold); }
+.head-btn.is-linked { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
 
 .writer-body { flex: 1; min-height: 0; display: flex; }
 .chat-pane { width: 42%; min-width: 320px; max-width: 560px; display: flex; flex-direction: column; border-right: 1px solid var(--v3-hairline); }
@@ -887,7 +960,7 @@ watch(() => props.chapter?.id, () => {
 .round-btn.stop { background: var(--v3-cinnabar-soft); color: var(--v3-cinnabar); border: 1px solid rgba(201, 76, 59, 0.45); }
 .composer-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; }
 
-.paper-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: rgba(0, 0, 0, 0.16); }
+.paper-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--v3-inset); }
 .paper-tabs { display: flex; align-items: center; gap: 4px; padding: 14px 20px 10px; flex-shrink: 0; }
 .paper-tab {
   padding: 6px 13px;
@@ -1002,6 +1075,51 @@ html[data-v3-theme='sujuan'] .paper-text { background: #fffdf7; }
 .memory-editor:focus { border-color: var(--v3-hairline-gold); }
 .memory-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 11.5px; }
 .modal-hint { margin: 0 0 14px; font-size: 12.5px; line-height: 1.9; color: var(--v3-text-muted); }
+.bp-search {
+  width: 100%;
+  height: 38px;
+  margin-bottom: 12px;
+  padding: 0 12px;
+  border: 1px solid var(--v3-hairline-strong);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+  color: var(--v3-text);
+  font-size: 12.5px;
+  outline: none;
+}
+.bp-search:focus { border-color: var(--v3-gold); }
+.bp-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; }
+.bp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+  color: var(--v3-text-soft);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--v3-dur-2), background var(--v3-dur-2);
+}
+.bp-item:hover:not(:disabled) { border-color: var(--v3-hairline-gold); background: var(--v3-surface-2); }
+.bp-item.active { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.bp-type {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--v3-hairline-strong);
+  border-radius: 5px;
+  font-size: 10px;
+  color: var(--v3-text-faint);
+}
+.bp-name { font-family: var(--v3-font-serif); font-size: 13.5px; color: var(--v3-text); }
+.bp-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--v3-text-faint); }
+.bp-empty { padding: 18px 4px; font-size: 12px; }
 .req-editor {
   width: 100%;
   padding: 14px 16px;
@@ -1026,5 +1144,20 @@ html[data-v3-theme='sujuan'] .paper-text { background: #fffdf7; }
   .writer-body { flex-direction: column; }
   .chat-pane { width: 100%; max-width: none; border-right: 0; border-bottom: 1px solid var(--v3-hairline); }
   .paper-pane { min-height: 50vh; }
+}
+@media (max-width: 760px) {
+  /* 窄屏把头部拆成三行：章节 / 状态 / 操作，避免挤成竖排文字 */
+  .stage-head { flex-wrap: wrap; gap: 9px; padding: 12px 14px 10px; }
+  .chapter-picker { width: 100%; }
+  .chapter-current { width: 100%; justify-content: space-between; }
+  .chapter-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stage-meta { order: 3; flex-wrap: wrap; }
+  .stage-actions { order: 4; margin-left: 0; width: 100%; overflow-x: auto; padding-bottom: 2px; }
+  .head-btn { flex-shrink: 0; }
+  .chat-pane { min-height: 46vh; }
+  .paper { padding: 8px 12px 30px; }
+  .paper-text { padding: 22px 20px; font-size: 14.5px; line-height: 2.05; }
+  .writer-chat { padding: 14px; }
+  .composer { padding: 10px 14px 14px; }
 }
 </style>

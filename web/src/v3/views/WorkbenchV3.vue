@@ -25,7 +25,9 @@ const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentId)
 const state = useWorkbench(projectId)
 const mode = ref(route.query.mode === 'writer' ? 'writer' : 'planner')
-const rightOpen = ref(true)
+// 窄屏默认收起资料栏：否则 320px 的面板会盖住整个正文区
+const isNarrow = typeof window !== 'undefined' && window.innerWidth < 1100
+const rightOpen = ref(!isNarrow)
 
 const breadcrumb = computed(() => {
   const project = projectStore.current?.name || '工作台'
@@ -36,6 +38,9 @@ const breadcrumb = computed(() => {
 })
 
 const activeReport = computed(() => (mode.value === 'planner' ? state.reports.PLANNER : state.reports.WRITER))
+
+/** 可关联到章节的蓝图节点：只取 CHAPTER 类型（卷/段是组织层级，不是任务书） */
+const chapterBlueprints = computed(() => (state.flatOutline || []).filter((n) => n.nodeType === 'CHAPTER'))
 
 watch(
   () => route.query.mode,
@@ -131,6 +136,7 @@ function goHome() {
         :chapter="state.activeChapter"
         :chapters="state.chapters"
         :blueprint="state.activeBlueprint"
+        :blueprint-options="chapterBlueprints"
         @select-chapter="selectChapter"
         @reload="afterWriterChanged"
       />
@@ -177,7 +183,7 @@ function goHome() {
 }
 .mode-btn:hover { color: var(--v3-text-soft); }
 .mode-btn.active { background: var(--v3-surface-raised); color: var(--v3-text); box-shadow: 0 2px 10px -4px rgba(0, 0, 0, 0.6); }
-.mode-label { font-family: var(--v3-font-serif); font-size: 13px; letter-spacing: 0.08em; }
+.mode-label { font-family: var(--v3-font-serif); font-size: 13px; letter-spacing: 0.08em; white-space: nowrap; }
 .mode-hint { font-size: 9px; letter-spacing: 0.04em; opacity: 0.6; }
 .ctx-pill {
   padding: 5px 11px;
@@ -188,4 +194,15 @@ function goHome() {
   font-family: var(--v3-font-mono);
 }
 .ctx-pill.warn { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); }
+
+@media (max-width: 760px) {
+  .mode-hint { display: none; }
+  .mode-btn { padding: 6px 12px; white-space: nowrap; }
+  .ctx-pill { display: none; }
+}
+@media (max-width: 520px) {
+  .mode-switch { padding: 2px; }
+  .mode-btn { padding: 6px 10px; }
+  .mode-label { font-size: 12px; }
+}
 </style>
