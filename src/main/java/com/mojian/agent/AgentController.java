@@ -13,10 +13,12 @@ import com.mojian.agent.context.AgentContextBudget;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
+import com.mojian.agent.entity.ChapterDeleteRequest;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.AgentRunRegistry;
 import com.mojian.agent.service.AgentUsageService;
+import com.mojian.agent.service.ChapterDeleteRequestService;
 import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.ConversationRollbackService;
 import com.mojian.agent.service.DraftService;
@@ -77,6 +79,7 @@ public class AgentController {
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
     private final WriterInstructionService writerInstructionService;
+    private final ChapterDeleteRequestService chapterDeleteRequestService;
     private final TaskEventBroker broker;
     private final com.mojian.generation.mapper.GenerationTaskMapper generationTaskMapper;
 
@@ -200,6 +203,27 @@ public class AgentController {
                 }).toList());
     }
 
+    // ==================== 章节删除申请 ====================
+
+    /** 写作 Agent 提交的章节删除申请（含历史；PENDING 需要作者确认） */
+    @GetMapping("/writer/projects/{projectId}/chapter-delete-requests")
+    public ApiResponse<List<ChapterDeleteRequest>> chapterDeleteRequests(@PathVariable Long projectId) {
+        return ApiResponse.ok(chapterDeleteRequestService.recent(projectId, 30));
+    }
+
+    /** 作者确认删除：真正删除章节（不可恢复） */
+    @PostMapping("/writer/chapter-delete-requests/{requestId}/approve")
+    public ApiResponse<Map<String, Object>> approveChapterDelete(@PathVariable Long requestId) {
+        ChapterDeleteRequest request = chapterDeleteRequestService.approve(requestId);
+        return ApiResponse.ok(Map.of("chapterId", request.getChapterId(), "status", request.getStatus()));
+    }
+
+    /** 作者拒绝：只关闭申请，不碰章节 */
+    @PostMapping("/writer/chapter-delete-requests/{requestId}/reject")
+    public ApiResponse<ChapterDeleteRequest> rejectChapterDelete(@PathVariable Long requestId) {
+        return ApiResponse.ok(chapterDeleteRequestService.reject(requestId));
+    }
+
     /**
      * 清空写作会话的历史（保留会话本身）。
      *
@@ -223,7 +247,8 @@ public class AgentController {
     public ApiResponse<Map<String, Object>> startWriting(@PathVariable Long chapterId,
                                                          @RequestBody(required = false) WriterRunRequest request) {
         String instruction = request == null ? null : request.instruction();
-        Long taskId = writerService.startTask(chapterId, instruction);
+        boolean autoApproveDelete = request != null && request.autoApproveDelete();
+        Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete);
         return ApiResponse.ok(Map.of("taskId", taskId));
     }
 
@@ -297,7 +322,8 @@ public class AgentController {
     public ApiResponse<WriterService.WriterResult> write(@PathVariable Long chapterId,
                                                          @RequestBody(required = false) WriterRunRequest request) {
         String instruction = request == null ? null : request.instruction();
-        return ApiResponse.ok(writerService.write(chapterId, instruction));
+        boolean autoApproveDelete = request != null && request.autoApproveDelete();
+        return ApiResponse.ok(writerService.write(chapterId, instruction, autoApproveDelete));
     }
 
     /**

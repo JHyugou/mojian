@@ -21,9 +21,12 @@ import java.util.UUID;
  *                       模型不该、也无法提供这个 id
  * @param sessionId      发给服务方的会话标识，用于 prompt 缓存路由。
  *                       <b>它的取值方式直接影响账单</b>：见 {@link #ofConversation}
+ * @param autoApproveDelete 作者是否在设置里开启了"自动批准删除章节"。
+ *                       写作 Agent 的 delete_chapter 工具据此决定：立即删除，还是先挂起等作者确认。
+ *                       默认 false —— 删除是不可逆的高风险动作。
  */
 public record AgentContext(Long projectId, String agentRole, Long conversationId,
-                           Long chapterId, String sessionId) {
+                           Long chapterId, String sessionId, boolean autoApproveDelete) {
 
     public AgentContext {
         if (agentRole == null || agentRole.isBlank()) {
@@ -33,7 +36,8 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
 
     /** 一次性运行（没有持久会话，比如调试接口）：每次分配新的 sessionId */
     public static AgentContext of(Long projectId, String agentRole) {
-        return new AgentContext(projectId, agentRole, null, null, "mojian-run-" + UUID.randomUUID());
+        return new AgentContext(projectId, agentRole, null, null,
+                "mojian-run-" + UUID.randomUUID(), false);
     }
 
     /**
@@ -46,14 +50,21 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
      */
     public static AgentContext ofConversation(Long projectId, String agentRole, Long conversationId) {
         return new AgentContext(projectId, agentRole, conversationId, null,
-                "mojian-conv-" + conversationId);
+                "mojian-conv-" + conversationId, false);
     }
 
     /** 写作运行的上下文：绑定到具体章节 */
     public static AgentContext forChapter(Long projectId, String agentRole,
                                           Long conversationId, Long chapterId) {
+        return forChapter(projectId, agentRole, conversationId, chapterId, false);
+    }
+
+    /** 写作运行：额外带上"作者是否自动批准删除章节" */
+    public static AgentContext forChapter(Long projectId, String agentRole,
+                                          Long conversationId, Long chapterId,
+                                          boolean autoApproveDelete) {
         return new AgentContext(projectId, agentRole, conversationId, chapterId,
-                "mojian-chapter-" + chapterId);
+                "mojian-chapter-" + chapterId, autoApproveDelete);
     }
 
     public Long requireProjectId() {

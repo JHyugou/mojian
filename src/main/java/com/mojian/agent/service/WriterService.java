@@ -115,6 +115,10 @@ public class WriterService {
      * </ul>
      */
     public Long startTask(Long chapterId, String instruction) {
+        return startTask(chapterId, instruction, false);
+    }
+
+    public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete) {
         chapterService.requireById(chapterId);
 
         GenerationTask task = new GenerationTask();
@@ -122,7 +126,7 @@ public class WriterService {
         task.setTaskType(TASK_TYPE_AGENT_WRITE);
         task.setStatus(STATUS_RUNNING);
         task.setStartedAt(LocalDateTime.now());
-        task.setInputSnapshot(writeInputSnapshot(instruction));
+        task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete));
         try {
             generationTaskMapper.insert(task);
         } catch (DuplicateKeyException e) {
@@ -134,14 +138,14 @@ public class WriterService {
         broker.publishStatus(taskId, STATUS_RUNNING);
         Future<?> future;
         try {
-            future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+            future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction, autoApproveDelete));
         } catch (RuntimeException e) {
             // 线程池拒绝（队列满/正在关闭）：不能让任务行永远停在 RUNNING
             updateTaskStatus(taskId, STATUS_FAILED, null, "写作任务执行器繁忙，请稍后重试");
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "写作任务执行器繁忙，请稍后重试");
         }
         runningTasks.put(taskId, future);
-        log.info("写作任务 {} 已提交（第 {} 章）", taskId, chapterId);
+        log.info("写作任务 {} 已提交（第 {} 章，自动批准删除：{}）", taskId, chapterId, autoApproveDelete);
         return taskId;
     }
 
@@ -173,9 +177,9 @@ public class WriterService {
         return runningTasks.containsKey(taskId);
     }
 
-    private void runTask(Long taskId, Long chapterId, String instruction) {
+    private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete) {
         try {
-            WriterResult result = execute(chapterId, instruction, taskListener(taskId));
+            WriterResult result = execute(chapterId, instruction, autoApproveDelete, taskListener(taskId));
             if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
                 // 用户停的：如实说"停了"，不要伪装成"写完了"
                 updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
@@ -229,9 +233,11 @@ public class WriterService {
         }
     }
 
-    private String writeInputSnapshot(String instruction) {
+    private String writeInputSnapshot(String instruction, boolean autoApproveDelete) {
         try {
-            return MAPPER.writeValueAsString(Map.of("instruction", instruction == null ? "" : instruction));
+            return MAPPER.writeValueAsString(Map.of(
+                    "instruction", instruction == null ? "" : instruction,
+                    "autoApproveDelete", autoApproveDelete));
         } catch (Exception e) {
             return "{}";
         }
@@ -317,7 +323,11 @@ public class WriterService {
     // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
-        return execute(chapterId, instruction, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, false, AgentRunListener.NOOP);
+    }
+
+    public WriterResult write(Long chapterId, String instruction, boolean autoApproveDelete) {
+        return execute(chapterId, instruction, autoApproveDelete, AgentRunListener.NOOP);
     }
 
     /**
@@ -403,7 +413,8 @@ public class WriterService {
         return sb.toString().trim();
     }
 
-    private WriterResult execute(Long chapterId, String instruction, AgentRunListener listener) {
+    private WriterResult execute(Long chapterId, String instruction, boolean autoApproveDelete,
+                                 AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
         // 保存成功的判定基准：版本号只在真正写入正文时递增。
@@ -439,7 +450,7 @@ public class WriterService {
 
         // 5. 跑循环（带上这段会话的历史 —— 这是"跨章保持上下文"落地的地方）
         AgentContext context = AgentContext.forChapter(projectId, AgentRole.WRITER,
-                conversation.getId(), chapterId);
+                conversation.getId(), chapterId, autoApproveDelete);
         long loopStartedAt = System.currentTimeMillis();
         AgentResult result;
         try {

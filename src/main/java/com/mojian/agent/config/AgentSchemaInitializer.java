@@ -204,6 +204,29 @@ public class AgentSchemaInitializer {
             """;
 
     /**
+     * 写作 Agent 的章节删除申请。
+     *
+     * <p>默认必须由作者确认；作者在设置里显式开启"自动批准删除"时才允许当场删除。
+     */
+    private static final String CHAPTER_DELETE_REQUEST_DDL = """
+            CREATE TABLE IF NOT EXISTS chapter_delete_request (
+                id             BIGINT       NOT NULL,
+                project_id     BIGINT       NOT NULL,
+                conversation_id BIGINT      DEFAULT NULL,
+                chapter_id     BIGINT       NOT NULL,
+                chapter_title  VARCHAR(255) DEFAULT NULL,
+                reason         VARCHAR(1000) DEFAULT NULL,
+                status         VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / APPROVED / REJECTED',
+                source         VARCHAR(20)  NOT NULL DEFAULT 'WRITER',
+                created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_chapter_delete_project (project_id, status, created_at),
+                KEY idx_chapter_delete_chapter (chapter_id)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '章节删除申请'
+            """;
+
+    /**
      * 对话回滚时的数据库撤销日志：记录草稿确认对业务表造成的改动。
      */
     private static final String AGENT_UNDO_LOG_DDL = """
@@ -267,6 +290,7 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(AGENT_RUN_DDL);
         jdbcTemplate.execute(WRITER_INSTRUCTION_DDL);
         jdbcTemplate.execute(AGENT_UNDO_LOG_DDL);
+        jdbcTemplate.execute(CHAPTER_DELETE_REQUEST_DDL);
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段
