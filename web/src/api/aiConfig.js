@@ -39,3 +39,13 @@ export function listProviders() {
 export function fetchModels(data) {
   return http.post('/settings/llm/models', data, { timeout: 60000 })
 }
+
+/**
+ * 保存"我启用哪些模型"。
+ *
+ * 一个网关常有几十个模型，但没人会在下拉里翻三十项挑一个 ——
+ * 所以要把用不上的关掉。传空数组表示全部启用。
+ */
+export function saveEnabledModels(models) {
+  return http.put('/settings/llm/models/enabled', { models })
+}

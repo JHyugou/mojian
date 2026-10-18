@@ -1228,4 +1228,53 @@ async function discardDraft(draft) {
   border-radius: 0 var(--radius-s) var(--radius-s) 0;
 }
 
+
+/* ==================================================================== */
+/* 输入区：从"贴边的直角色带"改成"浮起的圆角卡片"                        */
+/* ==================================================================== */
+/*
+ * 之前是整条贴到边缘、四角直角的色带 —— 旁边所有元素都是圆的，
+ * 就它一个方框钉在底部，观感很割裂。
+ * 现在把它抬起来：留出边距、四角圆、加一层柔和阴影。
+ */
+
+.pl-input-wrap {
+  margin: 0 20px 16px;
+  padding-bottom: 2px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-l);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-mid);
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+
+/* 输入时把整块稍微"点亮"：焦点在输入框里，但反馈给整个容器 */
+.pl-input-wrap:focus-within {
+  box-shadow: var(--shadow-float);
+}
+
+.pl-input { padding: 14px 16px 8px; }
+
+/* 容器已经圆了，输入框自己就不用再圆一次，改成"嵌在卡里" */
+.pl-input .mj-textarea {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 4px 2px;
+}
+.pl-input .mj-textarea:hover { border-color: transparent; }
+.pl-input .mj-textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.pl-cites { padding: 0 20px 10px; }
+
+.pl-mode {
+  padding: 0 16px 12px;
+}
+
+/* 待确认区不要顶到圆角卡片：给它留一点呼吸 */
+.pl-block { padding-bottom: 20px; }
+
 </style>

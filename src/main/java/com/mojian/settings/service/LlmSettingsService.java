@@ -11,6 +11,7 @@ import com.mojian.settings.entity.LlmSettings;
 import com.mojian.settings.llm.LlmProviderPreset;
 import com.mojian.settings.llm.ModelsDevCatalog;
 import com.mojian.settings.mapper.LlmSettingsMapper;
+import com.mojian.settings.vo.LlmModelVO;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,7 @@ public class LlmSettingsService {
                 base_url        VARCHAR(300) DEFAULT NULL COMMENT 'OpenAI兼容接口地址',
                 api_key_cipher  VARCHAR(600) DEFAULT NULL COMMENT 'API密钥密文（本机密钥文件AES-GCM加密）',
                 model           VARCHAR(100) DEFAULT NULL COMMENT '模型名称',
+                enabled_models  TEXT         DEFAULT NULL COMMENT '用户启用的模型id（JSON数组）；空=全部启用',
                 enabled         TINYINT      NOT NULL DEFAULT 1 COMMENT '是否启用：1启用 0停用',
                 created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -71,6 +73,78 @@ public class LlmSettingsService {
     @PostConstruct
     public void ensureTable() {
         jdbcTemplate.execute(ENSURE_TABLE_DDL);
+        // 老库没有这一列：CREATE TABLE IF NOT EXISTS 对已存在的表什么都不做
+        if (!columnExists("llm_settings", "enabled_models")) {
+            jdbcTemplate.execute(
+                    "ALTER TABLE llm_settings ADD COLUMN enabled_models TEXT DEFAULT NULL "
+                            + "COMMENT '用户启用的模型id（JSON数组）；空=全部启用' AFTER model");
+            log.info("llm_settings.enabled_models 已自动补列");
+        }
+    }
+
+    private boolean columnExists(String table, String column) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                        + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                Integer.class, table, column);
+        return count != null && count > 0;
+    }
+
+    // ==================== 模型的启用/停用 ====================
+
+    /**
+     * 用户启用过的模型 id。
+     *
+     * <p>返回 {@code null} 表示"没有做过选择" —— 这与"选择了一个空的集合"
+     * 语义不同：前者应当理解为<b>全部启用</b>（先让人看见全部，再一个个关掉），
+     * 后者表示用户真的把所有模型都关了。
+     */
+    public java.util.Set<String> enabledModelIds() {
+        LlmSettings row = mapper.selectSingleton();
+        if (row == null || !StringUtils.hasText(row.getEnabledModels())) {
+            return null;
+        }
+        try {
+            JsonNode node = MAPPER.readTree(row.getEnabledModels());
+            java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+            if (node.isArray()) {
+                node.forEach(item -> {
+                    if (item.isTextual()) {
+                        ids.add(item.asText());
+                    }
+                });
+            }
+            return ids;
+        } catch (Exception e) {
+            log.warn("解析 enabled_models 失败，按全部启用处理: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 保存启用列表；传空表示"全部启用" */
+    public void saveEnabledModels(java.util.List<String> models) {
+        LlmSettings row = mapper.selectSingleton();
+        if (row == null) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请先保存模型接入配置");
+        }
+        String json = null;
+        if (models != null && !models.isEmpty()) {
+            try {
+                json = MAPPER.writeValueAsString(models);
+            } catch (Exception e) {
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "启用列表格式不正确");
+            }
+        }
+        /*
+         * 必须用显式 set 的 UpdateWrapper，不能用 updateById ——
+         * MyBatis-Plus 的 updateById 默认跳过 null 字段，而"全部启用"恰恰就是写 null。
+         * 用 updateById 的话，用户点了"全部启用"会静默无效，库里还是上一次的选择。
+         * （这个坑在这个项目里踩过一次，又在同一个地方踩了第二次。）
+         */
+        mapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<LlmSettings>lambdaUpdate()
+                .eq(LlmSettings::getId, SINGLETON_ID)
+                .set(LlmSettings::getEnabledModels, json));
+        log.info("已保存启用的模型：{}", json == null ? "（全部）" : models.size() + " 个");
     }
 
     /**
@@ -207,24 +281,28 @@ public class LlmSettingsService {
      * 所以不填 Key 也能看到模型列表，这对"先看看有哪些模型再决定充不充值"
      * 是很自然的用法。
      */
-    public List<ModelsDevCatalog.ModelInfo> fetchModels(String baseUrl, String apiKey) {
+    public List<LlmModelVO> fetchModels(String baseUrl, String apiKey) {
         if (!StringUtils.hasText(baseUrl)) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写接口地址");
         }
 
+        List<ModelsDevCatalog.ModelInfo> raw;
         // ① 公开目录
         List<ModelsDevCatalog.ModelInfo> fromCatalog = catalog.modelsFor(baseUrl);
         if (!fromCatalog.isEmpty()) {
             log.info("从模型目录匹配到 {} 个模型：{}", fromCatalog.size(), baseUrl);
-            return fromCatalog;
+            raw = fromCatalog;
+        } else {
+            // ② 直接问服务商（需要 Key）；拿不到就返回空，界面退回预设或手动填
+            String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
+            raw = StringUtils.hasText(key) ? askProvider(baseUrl, key) : List.of();
         }
 
-        // ② 直接问服务商（需要 Key）
-        String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
-        if (!StringUtils.hasText(key)) {
-            return List.of();
-        }
-        return askProvider(baseUrl, key);
+        java.util.Set<String> enabled = enabledModelIds();
+        return raw.stream()
+                // 没做过选择 = 全部启用；做过选择就按选择来
+                .map(info -> LlmModelVO.of(info, enabled == null || enabled.contains(info.id())))
+                .toList();
     }
 
     /** 问服务商要模型列表（{@code GET /models}）。不是每家都实现了 */

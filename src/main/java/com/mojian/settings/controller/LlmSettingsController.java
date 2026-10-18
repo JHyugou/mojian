@@ -3,7 +3,7 @@ package com.mojian.settings.controller;
 import com.mojian.common.api.ApiResponse;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
 import com.mojian.settings.llm.LlmProviderPreset;
-import com.mojian.settings.llm.ModelsDevCatalog;
+import com.mojian.settings.vo.LlmModelVO;
 import com.mojian.settings.service.LlmSettingsService;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.validation.Valid;
@@ -65,10 +65,23 @@ public class LlmSettingsController {
      */
     @PostMapping("/settings/llm/models")
     public ApiResponse<Map<String, Object>> models(@RequestBody LlmSettingsSaveRequest request) {
-        List<ModelsDevCatalog.ModelInfo> models =
+        List<LlmModelVO> models =
                 settingsService.fetchModels(request.getBaseUrl(), request.getApiKey());
         return ApiResponse.ok(Map.of(
                 "source", models.isEmpty() ? "none" : "catalog-or-provider",
                 "models", models));
+    }
+
+    /**
+     * 保存"我启用哪些模型"。
+     *
+     * <p>一个网关往往能提供几十上百个模型，但没人会在下拉里翻三十项挑一个 ——
+     * 所以要把用不上的关掉。传空数组表示全部启用。
+     */
+    @PutMapping("/settings/llm/models/enabled")
+    public ApiResponse<Map<String, Object>> saveEnabledModels(@RequestBody Map<String, List<String>> body) {
+        List<String> models = body.getOrDefault("models", List.of());
+        settingsService.saveEnabledModels(models);
+        return ApiResponse.ok(Map.of("saved", models.size()));
     }
 }

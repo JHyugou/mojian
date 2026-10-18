@@ -22,5 +22,16 @@ public class LlmSettings extends BaseEntity {
 
     private String model;
 
+    /**
+     * 用户启用的模型 id（JSON 数组）。
+     *
+     * <p>一个网关往往能提供几十上百个模型（OpenCode Go 目录里有 32 个），
+     * 但没人会在下拉里翻三十项挑一个 —— 所以要能"关掉用不上的"。
+     *
+     * <p>为空/null 表示<b>全部启用</b>：让人先看见全部、再一个个关掉，
+     * 比一开始给他一片空白要好得多。
+     */
+    private String enabledModels;
+
     private Boolean enabled;
 }

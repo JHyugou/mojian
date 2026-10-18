@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../Icon.vue'
 import { listAgentProfiles, updateAgentProfile } from '../../api/agent'
-import { fetchModels } from '../../api/aiConfig'
+import { fetchModels, listProviders } from '../../api/aiConfig'
 import { useMessageStore } from '../../stores/message'
 
 /**
@@ -28,6 +28,7 @@ const message = useMessageStore()
 
 const profiles = ref([])
 const models = ref([])
+const providers = ref([])
 const loading = ref(true)
 const saving = ref(false)
 
@@ -40,14 +41,48 @@ const profile = computed(() => profiles.value.find((p) => p.role === props.role)
 const currentModel = computed(() => profile.value?.model || '')
 const currentEffort = computed(() => profile.value?.reasoningEffort || '')
 
+/*
+ * 只留下"用户启用过的"模型。
+ *
+ * 一个网关常有几十个模型（OpenCode Go 目录里 32 个），全列出来就没法用了 ——
+ * 在「模型接入」页勾选的那几个才是他真正会用的。
+ * 但当前正在用的那个无论如何要留着：万一它被关掉了，至少还能看见自己在用什么。
+ */
+const available = computed(() => {
+  const list = models.value.filter((m) => m.enabled !== false || m.id === currentModel.value)
+  return list.length ? list : models.value
+})
+
 const currentInfo = computed(() => models.value.find((m) => m.id === currentModel.value) || null)
 const levels = computed(() => currentInfo.value?.reasoningLevels || [])
+
+/**
+ * 厂商名：用来给模型列表分组。
+ *
+ * <p>从接口地址反查预设名 —— 列表本身只带模型信息，不带"这是谁家的"。
+ * 现在同时只会接一家，所以只有一组；但分组结构留着，
+ * 将来支持多厂商时不用再改这块。
+ */
+const providerName = computed(() => {
+  const host = hostOf(profile.value?.baseUrl)
+  if (!host) return '模型'
+  const matched = providers.value.find((p) => hostOf(p.baseUrl) === host)
+  return matched ? matched.name : host
+})
+
+function hostOf(url) {
+  try {
+    return url ? new URL(url).host.toLowerCase() : null
+  } catch {
+    return null
+  }
+}
 
 /** 列表过滤：模型 id 和显示名都参与匹配，否则搜 "flash" 可能漏掉别名 */
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return models.value
-  return models.value.filter((m) =>
+  if (!kw) return available.value
+  return available.value.filter((m) =>
     m.id.toLowerCase().includes(kw) || (m.name || '').toLowerCase().includes(kw))
 })
 
@@ -88,6 +123,12 @@ async function load() {
   loading.value = true
   try {
     profiles.value = (await listAgentProfiles()) || []
+    // 预设用来反查"当前接的是哪一家"，好给模型列表加分组标题
+    try {
+      providers.value = (await listProviders()) || []
+    } catch (e) {
+      console.warn('加载厂商预设失败', e)
+    }
     const baseUrl = profile.value?.baseUrl
     if (baseUrl) {
       const result = await fetchModels({ baseUrl })
@@ -206,6 +247,8 @@ watch(view, (value) => {
           />
         </div>
         <div class="mp-list mj-scroll">
+          <!-- 分组标题：现在是单家，但结构留着，将来多厂商时直接就有分组 -->
+          <p class="mp-group">{{ providerName }}</p>
           <button
             v-for="m in filtered"
             :key="m.id"
@@ -223,7 +266,9 @@ watch(view, (value) => {
             <Icon v-if="m.id === currentModel" name="check" :size="13" class="mp-check" />
           </button>
           <p v-if="!filtered.length" class="mp-empty">
-            {{ models.length ? '没有匹配的模型' : '还没拿到模型列表 —— 先去「模型接入」页保存一次配置' }}
+            {{ available.length
+              ? '没有匹配的模型'
+              : '还没有可用的模型 —— 先去「模型接入」页保存配置，并勾选要用的模型' }}
           </p>
         </div>
       </div>
@@ -475,6 +520,14 @@ watch(view, (value) => {
   text-align: center;
   font-size: 12px;
   line-height: 1.8;
+  color: var(--color-muted);
+}
+
+/* 分组标题：小号、拉开字距，只做分隔不抢注意力 */
+.mp-group {
+  padding: 8px 11px 4px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
   color: var(--color-muted);
 }
 </style>

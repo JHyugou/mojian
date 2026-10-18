@@ -9,7 +9,8 @@ import {
   testAiConnection,
   resetAiConfig,
   listProviders,
-  fetchModels
+  fetchModels,
+  saveEnabledModels
 } from '../api/aiConfig'
 
 /**
@@ -122,7 +123,14 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  // 已经配好了就直接把模型列表拉出来：进页面就该看到"能用哪些、开了哪些"，
+  // 而不是先点一次按钮。静默加载，不弹提示。
+  if (hasStoredKey.value && form.baseUrl) {
+    await loadModels(true)
+  }
+})
 
 function chooseProvider(provider) {
   selectedProvider.value = provider
@@ -153,9 +161,11 @@ function chooseProvider(provider) {
  * 顺带当"Key 体检"用：拉不到通常就是 Key 不对或地址写错，
  * 而这个反馈比"保存后调不通"早得多、也清楚得多。
  */
-async function loadModels() {
+async function loadModels(silent = false) {
   if (!canFetchModels.value) {
-    message.error('请先填写或选择一个接口地址')
+    if (!silent) {
+      message.error('请先填写或选择一个接口地址')
+    }
     return
   }
   fetchingModels.value = true
@@ -164,21 +174,23 @@ async function loadModels() {
       baseUrl: form.baseUrl.trim(),
       apiKey: form.apiKey.trim() || null
     })
-    // 后端返回 { source, models: [{id, name, contextLimit, inputCost, outputCost}] }
+    // 后端返回 { source, models: [{id, name, contextLimit, ..., enabled}] }
     models.value = result?.models || []
     modelsFromCatalog.value = result?.source === 'catalog-or-provider'
 
     if (!models.value.length) {
       // 目录里没有、服务商也没实现 /models
-      const fallback = (selectedProvider.value?.models || []).map((id) => ({ id, name: id }))
+      const fallback = (selectedProvider.value?.models || []).map((id) => ({ id, name: id, enabled: true }))
       models.value = fallback
       manualModel.value = fallback.length === 0
-      message.info(
-        fallback.length
-          ? '没查到这一家的模型列表，已用内置的常用模型'
-          : '没查到模型列表，请手动填写模型名称'
-      )
-      if (fallback.length) {
+      if (!silent) {
+        message.info(
+          fallback.length
+            ? '没查到这一家的模型列表，已用内置的常用模型'
+            : '没查到模型列表，请手动填写模型名称'
+        )
+      }
+      if (fallback.length && !form.model) {
         form.model = fallback[0].id
       }
     } else {
@@ -186,20 +198,59 @@ async function loadModels() {
       if (!models.value.some((m) => m.id === form.model)) {
         form.model = models.value[0].id
       }
-      message.success(`查到 ${models.value.length} 个可用模型`)
+      if (!silent) {
+        message.success(`查到 ${models.value.length} 个可用模型`)
+      }
     }
   } catch (e) {
-    manualModel.value = true
-    message.error(e.message)
+    if (!silent) {
+      manualModel.value = true
+      message.error(e.message)
+    }
   } finally {
     fetchingModels.value = false
   }
 }
 
-/** 选中模型的附加信息：上下文长度与价格。目录里带着，白拿的 */
+/** 选中的模型附加信息（保留给旧的单模型用法） */
 const selectedModelInfo = computed(() =>
   models.value.find((m) => m.id === form.model) || null
 )
+
+/** 已启用的模型数 */
+const enabledCount = computed(() => models.value.filter((m) => m.enabled).length)
+
+/**
+ * 这个厂商是不是当前正在用的那一家。
+ *
+ * <p>按域名比较而不是完整地址：带不带 /v1 只是同一家的两种写法。
+ */
+function isConfigured(provider) {
+  if (!provider.baseUrl || !status.value?.baseUrl) return false
+  const a = hostOf(provider.baseUrl)
+  const b = hostOf(status.value.baseUrl)
+  return Boolean(a) && a === b
+}
+
+/**
+ * 切换某个模型的启用状态。
+ *
+ * <p>先改本地再调接口：开关是高频轻操作，等一次往返会有明显的延迟感。
+ * 失败了就回滚并提示 —— 不能让界面显示"已关闭"而库里还是开着的。
+ */
+async function toggleModel(model) {
+  const next = models.value.map((m) =>
+    m.id === model.id ? { ...m, enabled: !m.enabled } : m)
+  const enabledIds = next.filter((m) => m.enabled).map((m) => m.id)
+  models.value = next
+  try {
+    await saveEnabledModels(enabledIds)
+  } catch (e) {
+    models.value = models.value.map((m) =>
+      m.id === model.id ? { ...m, enabled: model.enabled } : m)
+    message.error('保存失败：' + e.message)
+  }
+}
 
 function formatContext(tokens) {
   if (!tokens) return ''
@@ -301,7 +352,11 @@ async function doReset() {
           :class="{ active: selectedProvider?.id === p.id }"
           @click="chooseProvider(p)"
         >
-          <span class="ai-provider-name">{{ p.name }}</span>
+          <span class="ai-provider-top">
+            <!-- 小绿点 = 这个厂商就是当前正在用的那一家 -->
+            <span class="ai-provider-dot" :class="{ on: isConfigured(p) }"></span>
+            <span class="ai-provider-name">{{ p.name }}</span>
+          </span>
           <span class="ai-provider-desc">{{ p.description }}</span>
         </button>
       </div>
@@ -408,6 +463,45 @@ async function doReset() {
       </div>
     </section>
 
+    <!-- ========== 可用模型：挑出要用的那几个 ========== -->
+    <section v-if="models.length" class="ai-card">
+      <div class="ai-card-head">
+        <span class="ai-card-title">可用模型</span>
+        <span class="ai-muted">
+          一个网关常有几十个模型，用不上的关掉 —— 输入框下方的模型列表会跟着变短
+        </span>
+        <span class="ai-enabled-count">
+          已启用 {{ enabledCount }} / {{ models.length }}
+        </span>
+      </div>
+
+      <div class="ai-model-list mj-scroll">
+        <div
+          v-for="m in models"
+          :key="m.id"
+          class="ai-model-row"
+          :class="{ on: m.enabled }"
+          @click="toggleModel(m)"
+        >
+          <span class="ai-model-dot" :class="{ on: m.enabled }"></span>
+          <span class="ai-model-main">
+            <span class="ai-model-id">{{ m.id }}</span>
+            <span v-if="m.name && m.name !== m.id" class="ai-model-name">{{ m.name }}</span>
+          </span>
+          <span class="ai-model-meta">
+            <span v-if="m.contextLimit" class="mj-tag">{{ formatContext(m.contextLimit) }}</span>
+            <span v-if="m.inputCost != null" class="mj-tag">入 ${{ m.inputCost }}/M</span>
+          </span>
+          <!-- 用一行小开关表达"开/关"，比 checkbox 更符合这套设计的语气 -->
+          <span class="ai-switch" :class="{ on: m.enabled }"><i></i></span>
+        </div>
+      </div>
+
+      <p class="ai-hint">
+        关掉的模型不会出现在创作工作台的模型选择里，但随时可以再打开。
+      </p>
+    </section>
+
     <!-- ========== 说明 ========== -->
     <section class="ai-card">
       <div class="ai-card-head">
@@ -486,21 +580,47 @@ async function doReset() {
 .ai-provider {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 11px 13px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-s);
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-m);
   background: var(--color-paper-warm);
   cursor: pointer;
   text-align: left;
   transition: border-color var(--dur) var(--ease-out),
               background var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out),
               transform var(--dur) var(--ease-out);
 }
-.ai-provider:hover { border-color: var(--color-brown); transform: translateY(-1px); }
+.ai-provider:hover {
+  border-color: var(--color-brown-soft);
+  box-shadow: var(--shadow-xs);
+  transform: translateY(-1px);
+}
 .ai-provider.active {
   border-color: var(--color-brown);
   background: var(--color-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.ai-provider-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* 已接入的绿点：不用"已接入"三个字，一个小圆点就够，也更好扫 */
+.ai-provider-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-line);
+  transition: background var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+}
+.ai-provider-dot.on {
+  background: #57a05c;
+  box-shadow: 0 0 0 3px rgba(87, 160, 92, 0.16);
 }
 
 .ai-provider-name {
@@ -638,4 +758,98 @@ async function doReset() {
   color: var(--color-muted);
 }
 .ai-notes li::marker { color: var(--color-brown); }
+
+/* ==================== 可用模型列表 ==================== */
+
+.ai-enabled-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--color-brown-deep);
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-brown-tint);
+}
+
+.ai-model-list {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 2px;
+  border-radius: var(--radius-s);
+}
+
+.ai-model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out);
+}
+.ai-model-row:hover { background: var(--color-brown-tint); }
+
+/* 关闭的行整体降一档饱和度：一眼能看出"这个我没在用" */
+.ai-model-row:not(.on) .ai-model-id { color: var(--color-muted); }
+
+.ai-model-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-line);
+  transition: background var(--dur) var(--ease-out);
+}
+.ai-model-dot.on { background: var(--color-brown); }
+
+.ai-model-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ai-model-id {
+  font-size: 13px;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-name {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.ai-model-meta {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
+/* 小开关：轨道 + 圆点。比 checkbox 轻，符合这套设计的语气 */
+.ai-switch {
+  flex: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--color-line);
+  transition: background var(--dur) var(--ease-out);
+}
+.ai-switch.on { background: var(--color-brown); }
+
+.ai-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(70, 52, 36, 0.2);
+  transition: transform var(--dur) var(--ease-spring);
+}
+.ai-switch.on i { transform: translateX(14px); }
 </style>

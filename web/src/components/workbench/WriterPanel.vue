@@ -1173,4 +1173,41 @@ async function stop() {
   box-shadow: var(--shadow-xs);
 }
 
+
+/* ==================================================================== */
+/* 输入区：从"贴边的直角色带"改成"浮起的圆角卡片"                        */
+/* ==================================================================== */
+
+.wr-input-wrap {
+  margin: 0 16px 14px;
+  padding-bottom: 2px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-l);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-mid);
+  transition: box-shadow var(--dur) var(--ease-out);
+}
+
+.wr-input-wrap:focus-within {
+  box-shadow: var(--shadow-float);
+}
+
+.wr-input { padding: 14px 16px 8px; }
+
+.wr-input .mj-textarea {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  padding: 4px 2px;
+}
+.wr-input .mj-textarea:hover { border-color: transparent; }
+.wr-input .mj-textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.wr-cites { padding: 0 16px 10px; }
+
+.wr-mode { padding: 0 16px 12px; }
+
 </style>
