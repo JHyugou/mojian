@@ -58,7 +58,9 @@ const PATHS = {
   quill: '<path d="M4 20c6-2 10-6 12-12l2-2 2 2-2 2C12 16 8 18 4 20z"/><path d="M4 20c2-4 4-6 7-8"/>',
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17l9 5 9-5"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
-  quote: '<path d="M9 7H5v5h4c0 3-2 4-4 5"/><path d="M19 7h-4v5h4c0 3-2 4-4 5"/>'
+  quote: '<path d="M9 7H5v5h4c0 3-2 4-4 5"/><path d="M19 7h-4v5h4c0 3-2 4-4 5"/>',
+  home: '<path d="M4 11l8-6.5 8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>'
 }
 </script>
 

@@ -5,7 +5,7 @@ import PreferencesPage from '../views/PreferencesPage.vue'
 import AiSettingsPage from '../views/AiSettingsPage.vue'
 import BookPage from '../views/BookPage.vue'
 import OutlinePage from '../views/OutlinePage.vue'
-import WorkbenchPage from '../views/WorkbenchPage.vue'
+import WorkbenchV3 from '../v3/views/WorkbenchV3.vue'
 import LandingPage from '../v3/views/LandingPage.vue'
 import UiPreviewPage from '../v3/views/UiPreviewPage.vue'
 
@@ -26,7 +26,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: LandingPage },
     { path: '/ui-preview', name: 'ui-preview', component: UiPreviewPage },
-    { path: '/workbench', name: 'workbench', component: WorkbenchPage },
+    { path: '/workbench', name: 'workbench', component: WorkbenchV3 },
     { path: '/characters', name: 'characters', component: CharactersPage },
     { path: '/settings', name: 'settings', component: PreferencesPage },
     { path: '/setting-library', name: 'setting-library', component: SettingLibraryPage },

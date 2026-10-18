@@ -50,7 +50,8 @@ async function mountPage(loader) {
 const PAGES = {
   '首页（v3）': () => import('./v3/views/LandingPage.vue'),
   '设计定稿页（v3）': () => import('./v3/views/UiPreviewPage.vue'),
-  '创作工作台': () => import('./views/WorkbenchPage.vue'),
+  '创作工作台（v3）': () => import('./v3/views/WorkbenchV3.vue'),
+  '创作工作台（旧）': () => import('./views/WorkbenchPage.vue'),
   '创作项目': () => import('./views/ProjectListPage.vue'),
   '成书': () => import('./views/BookPage.vue'),
   '模型接入': () => import('./views/AiSettingsPage.vue'),

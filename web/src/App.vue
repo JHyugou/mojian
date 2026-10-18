@@ -11,7 +11,9 @@ const route = useRoute()
  * v3 全屏页面（首页、设计定稿页）自带画布与导航，不再套旧外壳。
  * 其余页面在迁移完成前继续使用旧外壳。
  */
-const isV3Route = computed(() => route.path === '/' || route.path === '/ui-preview')
+const isV3Route = computed(() =>
+  ['/', '/ui-preview', '/workbench'].includes(route.path)
+)
 
 const contextOpen = ref(true)
 const projectStore = useProjectStore()
