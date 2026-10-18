@@ -320,6 +320,18 @@ public class ConversationService {
      * 而真正需要长期记住的是用户的偏好与约束，那些都在文本里。
      */
     public List<AgentMessage> loadTextHistory(Long conversationId) {        List<AgentMessage> history = new ArrayList<>();
+        for (AgentMessageLog record : loadTextLogs(conversationId)) {
+            history.add(new AgentMessage(record.getRole(), record.getContent(), null, null, List.of()));
+        }
+        return history;
+    }
+
+    /**
+     * 与 {@link #loadTextHistory} 同一套过滤规则，但保留记录本身（含 id / createdAt）。
+     * 前端要把"策划的写作指令"和"对话消息"按时间合并成一条时间线，需要时间戳。
+     */
+    public List<AgentMessageLog> loadTextLogs(Long conversationId) {
+        List<AgentMessageLog> logs = new ArrayList<>();
         for (AgentMessageLog record : messageLogMapper.selectByConversation(conversationId)) {
             if (AgentMessage.ROLE_TOOL.equals(record.getRole())) {
                 continue;
@@ -330,9 +342,9 @@ public class ConversationService {
             if (record.getContent() == null || record.getContent().isBlank()) {
                 continue;
             }
-            history.add(new AgentMessage(record.getRole(), record.getContent(), null, null, List.of()));
+            logs.add(record);
         }
-        return history;
+        return logs;
     }
 
     // ==================== 剧情方案 ====================

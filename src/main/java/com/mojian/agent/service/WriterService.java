@@ -177,6 +177,22 @@ public class WriterService {
         return runningTasks.containsKey(taskId);
     }
 
+    /**
+     * 查某章当前正在跑的写作任务。
+     *
+     * <p>前端切章节/切模式后可以据此重新挂上事件流，而不是把任务取消掉重来。
+     * 只认 RUNNING 的 AGENT_WRITE 任务。
+     */
+    public java.util.Optional<GenerationTask> activeTask(Long chapterId) {
+        return generationTaskMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
+                        .<GenerationTask>lambdaQuery()
+                        .eq(GenerationTask::getChapterId, chapterId)
+                        .eq(GenerationTask::getTaskType, TASK_TYPE_AGENT_WRITE)
+                        .eq(GenerationTask::getStatus, STATUS_RUNNING)
+                        .orderByDesc(GenerationTask::getId))
+                .stream().findFirst();
+    }
+
     private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete) {
         try {
             WriterResult result = execute(chapterId, instruction, autoApproveDelete, taskListener(taskId));

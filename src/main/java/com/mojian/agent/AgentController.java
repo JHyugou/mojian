@@ -172,11 +172,17 @@ public class AgentController {
     @GetMapping("/writer/projects/{projectId}/conversation")
     public ApiResponse<Map<String, Object>> writerConversation(@PathVariable Long projectId) {
         AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
-        List<Map<String, String>> messages = conversationService
-                .loadTextHistory(conversation.getId())
+        List<Map<String, Object>> messages = conversationService
+                .loadTextLogs(conversation.getId())
                 .stream()
-                .map(m -> Map.of("role", m.role(),
-                        "content", m.content() == null ? "" : m.content()))
+                .map(m -> {
+                    Map<String, Object> data = new java.util.LinkedHashMap<>();
+                    data.put("id", m.getId());
+                    data.put("role", m.getRole());
+                    data.put("content", m.getContent() == null ? "" : m.getContent());
+                    data.put("createdAt", m.getCreatedAt());
+                    return data;
+                })
                 .toList();
         return ApiResponse.ok(Map.of(
                 "conversationId", conversation.getId(),
@@ -251,6 +257,24 @@ public class AgentController {
         boolean autoApproveDelete = request != null && request.autoApproveDelete();
         Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete);
         return ApiResponse.ok(Map.of("taskId", taskId));
+    }
+
+    /**
+     * 该章当前正在跑的写作任务。
+     *
+     * <p>前端切章节/切模式/刷新后用它重新挂上 SSE，而不是取消任务；
+     * 任务只会由用户显式点"停下"终止。
+     */
+    @GetMapping("/writer/chapters/{chapterId}/active-task")
+    public ApiResponse<Map<String, Object>> activeWritingTask(@PathVariable Long chapterId) {
+        return ApiResponse.ok(writerService.activeTask(chapterId)
+                .<Map<String, Object>>map(task -> {
+                    Map<String, Object> data = new java.util.LinkedHashMap<>();
+                    data.put("taskId", task.getId());
+                    data.put("status", task.getStatus());
+                    data.put("startedAt", task.getStartedAt());
+                    return data;
+                }).orElseGet(java.util.LinkedHashMap::new));
     }
 
     /**
