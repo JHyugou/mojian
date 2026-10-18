@@ -135,6 +135,13 @@ public class AgentController {
         return ApiResponse.ok(conversationService.listPlanOptions(conversationId));
     }
 
+    /** 用户决定不选任何一条走向、直接说自己的改法：收起并作废整批选项 */
+    @PostMapping("/conversations/{conversationId}/plan-options/dismiss")
+    public ApiResponse<Map<String, Object>> dismissPlanOptions(@PathVariable Long conversationId) {
+        return ApiResponse.ok(Map.of("dismissed",
+                conversationService.dismissPlanOptions(conversationId)));
+    }
+
     /** 用户选定某条走向；选定后其余自动取消，且它不再作为"待选方案"注入下一轮 */
     @PostMapping("/conversations/{conversationId}/plan-options/{optionIndex}/select")
     public ApiResponse<AgentPlanOption> selectPlanOption(@PathVariable Long conversationId,

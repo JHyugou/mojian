@@ -410,6 +410,22 @@ public class ConversationService {
         return planOptionMapper.selectByConversation(conversationId);
     }
 
+    /**
+     * 收起/作废当前这一批故事走向选项。
+     *
+     * <p>用户没有选某条、而是直接说了自己的想法时，这些选项就过期了：
+     * 留在界面上会一直占着，继续注入下一轮上下文也会误导 Agent。
+     * 这里直接删掉，不是把 selected 置 false（否则还会被当成待选项注入）。
+     */
+    @Transactional
+    public int dismissPlanOptions(Long conversationId) {
+        require(conversationId);
+        int deleted = planOptionMapper.delete(Wrappers.<AgentPlanOption>lambdaQuery()
+                .eq(AgentPlanOption::getConversationId, conversationId));
+        log.info("会话 {} 收起 {} 条故事走向选项", conversationId, deleted);
+        return deleted;
+    }
+
     // ==================== 协议字段的编解码 ====================
 
     /**

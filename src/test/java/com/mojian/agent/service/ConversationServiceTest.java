@@ -134,4 +134,18 @@ class ConversationServiceTest {
                 .extracting(AgentPlanOption::getTitle)
                 .isEqualTo("仇敌相见");
     }
+
+    @Test
+    @DisplayName("未选方案直接说自己的想法：收起后整批删除，不再注入下一轮")
+    void 收起剧情方案() {
+        AgentConversation conversation = conversationService.create(PROJECT_ID, AgentRole.PLANNER, "主角遇到剑客");
+        conversationService.savePlanOptions(conversation.getId(), null, List.of(
+                new ConversationService.PlanOptionDraft("旧识重逢", "旧友", "A"),
+                new ConversationService.PlanOptionDraft("仇敌相见", "寻仇", "B")));
+
+        int dismissed = conversationService.dismissPlanOptions(conversation.getId());
+
+        assertThat(dismissed).isEqualTo(2);
+        assertThat(conversationService.listPlanOptions(conversation.getId())).isEmpty();
+    }
 }
