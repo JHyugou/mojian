@@ -36,3 +36,5 @@ docs/
 # ==== 本机安全备份 / 视觉基线（不入库） ====
 .local-backup/
 .local-screens/
+!README.md
+scripts/eval/reports/

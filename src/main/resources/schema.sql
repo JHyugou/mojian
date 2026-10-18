@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS chapter (
     content            LONGTEXT COMMENT '当前工作正文',
     status             VARCHAR(20)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT/WRITING/COMPLETED',
     current_version_no INT          NOT NULL DEFAULT 0 COMMENT '当前版本号',
+    writing_requirement TEXT COMMENT '本章写作要求：人称/视角/篇幅/禁忌等，作为写作 Agent 的必备材料',
     created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -143,6 +144,7 @@ CREATE TABLE IF NOT EXISTS llm_settings (
     base_url        VARCHAR(300) DEFAULT NULL COMMENT 'OpenAI兼容接口地址',
     api_key_cipher  VARCHAR(600) DEFAULT NULL COMMENT 'API密钥密文（本机密钥文件AES-GCM加密）',
     model           VARCHAR(100) DEFAULT NULL COMMENT '模型名称',
+    enabled_models  TEXT         DEFAULT NULL COMMENT '用户启用的模型id（JSON数组）；空=全部启用',
     enabled         TINYINT      NOT NULL DEFAULT 1 COMMENT '是否启用：1启用 0停用',
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -160,3 +162,116 @@ CREATE TABLE IF NOT EXISTS character_node (
     PRIMARY KEY (id),
     KEY idx_cnode_character (character_id)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '人物版本节点';
+
+-- ============================================================
+-- Agent 相关表（与 AgentSchemaInitializer 保持一致；新库可直接建）
+-- 说明：应用启动时仍会用 CREATE TABLE IF NOT EXISTS 兜底补表，
+--       这里补进基线脚本是为了让"新库一次建全"，避免两处漂移。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `agent_profile` (
+  `id` bigint NOT NULL,
+  `role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `temperature` decimal(3,2) NOT NULL DEFAULT '0.80',
+  `reasoning_effort` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `max_steps` int NOT NULL DEFAULT '10',
+  `context_limit` int NOT NULL DEFAULT '131072',
+  `reserve_output_tokens` int NOT NULL DEFAULT '8192',
+  `base_url` varchar(300) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `api_key_cipher` varchar(600) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `enabled` tinyint NOT NULL DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_profile_role` (`role`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_conversation` (
+  `id` bigint NOT NULL,
+  `project_id` bigint NOT NULL,
+  `agent_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_conv_project` (`project_id`,`agent_role`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_message_log` (
+  `id` bigint NOT NULL,
+  `conversation_id` bigint NOT NULL,
+  `step_no` int NOT NULL DEFAULT '0',
+  `role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content` mediumtext COLLATE utf8mb4_unicode_ci,
+  `tool_call_id` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `tool_calls_json` mediumtext COLLATE utf8mb4_unicode_ci,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_msg_conv` (`conversation_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_plan_option` (
+  `id` bigint NOT NULL,
+  `conversation_id` bigint NOT NULL,
+  `message_id` bigint DEFAULT NULL,
+  `option_index` int NOT NULL,
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `summary` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `detail` text COLLATE utf8mb4_unicode_ci,
+  `selected` tinyint NOT NULL DEFAULT '0',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_option_conv` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_usage_log` (
+  `id` bigint NOT NULL,
+  `project_id` bigint DEFAULT NULL,
+  `conversation_id` bigint DEFAULT NULL,
+  `agent_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `prompt_tokens` int NOT NULL DEFAULT '0',
+  `cached_tokens` int NOT NULL DEFAULT '0',
+  `completion_tokens` int NOT NULL DEFAULT '0',
+  `estimated_cost` decimal(12,6) NOT NULL DEFAULT '0.000000',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_usage_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_draft` (
+  `id` bigint NOT NULL,
+  `conversation_id` bigint NOT NULL,
+  `project_id` bigint NOT NULL,
+  `draft_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload_json` mediumtext COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_id` bigint DEFAULT NULL,
+  `agent_reason` text COLLATE utf8mb4_unicode_ci,
+  `applied_id` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_draft_conv` (`conversation_id`,`status`),
+  KEY `idx_agent_draft_project` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_run` (
+  `id` bigint NOT NULL,
+  `project_id` bigint DEFAULT NULL,
+  `conversation_id` bigint DEFAULT NULL,
+  `agent_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `model` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `steps` int NOT NULL DEFAULT '0',
+  `prompt_tokens` int NOT NULL DEFAULT '0',
+  `cached_tokens` int NOT NULL DEFAULT '0',
+  `completion_tokens` int NOT NULL DEFAULT '0',
+  `latency_ms` bigint NOT NULL DEFAULT '0',
+  `context_summary` text COLLATE utf8mb4_unicode_ci,
+  `trace_json` mediumtext COLLATE utf8mb4_unicode_ci,
+  `error_message` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_run_project` (`project_id`,`created_at`),
+  KEY `idx_agent_run_role` (`agent_role`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';

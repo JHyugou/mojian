@@ -1,6 +1,6 @@
 # 本地快速 Docker 部署（无需等待 Maven 大镜像）
-# 后端直接挂载本机已构建的 target/mojian.jar；web 使用已构建的 mojian-web:latest
-# 用法：docker compose -f docker-compose.local.yml up -d --build
+# 后端直接挂载本机已构建的 target/mojian.jar；web 由本目录 web/Dockerfile 构建
+# 用法：mvn -DskipTests package && docker compose -f docker-compose.local.yml up -d --build
 
 services:
   db:
@@ -9,6 +9,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
+      MYSQL_USER: ${MYSQL_USER:-mojian}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mojian123}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -33,8 +35,8 @@ services:
       MYSQL_HOST: db
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
-      MYSQL_USERNAME: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_USERNAME: ${MYSQL_USER:-mojian}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mojian123}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
@@ -43,13 +45,17 @@ services:
       SERVER_PORT: 8080
     volumes:
       - ./target/mojian.jar:/app/app.jar:ro
+      # API Key 的加密密钥文件必须持久化，否则容器重建后旧密文解不开
+      - mojian-local-secrets:/root/.mojian
     working_dir: /app
     command: ["java", "-jar", "app.jar"]
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
 
   web:
-    image: mojian-web:latest
+    build:
+      context: ./web
+      dockerfile: Dockerfile
     container_name: mojian-local-web
     depends_on:
       - backend
@@ -58,3 +64,4 @@ services:
 
 volumes:
   mojian-local-db-data:
+  mojian-local-secrets:

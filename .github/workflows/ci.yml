@@ -27,35 +27,37 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: maven
       - name: Run backend tests
         run: mvn -B test
-        working-directory: mojian
 
-  frontend-build:
+  frontend-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # vitest 5 要求 Node >= 22.12，CI 不能再停在 18
       - uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
           cache: npm
-          cache-dependency-path: mojian/web/package-lock.json
+          cache-dependency-path: web/package-lock.json
       - name: Install dependencies
         run: npm ci
-        working-directory: mojian/web
+        working-directory: web
+      - name: Run frontend tests
+        run: npm test
+        working-directory: web
       - name: Build frontend
         run: npm run build
-        working-directory: mojian/web
+        working-directory: web
 
   docker-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate compose config
-        run: docker compose -f mojian/docker-compose.yml config --quiet
+        run: docker compose config --quiet
       - name: Build backend image
         run: docker build -t mojian-backend .
-        working-directory: mojian
       - name: Build frontend image
         run: docker build -t mojian-web ./web
-        working-directory: mojian

@@ -5,6 +5,9 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
+      # 应用使用独立账号，而不是直接用 root 连库
+      MYSQL_USER: ${MYSQL_USER:-mojian}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mojian123}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -29,19 +32,29 @@ services:
       MYSQL_HOST: db
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-mojian}
-      MYSQL_USERNAME: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_USERNAME: ${MYSQL_USER:-mojian}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mojian123}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_MOCK: ${LLM_MOCK:-true}
       # 容器内固定 8080：application.yml 的 8081 仅为本机开发端口偏好，nginx 反代按 8080 寻址
       SERVER_PORT: 8080
+    volumes:
+      # 设置页保存的 API Key 用本机密钥文件加密。不挂卷的话，容器一重建旧密文就解不开了。
+      - mojian-secrets:/home/appuser/.mojian
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     ports:
-      - "8080:8080"
+      # 只绑本机回环：API 没有账号体系，不应直接暴露到局域网
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   web:
@@ -50,10 +63,12 @@ services:
       dockerfile: Dockerfile
     container_name: mojian-web
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "80:80"
     restart: unless-stopped
 
 volumes:
   mojian-db-data:
+  mojian-secrets:

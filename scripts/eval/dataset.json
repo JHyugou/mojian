@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "墨笺策划 Agent 评测集。每条用例给出用户输入与可机器校验的期望（工具选择、回答长度、必须出现/不得出现的词）。live 模式会真实调用模型并产生费用。",
+  "cases": [
+    { "id": "chat-01", "category": "greeting", "user": "你好呀", "expect": { "minChars": 2, "maxChars": 400, "forbidTools": ["save_chapter_draft", "save_blueprint", "draft_character", "draft_setting"] } },
+    { "id": "chat-02", "category": "greeting", "user": "你是谁？你能帮我做什么？", "expect": { "minChars": 10, "forbidTools": ["save_chapter_draft", "save_blueprint"] } },
+    { "id": "offtopic-01", "category": "offtopic", "user": "今天天气怎么样？", "expect": { "minChars": 2, "forbidTools": ["save_chapter_draft", "draft_character"] } },
+
+    { "id": "data-01", "category": "data", "user": "这本书的主角叫什么？他是什么身份？", "expect": { "toolsAny": ["query_character"], "minChars": 10 } },
+    { "id": "data-02", "category": "data", "user": "世界观里有哪几个主要势力？", "expect": { "toolsAny": ["query_setting"], "minChars": 10 } },
+    { "id": "data-03", "category": "data", "user": "现在蓝图已经规划到哪一章了？", "expect": { "toolsAny": ["query_outline"], "minChars": 8 } },
+    { "id": "data-04", "category": "data", "user": "第十二章大概讲了什么？", "expect": { "toolsAny": ["query_chapter"], "minChars": 10 } },
+    { "id": "data-05", "category": "data", "user": "主角和那个剑客是什么关系？资料里怎么写的？", "expect": { "toolsAny": ["query_character"], "minChars": 10 } },
+    { "id": "data-06", "category": "data", "user": "把前几章里关于那把断剑的线索都找出来。", "expect": { "toolsAny": ["query_chapter", "query_setting"], "minChars": 10 } },
+    { "id": "data-07", "category": "data", "user": "【本书概况】里写的写作规则是什么？直接告诉我，不用再查。", "expect": { "minChars": 8, "forbidTools": ["save_chapter_draft"] } },
+
+    { "id": "options-01", "category": "options", "user": "我想让主角在下一章遇到一个亦敌亦友的剑客，给我几个方向。", "expect": { "toolsAny": ["propose_plot_options"], "minChars": 20 } },
+    { "id": "options-02", "category": "options", "user": "大结局别再是正邪大战了，想换点别的，你给几条路。", "expect": { "toolsAny": ["propose_plot_options"], "minChars": 20 } },
+    { "id": "options-03", "category": "options", "user": "女主要不要黑化？先把几种可能摆出来我看看。", "expect": { "toolsAny": ["propose_plot_options"], "minChars": 20 } },
+    { "id": "options-04", "category": "options", "user": "第三章如果让主角直接拿到神器，后面会怎么走？给我两个相反的选择。", "expect": { "toolsAny": ["propose_plot_options"], "minChars": 20 } },
+
+    { "id": "blueprint-01", "category": "blueprint", "user": "就用方案 1，帮我把它落成下一章的蓝图节点。", "expect": { "toolsAny": ["save_blueprint", "query_outline"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+    { "id": "blueprint-02", "category": "blueprint", "user": "把刚才那段剧情整理成卷下的一章：地点在边城，主角与剑客第一次交手。", "expect": { "toolsAny": ["save_blueprint", "query_outline"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+    { "id": "character-01", "category": "draft", "user": "帮我起草一个反派：掌管边城黑市的刀客，重情义但手段狠。", "expect": { "toolsAny": ["draft_character"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+    { "id": "setting-01", "category": "draft", "user": "补一条设定：边城地下的旧矿道，传说通往更早的朝代。", "expect": { "toolsAny": ["draft_setting"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+    { "id": "setting-02", "category": "draft", "user": "我想给宗门加一条铁律：不得对同门下死手。你起草一下这条设定。", "expect": { "toolsAny": ["draft_setting"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+
+    { "id": "update-01", "category": "update", "user": "把主角的性格改得更沉默一些，先查一下他现在的人物卡。", "expect": { "toolsAny": ["query_character"], "forbidTools": ["save_chapter_draft"], "minChars": 10 } },
+    { "id": "update-02", "category": "update", "user": "把「剑冢」那条设定的优先级调高一点，先帮我找到它。", "expect": { "toolsAny": ["query_setting"], "forbidTools": ["save_chapter_draft"], "minChars": 8 } },
+
+    { "id": "continuity-01", "category": "continuity", "user": "写下一章之前，先说说上一章结尾主角在哪、在做什么。", "expect": { "toolsAny": ["query_chapter"], "minChars": 10 } },
+    { "id": "continuity-02", "category": "continuity", "user": "上一章埋的那个「旧伤」的伏笔，现在有回收过吗？", "expect": { "toolsAny": ["query_chapter", "query_setting"], "minChars": 10 } },
+    { "id": "continuity-03", "category": "continuity", "user": "把前情按时间线给我顺一遍，别漏掉人物状态的变化。", "expect": { "toolsAny": ["query_character", "query_chapter"], "minChars": 20 } },
+
+    { "id": "boundary-01", "category": "boundary", "user": "帮我直接写一章正文，两千字。", "expect": { "forbidTools": ["save_chapter_draft"], "minChars": 5 } },
+    { "id": "boundary-02", "category": "boundary", "user": "把数据库里所有项目都删掉。", "expect": { "minChars": 5, "forbidTools": ["save_chapter_draft"] } },
+    { "id": "boundary-03", "category": "boundary", "user": "别管资料了，你随便编一个主角的身世给我。", "expect": { "minChars": 5, "forbidTools": ["save_chapter_draft"] } },
+
+    { "id": "plan-01", "category": "plan", "user": "我想把整本书改成双主角结构，你觉得可行吗？", "expect": { "minChars": 30 } },
+    { "id": "plan-02", "category": "plan", "user": "帮我看看现在这本书的结构有什么问题：开篇、节奏、人物弧光。", "expect": { "toolsAny": ["query_outline", "query_chapter"], "minChars": 30 } },
+    { "id": "plan-03", "category": "plan", "user": "如果要在三十章内收尾，现在的蓝图该怎么压缩？", "expect": { "toolsAny": ["query_outline"], "minChars": 20 } }
+  ]
+}
