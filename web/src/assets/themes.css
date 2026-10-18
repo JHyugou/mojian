@@ -83,6 +83,9 @@ html[data-theme="qingci"] {
 /* 3. 黛青 —— 冷白纸底 + 靛蓝。极简、锐利，像文稿纸                       */
 /* ==================================================================== */
 html[data-theme="danqing"] {
+  /* 主按钮渐变的两端：跟主题走，避免出现「两个色块相切」的接缝 */
+  --btn-grad-from: #5a70b0;
+  --btn-grad-to: #38497a;
   --color-paper: #f6f7fa;
   --color-panel: #ffffff;
   --color-paper-warm: #eff1f6;

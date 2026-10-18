@@ -1007,7 +1007,7 @@ async function stop() {
   box-shadow: none;
 }
 
-.wr-input-side { display: flex; align-items: flex-end; gap: 8px; }
+.wr-input-side { display: flex; align-items: center; gap: 8px; }
 
 .wr-input-side .mj-btn-primary {
   flex: none;

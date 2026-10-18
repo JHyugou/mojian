@@ -1408,7 +1408,7 @@ async function discardDraft(draft) {
   box-shadow: none;
 }
 
-.pl-input-side { display: flex; align-items: flex-end; gap: 8px; }
+.pl-input-side { display: flex; align-items: center; gap: 8px; }
 
 .pl-input-side .mj-btn-primary {
   flex: none;

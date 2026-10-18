@@ -501,7 +501,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px 10px;
+  padding: 8px 6px 14px;
   flex-shrink: 0;
 }
 
@@ -584,7 +584,7 @@ onBeforeUnmount(() => {
 
 /* ==================== 列表 ==================== */
 
-.ws-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  gap: 6px;
 
 .ws-project { min-width: 0; }
 
@@ -689,8 +689,8 @@ onBeforeUnmount(() => {
 .ws-convs {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 2px 0 4px 14px;
+  gap: 3px;
+  padding: 6px 0 8px 14px;
   margin-left: 8px;
   border-left: 1px solid var(--color-line);
   min-width: 0;
@@ -704,7 +704,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 10px 11px;
   border: 0;
   border-radius: var(--radius-pill);
   background: none;
