@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import Icon from '../../components/Icon.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
+import V3Button from '../../components/v3/V3Button.vue'
+import V3Modal from '../../components/v3/V3Modal.vue'
 import { citationPreview } from '../../utils/citation'
 
 /**
@@ -20,6 +22,8 @@ const emit = defineEmits(['cite', 'close', 'open-chapter'])
 
 const tab = ref('info')
 const keyword = ref('')
+/** 条目详情弹窗；null 表示关闭 */
+const detail = ref(null)
 
 const tabs = [
   { key: 'info', label: '资料' },
@@ -36,6 +40,7 @@ function jumpTo(key) {
 }
 
 const STATUS_TEXT = { DRAFT: '草稿', WRITING: '写作中', COMPLETED: '已完成' }
+const NODE_TEXT = { VOLUME: '卷', ARC: '段落', CHAPTER: '章节节点' }
 
 const filteredCharacters = computed(() => {
   const q = keyword.value.trim()
@@ -91,6 +96,49 @@ function citeOutline(node) {
     locator: `(记录 ID ${node.id})`,
     targetId: node.id
   })
+}
+
+// ==================== 条目详情 ====================
+
+function openCharacterDetail(item) {
+  detail.value = {
+    kind: '人物',
+    title: item.name || '未命名人物',
+    subtitle: item.roleIdentity || '',
+    meta: `记录 ID ${item.id}`,
+    content: item.description || '（这张人物卡还没有填写设定全文）',
+    cite: () => citeCharacter(item)
+  }
+}
+
+function openSettingDetail(item) {
+  const marks = []
+  if (item.tags) marks.push(`标签：${item.tags}`)
+  if (item.triggerKeywords) marks.push(`触发词：${item.triggerKeywords}`)
+  detail.value = {
+    kind: '设定',
+    title: item.title || '未命名设定',
+    subtitle: marks.join('｜'),
+    meta: `记录 ID ${item.id}`,
+    content: item.content || '（这条设定还没有正文）',
+    cite: () => citeSetting(item)
+  }
+}
+
+function openOutlineDetail(node) {
+  detail.value = {
+    kind: '蓝图',
+    title: node.name || '未命名节点',
+    subtitle: `${NODE_TEXT[node.nodeType] || node.nodeType || '节点'}${node.status ? ` · ${node.status}` : ''}`,
+    meta: `记录 ID ${node.id}`,
+    content: node.summary || '（这个节点还没有填写内容）',
+    cite: () => citeOutline(node)
+  }
+}
+
+function citeFromDetail() {
+  detail.value?.cite?.()
+  detail.value = null
 }
 
 const fmt = (n) => (n == null ? '—' : n)
@@ -155,15 +203,26 @@ const reportRows = computed(() => [
       <!-- ========== 人物 ========== -->
       <template v-else-if="tab === 'characters'">
         <input v-model="keyword" class="side-search" placeholder="搜姓名或身份…" />
-        <div v-for="item in filteredCharacters" :key="item.id" class="entry">
+        <div
+          v-for="item in filteredCharacters"
+          :key="item.id"
+          class="entry entry-clickable"
+          role="button"
+          tabindex="0"
+          title="点击查看完整人物卡"
+          @click="openCharacterDetail(item)"
+          @keydown.enter="openCharacterDetail(item)"
+          @keydown.space.prevent="openCharacterDetail(item)"
+        >
           <div class="entry-head">
             <span class="entry-title">{{ item.name }}</span>
             <V3Tag v-if="item.roleIdentity" tone="gold">{{ citationPreview(item.roleIdentity, 12) }}</V3Tag>
-            <button class="cite-btn" title="引用进对话" @click="citeCharacter(item)">
+            <button class="cite-btn" title="引用进对话" @click.stop="citeCharacter(item)">
               <Icon name="quote" :size="13" />
             </button>
           </div>
           <p class="entry-text">{{ citationPreview(item.description, 90) || '暂无设定全文' }}</p>
+          <span class="entry-more">查看完整人物卡</span>
         </div>
         <p v-if="!filteredCharacters.length" class="side-note">还没有人物档案。在策划对话里让 Agent 起草，确认后会出现在这里。</p>
       </template>
@@ -171,14 +230,25 @@ const reportRows = computed(() => [
       <!-- ========== 设定 ========== -->
       <template v-else-if="tab === 'settings'">
         <input v-model="keyword" class="side-search" placeholder="搜标题或标签…" />
-        <div v-for="item in filteredSettings" :key="item.id" class="entry">
+        <div
+          v-for="item in filteredSettings"
+          :key="item.id"
+          class="entry entry-clickable"
+          role="button"
+          tabindex="0"
+          title="点击查看完整设定"
+          @click="openSettingDetail(item)"
+          @keydown.enter="openSettingDetail(item)"
+          @keydown.space.prevent="openSettingDetail(item)"
+        >
           <div class="entry-head">
             <span class="entry-title">{{ item.title }}</span>
-            <button class="cite-btn" title="引用进对话" @click="citeSetting(item)">
+            <button class="cite-btn" title="引用进对话" @click.stop="citeSetting(item)">
               <Icon name="quote" :size="13" />
             </button>
           </div>
           <p class="entry-text">{{ citationPreview(item.content, 100) }}</p>
+          <span class="entry-more">查看完整设定</span>
         </div>
         <p v-if="!filteredSettings.length" class="side-note">还没有世界观设定。</p>
       </template>
@@ -204,18 +274,48 @@ const reportRows = computed(() => [
         <div
           v-for="node in filteredOutline"
           :key="node.id"
-          class="outline-row"
+          class="outline-row entry-clickable"
+          role="button"
+          tabindex="0"
+          title="点击查看完整蓝图节点"
           :style="{ paddingLeft: 10 + node.depth * 14 + 'px' }"
+          @click="openOutlineDetail(node)"
+          @keydown.enter="openOutlineDetail(node)"
+          @keydown.space.prevent="openOutlineDetail(node)"
         >
           <span class="outline-type">{{ node.nodeType === 'VOLUME' ? '卷' : node.nodeType === 'ARC' ? '段' : '章' }}</span>
           <span class="entry-title">{{ node.name }}</span>
-          <button class="cite-btn" title="引用进对话" @click="citeOutline(node)">
+          <button class="cite-btn" title="引用进对话" @click.stop="citeOutline(node)">
             <Icon name="quote" :size="13" />
           </button>
         </div>
         <p v-if="!filteredOutline.length" class="side-note">还没有蓝图。让策划 Agent 把走向落成蓝图节点。</p>
       </template>
     </div>
+
+    <!-- 条目详情（人物/设定/蓝图全文） -->
+    <V3Modal
+      :visible="!!detail"
+      :title="detail?.title || '详情'"
+      width="660px"
+      @close="detail = null"
+    >
+      <div v-if="detail" class="detail">
+        <div class="detail-meta">
+          <V3Tag tone="gold">{{ detail.kind }}</V3Tag>
+          <span v-if="detail.subtitle" class="detail-sub">{{ detail.subtitle }}</span>
+        </div>
+        <p class="detail-id">{{ detail.meta }}</p>
+        <div class="detail-body v3-scroll">{{ detail.content }}</div>
+      </div>
+      <template #footer>
+        <V3Button variant="ghost" @click="detail = null">关闭</V3Button>
+        <V3Button v-if="detail?.cite" @click="citeFromDetail">
+          <template #icon><Icon name="quote" :size="13" /></template>
+          引用进对话
+        </V3Button>
+      </template>
+    </V3Modal>
   </aside>
 </template>
 
@@ -367,6 +467,40 @@ const reportRows = computed(() => [
   border-radius: var(--v3-r-xs);
 }
 .outline-row:hover { background: var(--v3-surface-1); }
+.entry-clickable { cursor: pointer; }
+.entry-clickable:focus-visible { outline: 2px solid var(--v3-gold); outline-offset: 2px; }
+.entry-clickable:hover { border-color: var(--v3-hairline-gold); background: var(--v3-surface-2); }
+.entry-clickable .entry-more {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--v3-gold);
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity var(--v3-dur-2), transform var(--v3-dur-2);
+}
+.entry-clickable:hover .entry-more,
+.entry-clickable:focus-visible .entry-more { opacity: 1; transform: translateY(0); }
+
+/* ---------- 条目详情 ---------- */
+.detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.detail-sub { font-size: 11.5px; line-height: 1.7; color: var(--v3-text-faint); }
+.detail-id { margin: 10px 0 12px; font-family: var(--v3-font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--v3-text-faint); }
+.detail-body {
+  max-height: 56vh;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+  font-family: var(--v3-font-serif);
+  font-size: 14px;
+  line-height: 2.05;
+  color: var(--v3-text-soft);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .outline-type {
   flex-shrink: 0;
   width: 18px;
