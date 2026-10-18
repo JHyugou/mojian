@@ -204,6 +204,16 @@ public class AgentLoopService {
         if (tool == null) {
             return "错误：没有名为「" + call.name() + "」的工具。可用工具：" + availableToolNames(context.agentRole());
         }
+        /*
+         * 工具子集不仅决定"发给模型哪些工具"，也必须在执行端再拦一道：
+         * 模型可能凭历史记忆/提示词写出一个本角色不该有的工具调用（或者被内容注入诱导），
+         * 如果这里放行，策划就能直接写正文、写作就能改蓝图结论 —— 角色边界形同虚设。
+         */
+        if (!tool.roles().contains(context.agentRole())) {
+            log.warn("[{}] 模型尝试调用不属于本角色的工具 {}", context.agentRole(), call.name());
+            return "错误：工具「" + call.name() + "」不属于当前角色（" + context.agentRole()
+                    + "），已拒绝执行。可用工具：" + availableToolNames(context.agentRole());
+        }
         try {
             Map<String, Object> arguments = parseArguments(call.arguments());
             String result = tool.execute(context, arguments);

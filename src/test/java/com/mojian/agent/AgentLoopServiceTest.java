@@ -82,6 +82,7 @@ class AgentLoopServiceTest {
         private final String name;
         private final String result;
         private final RuntimeException failure;
+        private List<String> roles = List.of("PLANNER", "WRITER");
         final List<Map<String, Object>> calls = new ArrayList<>();
         final List<AgentContext> contexts = new ArrayList<>();
 
@@ -97,6 +98,18 @@ class AgentLoopServiceTest {
 
         static FakeTool failing(String name, String message) {
             return new FakeTool(name, null, new IllegalStateException(message));
+        }
+
+        /** 只属于某个角色的工具（用于测试执行端的角色边界） */
+        static FakeTool onlyFor(String name, String result, String role) {
+            FakeTool tool = new FakeTool(name, result, null);
+            tool.roles = List.of(role);
+            return tool;
+        }
+
+        @Override
+        public List<String> roles() {
+            return roles;
         }
 
         @Override
@@ -277,6 +290,22 @@ class AgentLoopServiceTest {
     }
 
     // ==================== 意外情况：错误回传 ====================
+
+    @Test
+    @DisplayName("执行端也守角色边界：写作调用策划专属工具会被拒绝，不会真的执行")
+    void 不属于角色的工具拒绝执行() {
+        FakeTool plannerOnly = FakeTool.onlyFor("save_blueprint", "已起草蓝图", "PLANNER");
+        FakeLlm llm = new FakeLlm()
+                .then(call("call_1", "save_blueprint", "{}"))
+                .then(AgentLlmResponse.answer("好，我不该调这个。"));
+
+        AgentResult result = service(llm, plannerOnly).run(
+                AgentContext.of(1002L, AgentRole.WRITER), "系统提示", "写这章", 5);
+
+        assertThat(plannerOnly.calls).as("越权工具绝不能真的执行").isEmpty();
+        assertThat(result.trace()).singleElement()
+                .satisfies(step -> assertThat(step.result()).contains("不属于当前角色"));
+    }
 
     @Test
     @DisplayName("模型要求调用一个不存在的工具：把错误回传给模型，循环不崩")

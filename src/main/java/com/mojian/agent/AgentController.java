@@ -491,12 +491,30 @@ public class AgentController {
      */
     @GetMapping("/projects/{projectId}/context-report")
     public ApiResponse<Map<String, Object>> contextReport(@PathVariable Long projectId,
-                                                          @RequestParam(defaultValue = "PLANNER") String role) {
-        AgentContextAssembly assembly = agentContextService.assemble(role, projectId);
+                                                          @RequestParam(defaultValue = "PLANNER") String role,
+                                                          @RequestParam(required = false) Long chapterId) {
+        /*
+         * 写作 Agent 的上下文必须按"当前写的是哪一章"来算：
+         * 它有本章蓝图/写作要求等必备材料，并且只装当前章之前的正文。
+         * 不传 chapterId 时保持原来的"项目级概览"语义（策划用）。
+         */
+        AgentContextAssembly assembly;
+        if ("WRITER".equalsIgnoreCase(role) && chapterId != null) {
+            // 报表也要守项目边界：不能拿 A 项目的 chapterId 去算 B 项目的上下文
+            Chapter chapter = chapterService.requireById(chapterId);
+            if (!projectId.equals(chapter.getProjectId())) {
+                throw new com.mojian.common.exception.BusinessException(
+                        com.mojian.common.api.ErrorCode.NOT_FOUND, "章节不属于当前项目: " + chapterId);
+            }
+            assembly = writerService.contextPreview(chapterId);
+        } else {
+            assembly = agentContextService.assemble(role, projectId);
+        }
         AgentContextBudget budget = agentContextService.budgetOf(role);
 
         return ApiResponse.ok(Map.of(
                 "role", role,
+                "chapterId", chapterId == null ? "" : chapterId,
                 "contextLimit", budget.contextLimitTokens(),
                 "usableTokens", budget.usableTokens(),
                 "usedTokens", assembly.report().usedTokens(),

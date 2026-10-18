@@ -319,6 +319,44 @@ public class WriterService {
         return execute(chapterId, instruction, AgentRunListener.NOOP);
     }
 
+    /**
+     * 预览一次写作会装进上下文的材料（只组装，不调模型）。
+     *
+     * <p>为什么把它抽出来给 context-report 用：之前右栏写作 Agent 的"上下文占用"
+     * 是拿 projectId 空组装出来的 —— 既没有本章蓝图/写作要求，也没有排除未来章节，
+     * 数值看着"真实"其实不是实际发出去的那份。现在两处共用同一个组装方法，
+     * 界面上的百分比才真的能解释"模型看到了什么"。
+     */
+    public AgentContextAssembly contextPreview(Long chapterId) {
+        Chapter chapter = chapterService.requireById(chapterId);
+        return assembleMaterials(chapter, StringUtils.hasText(chapter.getContent()));
+    }
+
+    /**
+     * 组装写作上下文：全量材料 + 本章必备材料。
+     *
+     * <p>排除当前章：它已作为"本章现有稿"单独注入，再以"前文原文"的名义出现一遍
+     * 既是重复（一章五千字），也会让模型分不清哪份算数。
+     * 同时排除本章蓝图节点，避免"已有蓝图"里出现第二份任务书。
+     */
+    private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising) {
+        List<AgentContextSection> required = new ArrayList<>();
+        AgentContextSection blueprint = blueprintSection(chapter);
+        if (blueprint != null) {
+            required.add(blueprint);
+        }
+        AgentContextSection requirement = writingRequirementSection(chapter);
+        if (requirement != null) {
+            required.add(requirement);
+        }
+        if (revising) {
+            // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
+            required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
+        }
+        return agentContextService.assemble(AgentRole.WRITER, chapter.getProjectId(), required,
+                chapter.getId(), chapter.getOutlineNodeId());
+    }
+
     private WriterResult execute(Long chapterId, String instruction, AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
@@ -334,28 +372,23 @@ public class WriterService {
 
         // 2. 必备材料：本章蓝图 + 本章写作要求（改稿时再加"现有稿"）。全部 REQUIRED，永不裁
         boolean revising = StringUtils.hasText(chapter.getContent());
-        List<AgentContextSection> required = new ArrayList<>();
-        AgentContextSection blueprint = blueprintSection(chapter);
-        if (blueprint != null) {
-            required.add(blueprint);
-        }
-        AgentContextSection requirement = writingRequirementSection(chapter);
-        if (requirement != null) {
-            required.add(requirement);
-        }
-        if (revising) {
-            // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
-            required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
-        }
-
-        // 3. 组装（全量材料 + 必备材料）。排除当前章：它已作为"本章现有稿"单独注入，
-        //    再以"前文原文"的名义出现一遍既是重复（一章五千字），也会让模型分不清哪份算数
-        AgentContextAssembly materials = agentContextService.assemble(
-                AgentRole.WRITER, projectId, required, chapterId, chapter.getOutlineNodeId());
+        // 3. 组装（全量材料 + 必备材料；排除当前章与本章蓝图节点）
+        AgentContextAssembly materials = assembleMaterials(chapter, revising);
         String systemPrompt = AgentPrompts.writer(materials.text(), revising);
-
         // 4. 本轮指令落库
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
+
+        /*
+         * 历史与材料共享同一个上下文窗口。
+         * 材料预算只覆盖材料，历史之前是固定 8 万字符；在 128K 模型上
+         * "材料 10 万 + 历史 8 万" 会直接超窗。这里按剩余空间再裁一次。
+         */
+        com.mojian.agent.context.AgentContextBudget budget =
+                agentContextService.budgetOf(AgentRole.WRITER);
+        int historyBudget = Math.max(12_000,
+                budget.usableTokens() - materials.report().usedTokens() - userInput.length() - 6_000);
+        history = ConversationService.trimHistory(history, historyBudget);
+
         conversationService.append(conversation.getId(), 0, AgentMessage.user(userInput));
 
         // 5. 跑循环（带上这段会话的历史 —— 这是"跨章保持上下文"落地的地方）
@@ -413,7 +446,14 @@ public class WriterService {
      */
     private AgentContextSection blueprintSection(Chapter chapter) {
         if (chapter.getOutlineNodeId() == null) {
-            return null;
+            /*
+             * 没关联蓝图时，不能什么都不给：系统提示词要求"严格按【本章蓝图】写"，
+             * 模型找不到这块材料，要么追问、要么自己编一条主线 —— 后者最危险。
+             * 这里显式把"没有蓝图"作为 REQUIRED 信息告诉它，把决定权交还作者。
+             */
+            return AgentContextSection.required("本章蓝图",
+                    "（这一章还没有关联蓝图节点。请按作者的写作要求与对话指令来写；"
+                            + "如果关键剧情信息不足，先向作者提问，不要自行编造关键设定或主线走向。）");
         }
         PlotOutline node = outlineService.requireById(chapter.getOutlineNodeId());
         StringBuilder sb = new StringBuilder();

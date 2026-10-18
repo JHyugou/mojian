@@ -11,7 +11,9 @@ import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.mapper.PlotOutlineMapper;
 import com.mojian.project.entity.StoryProject;
 import com.mojian.project.service.ProjectService;
+import com.mojian.world.character.entity.CharacterNode;
 import com.mojian.world.character.entity.CharacterProfile;
+import com.mojian.world.character.mapper.CharacterNodeMapper;
 import com.mojian.world.character.service.CharacterService;
 import com.mojian.world.setting.entity.SettingEntry;
 import com.mojian.world.setting.service.SettingService;
@@ -86,6 +88,7 @@ public class AgentMaterialLoader {
 
 
     private final CharacterService characterService;
+    private final CharacterNodeMapper characterNodeMapper;
     private final SettingService settingService;
     private final ProjectService projectService;
     private final ChapterIndex chapterIndex;
@@ -120,21 +123,45 @@ public class AgentMaterialLoader {
      * 单独注入，如果"已有蓝图"里再来一遍，模型会看到两份内容略有出入的任务书。
      */
     public List<AgentContextSection> loadAll(Long projectId, Long excludeChapterId, Long excludeOutlineNodeId) {
+        /*
+         * 先取一次按时间排好序的章节，并定位"当前章"。
+         *
+         * 这两个信息决定两件很容易被忽略的事：
+         *  - 写作时只能注入"当前章之前"的章节与前情摘要，后面的章节是未来，不能提前塞给模型；
+         *  - 人物版本节点按起点制生效，写作第 N 章时应使用 chapterFrom <= N 的版本。
+         * 之前没有这层判断，改早期章节时会把后面十几章当"前文"注入，模型看到的
+         * 时间线是错的 —— 这类错误不报异常，只表现为"它怎么写出剧透了"。
+         */
+        List<Chapter> orderedChapters = chapterIndex.ordered(projectId);
+        Integer currentChapterNo = currentChapterNo(orderedChapters, excludeChapterId);
         List<AgentContextSection> sections = new ArrayList<>();
         // 概况放最前：书名、题材、文风、写作规则 —— 这是"这本书是什么"，
         // 比任何细节都更该先看到。漏了它，Agent 就会在完全不知道题材的情况下
         // 追问"你要写玄幻还是都市"，而作者明明已经在项目里填过了。
         addIfPresent(sections, projectSection(projectId));
         addIfPresent(sections, draftSection(projectId));
-        addIfPresent(sections, memorySection(projectId));
+        addIfPresent(sections, memorySection(orderedChapters, currentChapterNo));
         addIfPresent(sections, outlineSection(projectId, excludeOutlineNodeId));
-        addIfPresent(sections, characterSection(projectId));
+        addIfPresent(sections, characterSection(projectId, currentChapterNo));
         addIfPresent(sections, settingSection(projectId));
-        sections.addAll(chapterSections(projectId, excludeChapterId));
+        sections.addAll(chapterSections(orderedChapters, currentChapterNo));
         log.debug("取数完成：项目 {} 共 {} 块材料，合计约 {} token",
                 projectId, sections.size(),
                 sections.stream().mapToInt(AgentContextSection::estimateTokens).sum());
         return sections;
+    }
+
+    /** 当前章是第几章（从 1 开始）；不是写作场景（没有 excludeChapterId）时返回 null */
+    private Integer currentChapterNo(List<Chapter> orderedChapters, Long excludeChapterId) {
+        if (excludeChapterId == null) {
+            return null;
+        }
+        for (int i = 0; i < orderedChapters.size(); i++) {
+            if (excludeChapterId.equals(orderedChapters.get(i).getId())) {
+                return i + 1;
+            }
+        }
+        return null;
     }
 
     /**
@@ -175,18 +202,68 @@ public class AgentMaterialLoader {
 
     // ==================== 人物 ====================
 
-    private AgentContextSection characterSection(Long projectId) {
+    /**
+     * 人物档案 + 生效的人物版本节点。
+     *
+     * @param currentChapterNo 当前写第几章；null 表示策划场景（没有"当前章"），
+     *                         此时把所有版本节点按时间线一并给出，便于规划全局人物弧光
+     */
+    private AgentContextSection characterSection(Long projectId, Integer currentChapterNo) {
         List<CharacterProfile> characters = characterService.list(projectId).stream()
                 .filter(c -> !Boolean.FALSE.equals(c.getEnabled()))
                 .toList();
         if (characters.isEmpty()) {
             return null;
         }
+
+        // 一次查完所有人物节点，避免按人物逐个查库
+        Map<Long, List<CharacterNode>> nodesByCharacter = characterNodeMapper
+                .selectByCharacterIds(characters.stream().map(CharacterProfile::getId).toList())
+                .stream()
+                .collect(java.util.stream.Collectors.groupingBy(CharacterNode::getCharacterId));
+
         StringBuilder sb = new StringBuilder();
         for (CharacterProfile character : characters) {
-            appendEntry(sb, character.getName(),
-                    StringUtils.hasText(character.getRoleIdentity()) ? character.getRoleIdentity() : null,
-                    character.getDescription());
+            sb.append("■ ").append(character.getName() == null ? "未命名" : character.getName().trim());
+            if (StringUtils.hasText(character.getRoleIdentity())) {
+                sb.append("｜").append(character.getRoleIdentity().trim());
+            }
+            sb.append('\n');
+
+            List<CharacterNode> nodes = nodesByCharacter.getOrDefault(character.getId(), List.of()).stream()
+                    .filter(node -> node.getChapterFrom() != null)
+                    .sorted(java.util.Comparator.comparing(CharacterNode::getChapterFrom))
+                    .toList();
+
+            if (currentChapterNo == null) {
+                // 策划场景：基础设定 + 完整演变时间线，便于规划人物弧光
+                if (StringUtils.hasText(character.getDescription())) {
+                    sb.append(character.getDescription().trim()).append('\n');
+                }
+                for (CharacterNode node : nodes) {
+                    if (!StringUtils.hasText(node.getDescription())) {
+                        continue;
+                    }
+                    sb.append("  【自第").append(node.getChapterFrom()).append("章起】")
+                            .append(node.getDescription().trim()).append('\n');
+                }
+            } else {
+                // 写作场景：只给"当前生效"的状态。版本节点的 description 是全文快照，
+                // 把历史版本也塞进去只会让模型在两套设定之间摇摆。
+                List<CharacterNode> effective = nodes.stream()
+                        .filter(node -> node.getChapterFrom() <= currentChapterNo)
+                        .toList();
+                if (!effective.isEmpty()) {
+                    CharacterNode latest = effective.get(effective.size() - 1);
+                    sb.append("【当前状态 · 自第").append(latest.getChapterFrom()).append("章起】")
+                            .append(StringUtils.hasText(latest.getDescription())
+                                    ? latest.getDescription().trim() : "（版本节点未填写内容）")
+                            .append('\n');
+                } else if (StringUtils.hasText(character.getDescription())) {
+                    sb.append(character.getDescription().trim()).append('\n');
+                }
+            }
+            sb.append('\n');
         }
         return AgentContextSection.optional("人物", "人物档案", sb.toString().trim(),
                 PRIORITY_CHARACTER, ContextSectionPolicy.DROP_IF_NOT_FIT);
@@ -228,8 +305,7 @@ public class AgentMaterialLoader {
      * <p>它是"连续性"的关键：写第 13 章时最需要的不是第 1 章原文，而是"第 1~12 章各发生了什么"。
      * 所以优先级给到最高一档，且不按章拆分（单条摘要本该很短）。
      */
-    private AgentContextSection memorySection(Long projectId) {
-        List<Chapter> chapters = chapterIndex.ordered(projectId);
+    private AgentContextSection memorySection(List<Chapter> chapters, Integer currentChapterNo) {
         if (chapters.isEmpty()) {
             return null;
         }
@@ -238,6 +314,10 @@ public class AgentMaterialLoader {
 
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < chapters.size(); i++) {
+            // 写作场景只给"已经写过的章"的前情；当前章及之后的记忆不能提前注入
+            if (currentChapterNo != null && i + 1 >= currentChapterNo) {
+                break;
+            }
             Chapter chapter = chapters.get(i);
             String memory = memories.get(chapter.getId());
             if (!StringUtils.hasText(memory)) {
@@ -262,21 +342,21 @@ public class AgentMaterialLoader {
      * 每章一块。返回顺序是<b>离当前最近的在前</b>（第 N 章、第 N-1 章……），
      * 且优先级随距离递增 —— 于是组装器的"严格优先级裁剪"天然会从最远的章节开始砍。
      *
-     * @param excludeChapterId 排除某章（改稿时用：那一章会作为"本章现有稿"单独注入，
-     *                         不能再以"前文原文"的名义出现一遍）
+     * <p><b>写作场景只取当前章之前的章节</b>：改第 5 章时，第 6~13 章属于"未来"，
+     * 把它们当前文注入会让模型看到一条错误的时间线（甚至剧透）。
+     * {@code currentChapterNo == null} 表示策划/无当前章，取全部章节。
      */
-    private List<AgentContextSection> chapterSections(Long projectId, Long excludeChapterId) {
-        List<Chapter> chapters = chapterIndex.ordered(projectId);
+    private List<AgentContextSection> chapterSections(List<Chapter> chapters, Integer currentChapterNo) {
         List<AgentContextSection> sections = new ArrayList<>();
 
         // orderedChapters 是正序（第 1 章在前），从后往前生成，最近的一章先入列。
         // distance 按"在结果里的位置"算，而不是按原始序号 —— 否则排除一章之后优先级会出现空洞
         int distance = 0;
         for (int i = chapters.size() - 1; i >= 0; i--) {
-            Chapter chapter = chapters.get(i);
-            if (excludeChapterId != null && excludeChapterId.equals(chapter.getId())) {
-                continue;
+            if (currentChapterNo != null && i + 1 >= currentChapterNo) {
+                continue; // 当前章及未来章不注入
             }
+            Chapter chapter = chapters.get(i);
             String label = "第 " + (i + 1) + " 章"
                     + (StringUtils.hasText(chapter.getTitle()) ? "｜" + chapter.getTitle().trim() : "");
             String content = StringUtils.hasText(chapter.getContent())
@@ -287,6 +367,13 @@ public class AgentMaterialLoader {
             distance++;
         }
         return sections;
+    }
+
+    /** 兼容旧调用：只按排除章取（没有"当前章"概念时取全部） */
+    private List<AgentContextSection> chapterSections(Long projectId, Long excludeChapterId) {
+        List<Chapter> ordered = chapterIndex.ordered(projectId);
+        Integer currentNo = currentChapterNo(ordered, excludeChapterId);
+        return chapterSections(ordered, currentNo);
     }
 
     // ==================== 取数细节 ====================

@@ -80,6 +80,20 @@ public class PlannerService {
         AgentContextAssembly materials = agentContextService.assemble(AgentRole.PLANNER, projectId, extra);
         String systemPrompt = AgentPrompts.planner(materials.text());
 
+        /*
+         * 历史也要计入预算。
+         *
+         * 材料装填只算材料本身，但真正发给模型的还有历史、本轮输入、系统提示词里的规则
+         * 和工具清单。之前历史固定 8 万字符，换到 128K 上下文的模型上就可能
+         * "材料没超、整轮却超了"。这里按剩余预算再收一次，宁可少带几轮旧对话，
+         * 也不要把请求顶爆。
+         */
+        com.mojian.agent.context.AgentContextBudget budget =
+                agentContextService.budgetOf(AgentRole.PLANNER);
+        int historyBudget = Math.max(12_000,
+                budget.usableTokens() - materials.report().usedTokens() - userMessage.length() - 6_000);
+        history = ConversationService.trimHistory(history, historyBudget);
+
         // 4. 用户这轮的话先落库
         conversationService.append(conversation.getId(), 0, AgentMessage.user(userMessage));
 
