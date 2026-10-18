@@ -329,7 +329,8 @@ public class WriterService {
      */
     public AgentContextAssembly contextPreview(Long chapterId) {
         Chapter chapter = chapterService.requireById(chapterId);
-        return assembleMaterials(chapter, StringUtils.hasText(chapter.getContent()));
+        return assembleMaterials(chapter, StringUtils.hasText(chapter.getContent()),
+                retrievalQuery(chapter, null));
     }
 
     /**
@@ -338,8 +339,10 @@ public class WriterService {
      * <p>排除当前章：它已作为"本章现有稿"单独注入，再以"前文原文"的名义出现一遍
      * 既是重复（一章五千字），也会让模型分不清哪份算数。
      * 同时排除本章蓝图节点，避免"已有蓝图"里出现第二份任务书。
+     *
+     * @param retrievalQuery 材料超过预算时，用于挑"与当前任务相关"的旧章；装得下则不启用
      */
-    private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising) {
+    private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising, String retrievalQuery) {
         List<AgentContextSection> required = new ArrayList<>();
         AgentContextSection blueprint = blueprintSection(chapter);
         if (blueprint != null) {
@@ -354,7 +357,35 @@ public class WriterService {
             required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
         }
         return agentContextService.assemble(AgentRole.WRITER, chapter.getProjectId(), required,
-                chapter.getId(), chapter.getOutlineNodeId());
+                chapter.getId(), chapter.getOutlineNodeId(), retrievalQuery);
+    }
+
+    /** 检索用的"当前任务"文本：本轮指令 + 章节标题 + 写作要求 + 本章蓝图 */
+    private String retrievalQuery(Chapter chapter, String instruction) {
+        StringBuilder sb = new StringBuilder();
+        if (StringUtils.hasText(instruction)) {
+            sb.append(instruction).append('\n');
+        }
+        if (StringUtils.hasText(chapter.getTitle())) {
+            sb.append(chapter.getTitle()).append('\n');
+        }
+        if (StringUtils.hasText(chapter.getWritingRequirement())) {
+            sb.append(chapter.getWritingRequirement()).append('\n');
+        }
+        if (chapter.getOutlineNodeId() != null) {
+            try {
+                PlotOutline node = outlineService.requireById(chapter.getOutlineNodeId());
+                if (StringUtils.hasText(node.getName())) {
+                    sb.append(node.getName()).append('\n');
+                }
+                if (StringUtils.hasText(node.getSummary())) {
+                    sb.append(node.getSummary()).append('\n');
+                }
+            } catch (Exception ignored) {
+                // 蓝图坏了不影响组装主流程
+            }
+        }
+        return sb.toString().trim();
     }
 
     private WriterResult execute(Long chapterId, String instruction, AgentRunListener listener) {
@@ -372,11 +403,11 @@ public class WriterService {
 
         // 2. 必备材料：本章蓝图 + 本章写作要求（改稿时再加"现有稿"）。全部 REQUIRED，永不裁
         boolean revising = StringUtils.hasText(chapter.getContent());
-        // 3. 组装（全量材料 + 必备材料；排除当前章与本章蓝图节点）
-        AgentContextAssembly materials = assembleMaterials(chapter, revising);
-        String systemPrompt = AgentPrompts.writer(materials.text(), revising);
-        // 4. 本轮指令落库
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
+        // 3. 组装（全量材料 + 必备材料；排除当前章与本章蓝图节点）
+        AgentContextAssembly materials = assembleMaterials(chapter, revising,
+                retrievalQuery(chapter, userInput));
+        String systemPrompt = AgentPrompts.writer(materials.text(), revising);
 
         /*
          * 历史与材料共享同一个上下文窗口。

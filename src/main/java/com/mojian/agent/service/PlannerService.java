@@ -77,7 +77,8 @@ public class PlannerService {
         if (selected != null) {
             extra.add(selected);
         }
-        AgentContextAssembly materials = agentContextService.assemble(AgentRole.PLANNER, projectId, extra);
+        AgentContextAssembly materials = agentContextService.assemble(
+                AgentRole.PLANNER, projectId, extra, null, null, userMessage);
         String systemPrompt = AgentPrompts.planner(materials.text());
 
         /*

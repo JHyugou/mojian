@@ -3,6 +3,8 @@ package com.mojian.agent.service;
 import com.mojian.agent.context.AgentContextAssembler;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextBudget;
+import com.mojian.agent.context.AgentContextReport;
+import com.mojian.agent.context.AgentContextRetriever;
 import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.material.AgentMaterialLoader;
 import lombok.RequiredArgsConstructor;
@@ -73,6 +75,22 @@ public class AgentContextService {
     public AgentContextAssembly assemble(String agentRole, Long projectId,
                                          List<AgentContextSection> extraSections,
                                          Long excludeChapterId, Long excludeOutlineNodeId) {
+        return assemble(agentRole, projectId, extraSections, excludeChapterId, excludeOutlineNodeId, null);
+    }
+
+    /**
+     * 带检索兜底的装配。
+     *
+     * <p>正常情况（材料装得下）完全走全量注入，不启用检索；只有材料超过预算时，
+     * 才保留最近章 + 按当前任务词面相关性挑选旧章，避免"一刀切砍掉最老的章节"
+     * 把当前要回收的伏笔一起砍了。
+     *
+     * @param retrievalQuery 当前任务文本（用户指令 / 本章蓝图 / 章节标题）；为空则不检索
+     */
+    public AgentContextAssembly assemble(String agentRole, Long projectId,
+                                         List<AgentContextSection> extraSections,
+                                         Long excludeChapterId, Long excludeOutlineNodeId,
+                                         String retrievalQuery) {
         AgentContextBudget budget = budgetOf(agentRole);
 
         List<AgentContextSection> sections = new ArrayList<>(
@@ -81,9 +99,25 @@ public class AgentContextService {
             sections.addAll(extraSections);
         }
 
-        AgentContextAssembly assembly = assembler.assemble(sections, budget);
-        log.info("[{}] 上下文装填：{}", agentRole, assembly.report().summary());
-        return assembly;
+        AgentContextRetriever.Result plan = AgentContextRetriever.plan(sections, budget, retrievalQuery);
+        AgentContextAssembly assembly = assembler.assemble(plan.sections(), budget);
+        if (!plan.retrievalApplied()) {
+            log.info("[{}] 上下文装填：{}", agentRole, assembly.report().summary());
+            return assembly;
+        }
+
+        /*
+         * 检索启用了：组装器只知道自己收到的清单，不知道被检索策略放弃的旧章。
+         * 把两边裁掉的段合并进同一份报表，界面上"裁掉了什么"才是完整的。
+         */
+        List<String> trimmed = new ArrayList<>(assembly.report().trimmedTitles());
+        trimmed.addAll(plan.droppedTitles());
+        AgentContextReport report = new AgentContextReport(
+                assembly.report().budgetTokens(), assembly.report().usedTokens(),
+                assembly.report().keptTitles(), trimmed);
+        log.info("[{}] 材料超预算，已启用章节检索兜底：{}",
+                agentRole, assembly.report().summary());
+        return new AgentContextAssembly(assembly.text(), report);
     }
 
     public AgentContextAssembly assemble(String agentRole, Long projectId) {
