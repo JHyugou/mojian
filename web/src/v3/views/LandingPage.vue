@@ -40,20 +40,6 @@ function animateStats() {
   animateCount(shownChapters.value, totalChapters.value, 1200, (n) => (shownChapters.value = n))
 }
 
-/** 首屏跟随鼠标的柔光：把指针位置写进 CSS 变量，由 ::after 渲染 */
-const heroEl = ref(null)
-let spotFrame = 0
-function onHeroMove(event) {
-  const el = heroEl.value
-  if (!el) return
-  if (spotFrame) cancelAnimationFrame(spotFrame)
-  spotFrame = requestAnimationFrame(() => {
-    const rect = el.getBoundingClientRect()
-    el.style.setProperty('--spot-x', `${((event.clientX - rect.left) / rect.width) * 100}%`)
-    el.style.setProperty('--spot-y', `${((event.clientY - rect.top) / rect.height) * 100}%`)
-  })
-}
-
 async function load() {
   loading.value = true
   loadError.value = ''
@@ -259,8 +245,9 @@ const fmtTime = (value) => {
     </Teleport>
 
     <main class="ld-main">
-      <section ref="heroEl" class="hero" @pointermove="onHeroMove">
-        <!-- 装饰层：水墨远山、巨字水印、朱砂印、指针柔光 -->
+      <section class="hero">
+        <!-- 装饰层：水墨远山、巨字水印、朱砂印。这里刻意不放跟随鼠标的光效：
+             首页是"看作品"的地方，光标动效会持续抢注意力。 -->
         <div class="hero-ink" aria-hidden="true">
           <svg viewBox="0 0 1440 320" preserveAspectRatio="none">
             <path d="M0 320 L150 214 Q236 150 318 216 L420 286 L540 196 Q640 122 742 200 L852 280 L980 190 Q1080 118 1190 198 L1300 262 L1440 214 L1440 320 Z" />
@@ -347,7 +334,7 @@ const fmtTime = (value) => {
             class="project-card-wrap"
             v-reveal="{ delay: 40 + index * 55 }"
           >
-            <V3Card class="project-card" material="glass" interactive tilt @click="enterProject(project)">
+            <V3Card class="project-card" material="glass" interactive @click="enterProject(project)">
               <div class="pc-top">
                 <span class="pc-index">{{ String(index + 1).padStart(2, '0') }}</span>
                 <V3Tag v-if="project.genre" tone="gold">{{ project.genre }}</V3Tag>
@@ -508,21 +495,6 @@ const fmtTime = (value) => {
   position: relative;
   padding: 12vh 0 10vh;
   isolation: isolate;
-}
-/* 指针柔光：跟随鼠标的一团极淡金光，让首屏"活的"但不喧宾夺主 */
-.hero::after {
-  content: '';
-  position: absolute;
-  inset: -10% -20% 0;
-  z-index: -1;
-  background: radial-gradient(
-    480px circle at var(--spot-x, 50%) var(--spot-y, 42%),
-    rgba(206, 169, 110, 0.1),
-    transparent 62%
-  );
-  opacity: 0.9;
-  pointer-events: none;
-  transition: opacity var(--v3-dur-4);
 }
 /* 标题上方一团极淡的金色顶光。
  * 宽度必须是"整页"而不是 hero 的 74vw：hero 限宽居中后两侧会留下一道没有光晕的
