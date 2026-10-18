@@ -129,3 +129,25 @@ describe('静态检查：Vue API 的 import 是否齐全', () => {
     expect(problems, problems.join('\n')).toEqual([])
   })
 })
+
+describe('静态检查：布局与盒模型（真实踩过的坑）', () => {
+  // 直接读源文件：Vitest 会把 CSS / ?raw 导入处理成空模块，静态断言拿不到内容
+  async function read(relativePath) {
+    const { readFileSync } = await import('node:fs')
+    const { fileURLToPath } = await import('node:url')
+    return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8')
+  }
+
+  it('v3 根节点必须统一 border-box，否则输入框会比弹窗宽出一截', async () => {
+    const css = await read('./assets/v3/tokens.css')
+    expect(css).toMatch(/\.v3-root\s*,[\s\S]{0,200}box-sizing:\s*border-box/)
+  })
+
+  it('策划/写作舞台必须 flex: 1，否则宽屏右侧会空出一大块', async () => {
+    const planner = await read('./v3/workbench/PlannerStage.vue')
+    const writer = await read('./v3/workbench/WriterStage.vue')
+    expect(planner).toMatch(/\.planner\s*\{[^}]*flex:\s*1\s+1\s+auto/)
+    expect(writer).toMatch(/\.writer\s*\{[^}]*flex:\s*1\s+1\s+auto/)
+  })
+})
+

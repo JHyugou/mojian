@@ -475,7 +475,7 @@ onBeforeUnmount(() => controller.value?.abort())
 </template>
 
 <style scoped>
-.planner { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.planner { flex: 1 1 auto; display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .stage-head {
   display: flex;
   align-items: flex-end;

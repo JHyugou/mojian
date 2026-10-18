@@ -809,7 +809,7 @@ watch(() => props.chapter?.id, () => {
 </template>
 
 <style scoped>
-.writer { display: flex; flex-direction: column; height: 100%; min-width: 0; }
+.writer { flex: 1 1 auto; display: flex; flex-direction: column; height: 100%; min-width: 0; }
 .stage-head {
   display: flex;
   align-items: center;

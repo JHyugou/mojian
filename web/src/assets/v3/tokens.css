@@ -142,6 +142,20 @@ html[data-v3-theme="sujuan"] {
   text-rendering: optimizeLegibility;
 }
 
+/*
+ * 盒模型统一成 border-box。
+ *
+ * 不写的话，所有 width:100% + padding 的输入框/文本域都会比容器宽出
+ * 左右 padding + 边框 —— 弹窗里表现为"右侧留白很窄、内容顶到边"，
+ * 长文本域甚至被裁掉一截。这是 v3 第一批组件里的真实 bug。
+ */
+.v3-root,
+.v3-root *,
+.v3-root *::before,
+.v3-root *::after {
+  box-sizing: border-box;
+}
+
 .v3-root ::selection {
   background: var(--v3-selection);
   color: var(--v3-text);
