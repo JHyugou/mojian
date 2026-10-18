@@ -42,7 +42,9 @@ const PATHS = {
   // 单选已选中
   check: '<path d="M4.5 12.5l5 5 10-11"/>',
   // 回车键
-  enter: '<path d="M9 10l-5 5 5 5"/><path d="M4 15h11a4 4 0 0 0 4-4V5"/>'
+  enter: '<path d="M9 10l-5 5 5 5"/><path d="M4 15h11a4 4 0 0 0 4-4V5"/>',
+  // 回滚到这一步
+  undo: '<path d="M4 10h10a5 5 0 1 1 0 10h-3"/><path d="M8 6l-4 4 4 4"/>'
 }
 </script>
 

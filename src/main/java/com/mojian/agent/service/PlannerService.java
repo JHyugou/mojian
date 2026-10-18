@@ -47,8 +47,10 @@ public class PlannerService {
     private final ConversationService conversationService;
     private final AgentProfileService profileService;
     private final AgentUsageService usageService;
+    private final AgentRunRegistry runRegistry;
 
-    public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage) {
+    public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
+                                       String runId) {
         // 1. 会话
         AgentConversation conversation = conversationId == null
                 ? conversationService.create(projectId, AgentRole.PLANNER, userMessage)
@@ -81,14 +83,32 @@ public class PlannerService {
          * （在这之前这里没传 listener，思考过程是被直接丢弃的。）
          */
         StringBuilder reasoning = new StringBuilder();
-        AgentRunListener reasoningCollector = new AgentRunListener() {
+        runRegistry.begin(runId);
+        AgentRunListener listener = new AgentRunListener() {
             @Override
             public void onReasoning(String delta) {
                 reasoning.append(delta);
             }
+
+            /**
+             * 用户点了停止。
+             *
+             * <p>前端断开连接是不够的 —— 服务端这边的线程会照跑不误，
+             * 模型还在生成、钱还在花。所以真正的叫停靠这张登记表：
+             * 循环每轮、每次动手执行工具之前都会问一次这里。
+             */
+            @Override
+            public boolean cancelled() {
+                return runRegistry.isCancelled(runId);
+            }
         };
-        AgentResult result = agentLoopService.run(context, systemPrompt, history, userMessage,
-                maxSteps(), reasoningCollector);
+        AgentResult result;
+        try {
+            result = agentLoopService.run(context, systemPrompt, history, userMessage,
+                    maxSteps(), listener);
+        } finally {
+            runRegistry.end(runId);
+        }
 
         // 6. 回答落库
         conversationService.append(conversation.getId(), result.steps(),

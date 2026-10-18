@@ -15,6 +15,7 @@ import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentProfileService;
+import com.mojian.agent.service.AgentRunRegistry;
 import com.mojian.agent.service.AgentUsageService;
 import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.DraftService;
@@ -70,6 +71,7 @@ public class AgentController {
     private final WriterService writerService;
     private final ChapterService chapterService;
     private final AgentUsageService usageService;
+    private final AgentRunRegistry runRegistry;
     private final TaskEventBroker broker;
 
     // ==================== 策划对话 ====================
@@ -82,9 +84,38 @@ public class AgentController {
     @PostMapping("/planner/chat")
     public ApiResponse<PlannerChatResponse> plannerChat(@Valid @RequestBody PlannerChatRequest request) {
         return ApiResponse.ok(plannerService.chat(
-                request.projectId(), request.conversationId(), request.message()));
+                request.projectId(), request.conversationId(), request.message(), request.runId()));
     }
 
+    /**
+     * 叫停一段正在跑的策划对话。
+     *
+     * <p>前端断开 HTTP 连接是"我看不见了"，不是"现在停" ——
+     * 服务端线程还在跑、模型还在生成、钱还在花。必须显式告诉后端。
+     */
+    @PostMapping("/planner/runs/{runId}/cancel")
+    public ApiResponse<Map<String, Object>> cancelPlannerRun(@PathVariable String runId) {
+        return ApiResponse.ok(Map.of("cancelled", runRegistry.cancel(runId)));
+    }
+
+    /**
+     * 对话回滚：从第 N 条用户消息开始，把这条以及它后面的一切从上下文里抹掉。
+     *
+     * <p>用户输错了、或者想换个方向重来时用。请求体里的 keepUserMessages
+     * 是"保留前几条用户消息"，从它的下一条开始删。
+     *
+     * <p>为什么按"第几条用户消息"而不是消息 id：前端手上只有渲染出来的对话数组，
+     * 下标和数据库行号不是一回事（中间夹着工具调用与结果）。
+     * 但"第几条用户消息"这个口径两边都能算，必然对得上。
+     */
+    @PostMapping("/conversations/{conversationId}/rollback")
+    public ApiResponse<Map<String, Object>> rollbackConversation(
+            @PathVariable Long conversationId,
+            @RequestBody Map<String, Integer> body) {
+        int keep = body.getOrDefault("keepUserMessages", 0);
+        int deleted = conversationService.rollbackToUserMessage(conversationId, Math.max(0, keep));
+        return ApiResponse.ok(Map.of("deleted", deleted));
+    }
     /** 该会话的剧情方案（前端渲染成方案卡） */
     @GetMapping("/conversations/{conversationId}/plan-options")
     public ApiResponse<List<AgentPlanOption>> planOptions(@PathVariable Long conversationId) {

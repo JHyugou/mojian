@@ -39,6 +39,10 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ConversationService {
 
+    /** 用户消息的角色名：回滚时靠它数「第几条用户消息」 */
+    private static final String USER_ROLE = "user";
+
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int TITLE_MAX_LENGTH = 40;
 
@@ -91,6 +95,52 @@ public class ConversationService {
      * <p>每追加一条就落库（而不是攒一批再写）：Agent 跑到一半失败或服务重启时，
      * 已经发生的工具调用不会丢 —— 排查问题时最想看的恰恰是"崩之前它查了什么"。
      */
+    /**
+     * 回滚：从第 N 条用户消息开始，把这条<b>以及它后面的一切</b>从上下文里抹掉。
+     *
+     * <h3>为什么按"第几条用户消息"定位，而不是按消息 id</h3>
+     * 前端手上只有渲染出来的对话数组，数组下标和数据库里的行号不是一回事 ——
+     * 中间夹着工具调用与工具结果，一条用户消息后面可能跟着七八行。
+     * 但"第几条用户消息"这个口径两边都能算：前端数自己数组里的 user 条目，
+     * 这里数数据库里的 role='user' 行，必然对得上。
+     *
+     * <h3>为什么不真的删除</h3>
+     * 这里确实是把行删了。之所以敢删，是因为这个操作是<b>用户对着自己看得见的那条消息</b>
+     * 主动点的，而且删之前的消息仍然完整保留。
+     * （如果将来要做"可撤销的回滚"，那才需要软删除 + 版本表；
+     *  现在这个场景不值得为它引入一套回收站。）
+     *
+     * @param keepUserMessages 保留前几条用户消息；从第 keepUserMessages+1 条开始删
+     * @return 实际删掉的行数
+     */
+    @Transactional
+    public int rollbackToUserMessage(Long conversationId, int keepUserMessages) {
+        List<AgentMessageLog> all = messageLogMapper.selectList(
+                Wrappers.<AgentMessageLog>lambdaQuery()
+                        .eq(AgentMessageLog::getConversationId, conversationId)
+                        .orderByAsc(AgentMessageLog::getId));
+
+        int seen = 0;
+        Long cutFromId = null;
+        for (AgentMessageLog message : all) {
+            if (USER_ROLE.equals(message.getRole())) {
+                seen++;
+                if (seen == keepUserMessages + 1) {
+                    cutFromId = message.getId();
+                    break;
+                }
+            }
+        }
+        if (cutFromId == null) {
+            return 0;
+        }
+
+        int deleted = messageLogMapper.delete(Wrappers.<AgentMessageLog>lambdaQuery()
+                .eq(AgentMessageLog::getConversationId, conversationId)
+                .ge(AgentMessageLog::getId, cutFromId));
+        log.info("会话 {} 回滚：保留 {} 条用户消息，删除 {} 行", conversationId, keepUserMessages, deleted);
+        return deleted;
+    }
     @Transactional
     public AgentMessageLog append(Long conversationId, int stepNo, AgentMessage message) {
         /*

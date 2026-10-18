@@ -13,8 +13,8 @@ const WRITER_TIMEOUT = 30 * 60 * 1000
 // ==================== 策划对话 ====================
 
 /** conversationId 传 null 表示新开一段对话；signal 用于中止（用户点"停下"） */
-export function plannerChat(projectId, conversationId, message, signal) {
-  return http.post('/agent/planner/chat', { projectId, conversationId, message },
+export function plannerChat(projectId, conversationId, message, signal, runId) {
+  return http.post('/agent/planner/chat', { projectId, conversationId, message, runId },
     { timeout: PLANNER_TIMEOUT, signal })
 }
 
@@ -167,4 +167,24 @@ export function updateAgentProfile(role, data) {
 
 export function listAgentTools() {
   return http.get('/agent/tools')
+}
+
+/**
+ * 叫停一段正在跑的策划对话。
+ *
+ * 前端断开连接是"我看不见了"，不是"现在停" ——
+ * 服务端线程还在跑、模型还在生成、钱还在花。必须显式告诉后端。
+ */
+export function cancelPlannerRun(runId) {
+  return http.post(`/agent/planner/runs/${runId}/cancel`)
+}
+
+/**
+ * 对话回滚：从第 keepUserMessages+1 条用户消息开始，把它和后面的一切从上下文里抹掉。
+ *
+ * 前端手上只有渲染出来的数组，下标和数据库行号不是一回事（中间夹着工具调用），
+ * 所以用"第几条用户消息"这个两边都能算的口径。
+ */
+export function rollbackConversation(conversationId, keepUserMessages) {
+  return http.post(`/agent/conversations/${conversationId}/rollback`, { keepUserMessages })
 }

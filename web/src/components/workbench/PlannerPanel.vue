@@ -26,7 +26,24 @@
       </div>
 
       <div v-for="(msg, i) in messages" :key="i" class="pl-msg mj-rise" :class="['is-' + msg.role, { 'is-cancelled': msg.cancelled }]">
-        <div class="pl-msg-tag">{{ msg.role === 'user' ? '你' : '策划 Agent' }}</div>
+        <div class="pl-msg-tag">
+          {{ msg.role === 'user' ? '你' : '策划 Agent' }}
+          <!--
+            回滚按钮：只有鼠标移到你的消息上才出现。
+            常驻会让每条用户消息旁边都挂个图标，很吵；
+            但它又是一个"事后才想起来用"的功能，藏进菜单就更找不到了，
+            所以折中成"悬停浮现"。
+          -->
+          <button
+            v-if="msg.role === 'user' && !sending"
+            class="pl-rollback"
+            title="回到这一步（这条及之后的对话会从上下文里删掉，内容填回输入框）"
+            @click="rollbackTo(i)"
+          >
+            <Icon name="undo" :size="12" />
+            回到这里
+          </button>
+        </div>
 
         <ThinkingBlock
           v-if="msg.role === 'assistant'"
@@ -322,7 +339,9 @@ import {
   listConversations,
   listPlanOptions,
   listProjectDrafts,
+  cancelPlannerRun,
   plannerChat,
+  rollbackConversation,
   rejectDraft,
   selectPlanOption
 } from '../../api/agent'
@@ -358,6 +377,8 @@ const modeMenuOpen = ref(false)
 const autoNotice = ref('')
 /** 正在跑的请求，用来中止 */
 const controller = ref(null)
+/** 本次运行的 id：前端生成，用来让「停止」能找到后端正在跑的那一次 */
+const currentRunId = ref(null)
 
 // ==================== 底部工具条状态 ====================
 
@@ -496,12 +517,32 @@ function setAutoApprove(value) {
  * <p>中止必须真的传到后端：axios 的 abort 会断开连接，
  * 后端那次模型调用随之结束 —— 否则用户按了"停下"，钱还在花。
  */
-function stop() {
+async function stop() {
+  const runId = currentRunId.value
+
+  /*
+   * 先告诉后端停。
+   *
+   * 只 abort 是不够的 —— 那只是断开了前端的连接，服务端线程照样在跑、
+   * 模型照样在生成、钱照样在花。用户按「停止」的意思是「现在停」。
+   * 这个接口带的是 runId（前端生成的），所以新开的对话也能叫停。
+   */
+  if (runId) {
+    try {
+      await cancelPlannerRun(runId)
+    } catch (e) {
+      // 可能刚好跑完了，取消失败不算问题
+      console.warn('叫停失败（可能已结束）', e)
+    }
+  }
+
   controller.value?.abort()
   controller.value = null
+  currentRunId.value = null
   sending.value = false
   phase.value = ''
-  // 在对话里留一条说明。否则界面上就是"你说了话，然后什么都没有" -
+
+  // 在对话里留一条说明。否则界面就是"你说了话，然后什么都没有" -
   // 那看起来像发送失败，而不是像你主动停的
   messages.value = [...messages.value, {
     role: 'assistant',
@@ -509,6 +550,35 @@ function stop() {
     cancelled: true
   }]
   scrollToBottom()
+}
+
+/**
+ * 回滚到某条用户消息。
+ *
+ * <p>把这条<b>以及它后面的一切</b>从上下文里抹掉，同时把这条的内容填回输入框 ——
+ * 输错了或者想换个方向重来时用，不用手动重打一遍。
+ *
+ * <p>后端按「第几条用户消息」定位，不是按消息 id：
+ * 中间夹着工具调用与结果，前端的数组下标和数据库行号不是一回事。
+ */
+async function rollbackTo(index) {
+  const target = messages.value[index]
+  if (!target || target.role !== 'user') return
+
+  const keep = messages.value.slice(0, index).filter((m) => m.role === 'user').length
+
+  try {
+    if (conversationId.value) {
+      await rollbackConversation(conversationId.value, keep)
+    }
+    messages.value = messages.value.slice(0, index)
+    draftMessage.value = target.text
+    emit('clear-citations')
+    message.success('已回滚到这条，内容已填回输入框')
+    scrollToBottom()
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 const messages = ref([])
@@ -746,10 +816,12 @@ async function send() {
   const timer = setTimeout(() => { phase.value = '正在梳理走向…' }, 8000)
 
   controller.value = new AbortController()
+  const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
+  currentRunId.value = runId
 
   try {
     const data = await plannerChat(props.projectId, conversationId.value, outgoing,
-      controller.value.signal)
+      controller.value.signal, runId)
     const wasNew = !conversationId.value
     conversationId.value = data.conversationId
     if (wasNew) {
@@ -1510,4 +1582,34 @@ async function discardDraft(draft) {
 }
 .pl-att-x:hover { background: var(--tint-strong); color: var(--color-danger); }
 
+
+/* ---------- 回到这里（悬停浮现） ---------- */
+
+.pl-rollback {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out);
+}
+
+.pl-msg.is-user:hover .pl-rollback { opacity: 1; transform: none; }
+
+.pl-rollback:hover {
+  background: var(--tint-strong);
+  color: var(--color-brown-deep);
+}
 </style>
