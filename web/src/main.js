@@ -9,7 +9,11 @@ import './assets/workbench.css'
 // 主题包：在 theme.css 之后加载，靠 html[data-theme] 覆盖主色槽位。
 // 顺序很重要 —— 它必须能盖过 :root 里的默认值。
 import './assets/themes.css'
+// v3 设计系统（墨海/素笺）：命名空间 v3-，与旧令牌共存，逐步替换旧页面
+import './assets/v3/tokens.css'
 import { useSettingsStore } from './stores/settings'
+import { initV3Theme } from './v3/theme'
+import { vReveal } from './v3/motion'
 
 /*
  * 未捕获错误的回传监听**不在这里**，在 index.html 的内联脚本里。
@@ -23,6 +27,9 @@ import { useSettingsStore } from './stores/settings'
 const app = createApp(App)
 const pinia = createPinia()
 
+// v-reveal：进入视口时入场（新页面通用）
+app.directive('reveal', vReveal)
+
 app.use(pinia).use(router).mount('#app')
 
 /*
@@ -31,3 +38,4 @@ app.use(pinia).use(router).mount('#app')
  * 那一下闪烁比配色不对还难看。
  */
 useSettingsStore(pinia).init()
+initV3Theme()

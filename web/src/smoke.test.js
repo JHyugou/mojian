@@ -48,6 +48,8 @@ async function mountPage(loader) {
 }
 
 const PAGES = {
+  '首页（v3）': () => import('./v3/views/LandingPage.vue'),
+  '设计定稿页（v3）': () => import('./v3/views/UiPreviewPage.vue'),
   '创作工作台': () => import('./views/WorkbenchPage.vue'),
   '创作项目': () => import('./views/ProjectListPage.vue'),
   '成书': () => import('./views/BookPage.vue'),
@@ -97,10 +99,13 @@ describe('外壳冒烟：App 要能挂起来', () => {
     const { default: App } = await import('./App.vue')
     const { default: router } = await import('./router/index.js')
 
+    // v3 首页与设计定稿页是全屏画布，不套旧外壳；这里验证"旧外壳仍在"的页面
+    await router.push('/settings')
+    await router.isReady()
+
     const wrapper = mount(App, {
       global: { plugins: [createPinia(), router] }
     })
-    await router.isReady()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     spy.mockRestore()

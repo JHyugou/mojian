@@ -1,0 +1,259 @@
+/* =====================================================================
+ * 墨笺 v3 · 「墨海 / 素笺」设计系统
+ *
+ * 设计概念：东方极简 × 电影感 × 纸墨光
+ * - 底色是深海一样的墨（不是纯黑），上面浮着纸/玻璃质感的面板
+ * - 金色只用于"线"和"焦点"，朱砂只用于印章与关键状态，用量克制
+ * - 动效统一走这套令牌：transform / opacity 为主，绝不牺牲 60fps
+ *
+ * 命名空间统一 v3- 前缀，避免与旧版 theme.css（--color-* / mj-*）冲突；
+ * 旧页面在迁移完成前继续使用旧令牌，两套可以共存。
+ * ===================================================================== */
+
+/* ---------- 字体：系统栈优先，不加载外网 web font ---------- */
+:root {
+  --v3-font-serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --v3-font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --v3-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+
+  /* ---------- 尺度 ---------- */
+  --v3-r-xs: 8px;
+  --v3-r-sm: 12px;
+  --v3-r-md: 16px;
+  --v3-r-lg: 22px;
+  --v3-r-xl: 32px;
+  --v3-r-pill: 999px;
+
+  /* ---------- 动效 ---------- */
+  --v3-dur-1: 120ms;
+  --v3-dur-2: 220ms;
+  --v3-dur-3: 360ms;
+  --v3-dur-4: 640ms;
+  --v3-dur-5: 1200ms;
+  --v3-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --v3-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --v3-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --v3-ease-ink: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* ---------- 排版 ---------- */
+  --v3-tracking-tight: -0.02em;
+  --v3-tracking-wide: 0.14em;
+  --v3-tracking-wider: 0.3em;
+}
+
+/* =====================================================================
+ * 暗色主题「墨海」—— 默认
+ * ===================================================================== */
+html[data-v3-theme="inksea"] {
+  color-scheme: dark;
+
+  --v3-canvas: #06070a;
+  --v3-canvas-deep: #030405;
+  --v3-surface-0: rgba(13, 15, 20, 0.72);
+  --v3-surface-1: rgba(18, 21, 28, 0.66);
+  --v3-surface-2: rgba(26, 30, 39, 0.62);
+  --v3-surface-solid: #0d0f14;
+  --v3-surface-raised: #141821;
+
+  --v3-text: #f2ede3;
+  --v3-text-soft: #b8b2a7;
+  --v3-text-muted: #858077;
+  --v3-text-faint: #56534d;
+
+  --v3-hairline: rgba(242, 237, 227, 0.1);
+  --v3-hairline-strong: rgba(242, 237, 227, 0.18);
+  --v3-hairline-gold: rgba(206, 169, 110, 0.34);
+
+  --v3-gold: #cea96e;
+  --v3-gold-bright: #e8cf9e;
+  --v3-gold-deep: #a9854f;
+  --v3-cinnabar: #c94c3b;
+  --v3-cinnabar-soft: rgba(201, 76, 59, 0.16);
+  --v3-jade: #7fa8a1;
+
+  --v3-glow-gold: rgba(206, 169, 110, 0.26);
+  --v3-glow-cinnabar: rgba(201, 76, 59, 0.2);
+
+  --v3-grad-gold: linear-gradient(135deg, #f0dcae 0%, #cea96e 52%, #a9854f 100%);
+  --v3-grad-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.015) 60%, rgba(255, 255, 255, 0) 100%);
+  --v3-grad-ink: linear-gradient(180deg, rgba(6, 7, 10, 0) 0%, rgba(6, 7, 10, 0.72) 100%);
+
+  --v3-shadow-float: 0 24px 80px -24px rgba(0, 0, 0, 0.85), 0 2px 0 rgba(255, 255, 255, 0.03) inset;
+  --v3-shadow-card: 0 18px 50px -22px rgba(0, 0, 0, 0.7);
+  --v3-scroll-thumb: rgba(206, 169, 110, 0.22);
+  --v3-scroll-thumb-hover: rgba(206, 169, 110, 0.4);
+  --v3-selection: rgba(206, 169, 110, 0.28);
+}
+
+/* =====================================================================
+ * 亮色主题「素笺」
+ * ===================================================================== */
+html[data-v3-theme="sujuan"] {
+  color-scheme: light;
+
+  --v3-canvas: #f3eee3;
+  --v3-canvas-deep: #e9e2d4;
+  --v3-surface-0: rgba(255, 253, 246, 0.82);
+  --v3-surface-1: rgba(255, 252, 244, 0.72);
+  --v3-surface-2: rgba(248, 243, 233, 0.8);
+  --v3-surface-solid: #fffdf7;
+  --v3-surface-raised: #ffffff;
+
+  --v3-text: #211c16;
+  --v3-text-soft: #4d453b;
+  --v3-text-muted: #857a6b;
+  --v3-text-faint: #b0a695;
+
+  --v3-hairline: rgba(60, 44, 30, 0.1);
+  --v3-hairline-strong: rgba(60, 44, 30, 0.18);
+  --v3-hairline-gold: rgba(176, 138, 79, 0.32);
+
+  --v3-gold: #a9854f;
+  --v3-gold-bright: #c9a46a;
+  --v3-gold-deep: #7c5f34;
+  --v3-cinnabar: #b2452f;
+  --v3-cinnabar-soft: rgba(178, 69, 47, 0.12);
+  --v3-jade: #5f827c;
+
+  --v3-glow-gold: rgba(169, 133, 79, 0.16);
+  --v3-glow-cinnabar: rgba(178, 69, 47, 0.1);
+
+  --v3-grad-gold: linear-gradient(135deg, #c9a46a 0%, #a9854f 55%, #876834 100%);
+  --v3-grad-glass: linear-gradient(160deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.2) 60%, rgba(255, 255, 255, 0) 100%);
+  --v3-grad-ink: linear-gradient(180deg, rgba(243, 238, 227, 0) 0%, rgba(233, 226, 212, 0.8) 100%);
+
+  --v3-shadow-float: 0 24px 70px -28px rgba(60, 44, 30, 0.34), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  --v3-shadow-card: 0 16px 40px -24px rgba(60, 44, 30, 0.26);
+  --v3-scroll-thumb: rgba(120, 95, 62, 0.22);
+  --v3-scroll-thumb-hover: rgba(120, 95, 62, 0.4);
+  --v3-selection: rgba(169, 133, 79, 0.22);
+}
+
+/* =====================================================================
+ * 基础元素（只在 v3 页面/组件里生效，不污染旧页面）
+ * ===================================================================== */
+.v3-root {
+  color: var(--v3-text);
+  font-family: var(--v3-font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.v3-root ::selection {
+  background: var(--v3-selection);
+  color: var(--v3-text);
+}
+
+.v3-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--v3-scroll-thumb) transparent;
+}
+.v3-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.v3-scroll::-webkit-scrollbar-track { background: transparent; }
+.v3-scroll::-webkit-scrollbar-thumb {
+  background: var(--v3-scroll-thumb);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--v3-r-pill);
+  transition: background var(--v3-dur-2);
+}
+.v3-scroll::-webkit-scrollbar-thumb:hover { background: var(--v3-scroll-thumb-hover); background-clip: padding-box; }
+
+/* 细金线：整个系统里"层次"的主要表达方式，不用重阴影堆叠 */
+.v3-hairline {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(90deg, transparent, var(--v3-hairline-strong) 18%, var(--v3-hairline-strong) 82%, transparent);
+}
+
+/* =====================================================================
+ * 关键帧
+ * ===================================================================== */
+@keyframes v3-rise {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); filter: blur(6px); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); filter: blur(0); }
+}
+@keyframes v3-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes v3-pop {
+  0% { opacity: 0; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes v3-drift-1 {
+  0% { transform: translate3d(-4%, -2%, 0) scale(1); }
+  50% { transform: translate3d(5%, 4%, 0) scale(1.08); }
+  100% { transform: translate3d(-4%, -2%, 0) scale(1); }
+}
+@keyframes v3-drift-2 {
+  0% { transform: translate3d(3%, 2%, 0) scale(1.04); }
+  50% { transform: translate3d(-5%, -3%, 0) scale(0.98); }
+  100% { transform: translate3d(3%, 2%, 0) scale(1.04); }
+}
+@keyframes v3-drift-3 {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50% { transform: translate3d(-3%, 6%, 0) rotate(4deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+@keyframes v3-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes v3-caret {
+  0%, 45% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+@keyframes v3-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes v3-sheen {
+  0% { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
+  18% { opacity: 0.85; }
+  100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+}
+@keyframes v3-seal-in {
+  0% { opacity: 0; transform: scale(1.6) rotate(-14deg); }
+  60% { opacity: 1; transform: scale(0.94) rotate(3deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+@keyframes v3-line-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes v3-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* =====================================================================
+ * 入场动效指令（v-reveal）：进入视口时触发，支持 --i 错峰
+ * ===================================================================== */
+.v3-reveal {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  filter: blur(8px);
+  transition:
+    opacity var(--v3-dur-4) var(--v3-ease-out),
+    transform var(--v3-dur-4) var(--v3-ease-out),
+    filter var(--v3-dur-4) var(--v3-ease-out);
+  transition-delay: calc(var(--v3-reveal-delay, 0ms));
+  will-change: opacity, transform, filter;
+}
+.v3-reveal.is-revealed {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  filter: blur(0);
+}
+
+/* 无限动画只给"环境层"，且支持减弱动效 */
+@media (prefers-reduced-motion: reduce) {
+  .v3-reveal { opacity: 1; transform: none; filter: none; transition: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

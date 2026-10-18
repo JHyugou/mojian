@@ -1,9 +1,17 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useProjectStore } from './stores/project'
 import { useMessageStore } from './stores/message'
 import Resizer from './components/workbench/Resizer.vue'
 import WorkspaceTree from './components/WorkspaceTree.vue'
+
+const route = useRoute()
+/**
+ * v3 全屏页面（首页、设计定稿页）自带画布与导航，不再套旧外壳。
+ * 其余页面在迁移完成前继续使用旧外壳。
+ */
+const isV3Route = computed(() => route.path === '/' || route.path === '/ui-preview')
 
 const contextOpen = ref(true)
 const projectStore = useProjectStore()
@@ -29,7 +37,9 @@ const navItems = [
 </script>
 
 <template>
-  <div class="app-shell">
+  <!-- v3 页面是全屏画布：首页/设计定稿页自己管导航，不套旧外壳 -->
+  <RouterView v-if="isV3Route" />
+  <div v-else class="app-shell">
     <!-- 背景装饰层：远山、流霭（纯装饰，不参与交互） -->
     <div class="backdrop" aria-hidden="true">
       <svg class="mountains" viewBox="0 0 1440 300" preserveAspectRatio="none">

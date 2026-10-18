@@ -44,7 +44,21 @@ const PATHS = {
   // 回车键
   enter: '<path d="M9 10l-5 5 5 5"/><path d="M4 15h11a4 4 0 0 0 4-4V5"/>',
   // 回滚到这一步：一道干净的回转箭头（箭头 + 平滑回弯）
-  undo: '<path d="M4 9h9.5a4.5 4.5 0 0 1 0 9H10"/><path d="M7.5 5.5L4 9l3.5 3.5"/>'
+  undo: '<path d="M4 9h9.5a4.5 4.5 0 0 1 0 9H10"/><path d="M7.5 5.5L4 9l3.5 3.5"/>',
+  // ===== v3 新图标 =====
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+  moon: '<path d="M20 13.2A8 8 0 1 1 10.8 4a6.4 6.4 0 0 0 9.2 9.2z"/>',
+  book: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>',
+  arrowRight: '<path d="M4 12h15"/><path d="M13 6l6 6-6 6"/>',
+  upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-3"/>',
+  download: '<path d="M12 4v12"/><path d="M7 11l5 5 5-5"/><path d="M4 16v3a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19v-3"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  command: '<path d="M9 6a3 3 0 1 0-3 3h3zM15 6a3 3 0 1 1 3 3h-3zM9 18a3 3 0 1 1-3-3h3zM15 18a3 3 0 1 0 3-3h-3z"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+  quill: '<path d="M4 20c6-2 10-6 12-12l2-2 2 2-2 2C12 16 8 18 4 20z"/><path d="M4 20c2-4 4-6 7-8"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17l9 5 9-5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  quote: '<path d="M9 7H5v5h4c0 3-2 4-4 5"/><path d="M19 7h-4v5h4c0 3-2 4-4 5"/>'
 }
 </script>
 
