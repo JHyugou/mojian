@@ -75,8 +75,6 @@ public class AgentMaterialLoader {
     /** 章节正文单块上限：真遇到超长章节不整段丢弃，先截断（组装器也认同这个策略） */
     private static final ContextSectionPolicy CHAPTER_POLICY = ContextSectionPolicy.TRUNCATE_TO_FIT;
 
-    /** 已有蓝图里每个节点摘要的最大字数（见 {@link #summarize}） */
-    private static final int OUTLINE_SUMMARY_LIMIT = 200;
 
     private final CharacterService characterService;
     private final SettingService settingService;
@@ -311,7 +309,8 @@ public class AgentMaterialLoader {
             }
         }
         return AgentContextSection.optional("蓝图", "已有蓝图", sb.toString().trim(),
-                PRIORITY_OUTLINE, ContextSectionPolicy.DROP_IF_NOT_FIT);
+                // 超预算时宁可"截短"也不要"整段消失"：蓝图没了，策划会重复规划、写作会跑偏
+                PRIORITY_OUTLINE, ContextSectionPolicy.TRUNCATE_TO_FIT);
     }
 
     private void appendOutlineNode(StringBuilder sb, PlotOutline node, int depth,
@@ -333,20 +332,23 @@ public class AgentMaterialLoader {
     }
 
     /**
-     * 蓝图摘要截断到 {@value #OUTLINE_SUMMARY_LIMIT} 字。
+     * 蓝图摘要原样返回，<b>不按节点截断</b>。
      *
-     * <p><b>这条限制是真实数据逼出来的</b>：策划 Agent 产出的蓝图细节可以写到六千字
-     * （地点、各自动机、三段冲突、钩子、写作提示…），而"已有蓝图"是随材料常驻的。
-     * 按那个长度，100 章就是 60 万字，足以单独撑爆上下文。
+     * <p>这里原来有个 200 字的硬上限，理由是"100 章 × 6000 字会撑爆上下文"。
+     * 实测后发现这个顾虑在当前模型上不成立，而代价却很实在：
+     * 某本书 14 个节点共 11,172 字，截断后只剩 2,341 字 ——
+     * <b>少注入了 8,831 字，占可用上下文的 0.55%</b>。
      *
-     * <p>分层的道理：<b>策划只需要知道"规划到哪了"，不需要重读每一章的完整方案</b>
-     * （那是写作环节的事，届时由写作 Agent 按章取完整内容）。
+     * <p>更糟的是被砍得最狠的往往正是"当前要写的那一章"的完整方案
+     * （实测有 4,152 字被砍到 200）—— 而写作 Agent 最需要的就是它。
+     *
+     * <p>所以改成：<b>全量注入，超出预算时交给组装器</b>
+     * （上面的策略已改为 TRUNCATE_TO_FIT，会先截短而不是整段丢弃）。
+     * 组装器本来就是干这个的 —— 在材料层再压一道，等于让同一个职责
+     * 出现在两个地方，而两边都不知道对方压了多少。
      */
     private String summarize(String summary) {
-        String trimmed = summary.trim();
-        return trimmed.length() <= OUTLINE_SUMMARY_LIMIT
-                ? trimmed
-                : trimmed.substring(0, OUTLINE_SUMMARY_LIMIT) + "……（完整内容见该节点的写作要求）";
+        return summary.trim();
     }
 
     private void sortByOrder(List<PlotOutline> nodes) {

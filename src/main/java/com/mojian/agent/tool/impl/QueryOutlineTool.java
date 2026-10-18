@@ -80,10 +80,18 @@ public class QueryOutlineTool implements AgentTool {
             }
             sb.append('\n');
             if (StringUtils.hasText(summary)) {
-                // 概要过长时截断：这个工具的用途是"定位"，不是"通读"
-                sb.append(summary.trim().length() > 600
-                        ? summary.trim().substring(0, 600) + "……\n"
-                        : summary.trim() + "\n");
+                /*
+                 * 原样返回，不再截断。
+                 *
+                 * 这里原本写的是"这个工具的用途是定位，不是通读"，所以砍到 600 字。
+                 * 但实测发现：写作 Agent 最需要完整方案的恰恰是"当前这一章"，
+                 * 而它的 summary 可能写到四千字 —— 砍到 600 之后，
+                 * 模型看到的是半截方案，然后要么凭想象补，要么再来问一次。
+                 *
+                 * 真超预算时，组装器会统一处理得更聪明（先截短、按优先级取舍），
+                 * 不该由某个工具各自拍一个数字。
+                 */
+                sb.append(summary.trim()).append('\n');
             }
         }
 
