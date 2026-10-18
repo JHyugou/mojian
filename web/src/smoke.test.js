@@ -119,3 +119,44 @@ describe('外壳冒烟：App 要能挂起来', () => {
     expect(fatal, `App 渲染期间不应有致命错误:\n${fatal.join('\n')}`).toEqual([])
   })
 })
+
+/**
+ * 静态检查：用了某个 Vue API 却没有 import 它。
+ *
+ * <p>为什么要单独一条：这类错误构建**不会报**（Vue 的 API 名在运行时才解析），
+ * 一挂载就抛 ReferenceError —— 页面直接白屏，一条线索都没有。
+ * 2026-10-18 真的踩过一次：给 PlannerPanel 加了 onBeforeUnmount，
+ * 但补 import 的判断写错了（用 -notmatch 检查，而注入的代码里已经有这个词），
+ * 于是 import 一直没加上。构建通过、冒烟也通过，打开页面全白。
+ *
+ * <p>这条扫描纯文本，不需要挂载，所以能兜住那一类。
+ */
+describe('静态检查：Vue API 的 import 是否齐全', () => {
+  const VUE_APIS = [
+    'ref', 'reactive', 'computed', 'watch', 'watchEffect',
+    'onMounted', 'onBeforeMount', 'onUnmounted', 'onBeforeUnmount',
+    'onActivated', 'onDeactivated', 'onErrorCaptured',
+    'nextTick', 'provide', 'inject', 'defineAsyncComponent'
+  ]
+
+  it('每个 .vue 里用到的 Vue API 都要在 import 里', async () => {
+    const modules = import.meta.glob('./**/*.vue', { query: '?raw', import: 'default' })
+    const problems = []
+
+    for (const [path, load] of Object.entries(modules)) {
+      const source = await load()
+      const templateAt = source.indexOf('<template>')
+      const script = templateAt > 0 ? source.slice(0, templateAt) : source
+      const importLine = (source.match(/import \{[^}]*\} from 'vue'/) || [''])[0]
+
+      for (const api of VUE_APIS) {
+        // 只查"当函数调用"的用法，避免把注释或字符串里的词算进来
+        if (new RegExp(`\\b${api}\\s*\\(`).test(script) && !new RegExp(`\\b${api}\\b`).test(importLine)) {
+          problems.push(`${path} 用了 ${api} 却没 import`)
+        }
+      }
+    }
+
+    expect(problems, problems.join('\n')).toEqual([])
+  })
+})
