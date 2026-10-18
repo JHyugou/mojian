@@ -41,7 +41,6 @@
             @click="rollbackTo(i)"
           >
             <Icon name="undo" :size="12" />
-            回到这里
           </button>
         </div>
 
@@ -1583,33 +1582,52 @@ async function discardDraft(draft) {
 .pl-att-x:hover { background: var(--tint-strong); color: var(--color-danger); }
 
 
-/* ---------- 回到这里（悬停浮现） ---------- */
+/* ---------- 回到这里（只有一个箭头，悬停气泡才浮现） ---------- */
 
 .pl-rollback {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 9px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 50%;
   background: transparent;
   cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
   color: var(--color-muted);
+  /*
+   * 用 visibility 一起控制。
+   * 只靠 opacity 的话，看不见但仍然占位、仍然能点到 ——
+   * "眼睛看不到但鼠标会撞上"是交互里最让人困惑的一种状态。
+   */
+  visibility: hidden;
   opacity: 0;
-  transform: translateX(-4px);
+  transform: translateX(6px) scale(0.86);
   transition: opacity var(--dur) var(--ease-out),
-              transform var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-spring),
               background var(--dur) var(--ease-out),
-              color var(--dur) var(--ease-out);
+              color var(--dur) var(--ease-out),
+              visibility 0s linear var(--dur);
 }
 
-.pl-msg.is-user:hover .pl-rollback { opacity: 1; transform: none; }
+/*
+ * 悬停整条消息（含气泡）才浮现。
+ * 平时完全不占视线 —— 但它在固定位置，找的时候一眼就能找到，不用翻菜单。
+ */
+.pl-msg.is-user:hover .pl-rollback {
+  visibility: visible;
+  opacity: 1;
+  transform: none;
+  transition-delay: 0s;
+}
 
+/* 悬停到箭头本身：再亮一点、微微放大 —— 告诉用户"这个能点" */
 .pl-rollback:hover {
   background: var(--tint-strong);
   color: var(--color-brown-deep);
+  transform: scale(1.12);
 }
+
+.pl-rollback:active { transform: scale(0.94); }
 </style>
