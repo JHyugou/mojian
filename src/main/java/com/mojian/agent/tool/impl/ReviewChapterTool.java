@@ -88,14 +88,20 @@ public class ReviewChapterTool implements AgentTool {
                 ? chapter.getWritingRequirement().trim() : "（未设置）").append("\n\n");
 
         List<ChapterSupplement> supplements = supplementService.listByChapter(chapter.getId());
-        sb.append("【已有补充要求】（审稿追加，按条独立；APPLIED 表示写作 Agent 已处理过一次）\n");
+        long pending = supplements.stream().filter(s -> "PENDING".equals(s.getStatus())).count();
+        long executing = supplements.stream().filter(s -> "EXECUTING".equals(s.getStatus())).count();
+        long applied = supplements.stream().filter(s -> "APPLIED".equals(s.getStatus())).count();
+        sb.append("【已有补充要求】共 ").append(supplements.size()).append(" 条：待执行 ")
+                .append(pending).append("，执行中 ").append(executing)
+                .append("，已执行 ").append(applied).append("\n");
+        sb.append("（状态以这里为准：待执行 = 还没让写作 Agent 改；执行中 = 正在改；已执行 = 已写入正文）\n");
         if (supplements.isEmpty()) {
             sb.append("（暂无）\n");
         } else {
             int index = 1;
             for (ChapterSupplement supplement : supplements) {
                 sb.append(index++).append(". [")
-                        .append("PENDING".equals(supplement.getStatus()) ? "待执行" : "已应用")
+                        .append(statusLabel(supplement.getStatus()))
                         .append("] [记录 ID ").append(supplement.getId()).append("] ")
                         .append(supplement.getContent().trim()).append('\n');
                 if (StringUtils.hasText(supplement.getReason())) {
@@ -120,6 +126,18 @@ public class ReviewChapterTool implements AgentTool {
         sb.append("如果还有实质问题，保持原状态。");
         sb.append("如果用户明确说某条补充要求不要了，可以用上面的记录 ID 调 remove_chapter_supplement 移除。");
         return sb.toString();
+    }
+
+    private String statusLabel(String status) {
+        if (status == null) {
+            return "未知";
+        }
+        return switch (status) {
+            case "PENDING" -> "待执行";
+            case "EXECUTING" -> "执行中";
+            case "APPLIED" -> "已执行";
+            default -> status;
+        };
     }
 
     private Integer intOf(Object value) {

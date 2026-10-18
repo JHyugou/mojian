@@ -105,9 +105,10 @@ class ChapterSupplementTest {
         assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
                 .contains("已有补充要求").contains("待执行");
 
-        // 写作成功后由 WriterService 标记；这里直接验证标记后审稿显示已应用
+        // 写作成功后由 WriterService 标记；这里直接验证标记后审稿显示已执行
         supplementService.markApplied(supplementService.pending(chapter.getId()));
-        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1))).contains("已应用");
+        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
+                .contains("已执行").contains("已执行 2");
     }
 
     @Test
@@ -148,6 +149,9 @@ class ChapterSupplementTest {
         ChapterSupplement executing = supplementService.require(supplement.getId());
         assertThat(executing.getStatus()).isEqualTo("EXECUTING");
         assertThat(executing.getExecutingTaskId()).isEqualTo(123456789L);
+        // 审稿必须能看出这一条还在执行，而不是误标成已执行
+        String executingReview = reviewTool.execute(context, Map.of("chapterNo", 1));
+        assertThat(executingReview).contains("执行中 1").contains("[执行中]");
         // 普通写作（不指定 supplementId）不会重复注入正在单独执行的那条
         assertThat(writerService.contextPreview(chapter.getId()).text()).doesNotContain("执行态测试：改结尾");
 
