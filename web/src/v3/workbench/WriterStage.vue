@@ -18,8 +18,8 @@ import {
 } from '../../api/chapter'
 import {
   approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
-  getChapterDeleteRequests, getWriterConversation, getWriterInstructions, rejectChapterDeleteRequest,
-  setWritingRequirement, startWritingTask, subscribeWritingTask
+  getChapterDeleteRequests, getChapterSupplements, getWriterConversation, getWriterInstructions,
+  rejectChapterDeleteRequest, setWritingRequirement, startWritingTask, subscribeWritingTask
 } from '../../api/agent'
 
 /**
@@ -74,6 +74,9 @@ const draftText = ref('')
 const saving = ref(false)
 const showRequirement = ref(false)
 const requirementDraft = ref('')
+/** 策划审稿后追加的补充要求（与写作要求分开） */
+const supplements = ref([])
+const showSupplements = ref(false)
 const chapterMenuOpen = ref(false)
 const newChapterTitle = ref('')
 const showBlueprintPicker = ref(false)
@@ -181,6 +184,7 @@ watch(
       await loadChapter(id)
       await loadInstructions()
       await loadDeleteRequests()
+      await loadSupplements()
       await reconnectActiveTask()
     } catch (e) {
       error.value = e.message
@@ -199,12 +203,14 @@ onMounted(() => {
   loadConversation()
   loadInstructions()
   loadDeleteRequests()
+  loadSupplements()
 })
 // 被 KeepAlive 缓存后切回写作模式：策划可能刚下发过新指令，重新拉一次
 onActivated(() => {
   loadConversation()
   loadInstructions()
   loadDeleteRequests()
+  loadSupplements()
   if (!running.value) reconnectActiveTask()
 })
 onBeforeUnmount(() => {
@@ -244,6 +250,21 @@ async function loadDeleteRequests() {
     console.warn('读取章节删除申请失败', e)
   }
 }
+
+async function loadSupplements() {
+  if (!props.chapter?.id) {
+    supplements.value = []
+    return
+  }
+  try {
+    supplements.value = (await getChapterSupplements(props.chapter.id)) || []
+  } catch (e) {
+    console.warn('读取章节补充要求失败', e)
+  }
+}
+
+const pendingSupplementCount = computed(() =>
+  supplements.value.filter((item) => item.status === 'PENDING').length)
 
 /**
  * 待确认申请必须跨章显示：写作 Agent 只能删"其他章"，如果只按当前章过滤，
@@ -438,6 +459,7 @@ async function reconnectActiveTask() {
           await loadChapter(props.chapter.id)
           await loadConversation()
           await loadInstructions()
+          await loadSupplements()
           emit('reload')
         } catch (e) {
           console.warn('写完后刷新失败', e)
@@ -528,6 +550,7 @@ async function start() {
           await loadChapter(props.chapter.id)
           await loadConversation()
           await loadInstructions()
+          await loadSupplements()
           emit('reload')
         } catch (e) {
           console.warn('写完后刷新失败', e)
@@ -816,6 +839,10 @@ watch(() => props.chapter?.id, () => {
         <button class="head-btn" @click="openRequirement">
           <Icon name="edit" :size="13" /> 写作要求
         </button>
+        <button class="head-btn" @click="showSupplements = true">
+          <Icon name="layers" :size="13" /> 补充要求
+          <span v-if="pendingSupplementCount" class="head-count">{{ pendingSupplementCount }}</span>
+        </button>
         <button v-if="messages.length" class="head-btn" title="清空写作记忆" @click="clearWriterMemory">
           清空记忆
         </button>
@@ -1071,6 +1098,36 @@ watch(() => props.chapter?.id, () => {
       </template>
     </V3Modal>
 
+    <!-- 章节补充要求：与写作要求分开，逐条展示 -->
+    <V3Modal :visible="showSupplements" title="章节补充要求" width="640px" @close="showSupplements = false">
+      <p class="modal-hint">
+        策划审稿后逐条追加的修改意见，与「写作要求」分开保存、互不覆盖。
+        写作 Agent 下次写这一章时会把它作为必备材料逐条执行；写入正文后标记为已应用。
+      </p>
+      <p v-if="!supplements.length" class="modal-hint muted">这一章还没有补充要求。</p>
+      <div v-else class="supplement-list">
+        <article
+          v-for="(item, index) in supplements"
+          :key="item.id"
+          class="supplement-card"
+          :class="{ pending: item.status === 'PENDING' }"
+        >
+          <header class="supplement-head">
+            <span class="supplement-no">#{{ index + 1 }}</span>
+            <V3Tag :tone="item.status === 'PENDING' ? 'gold' : 'line'">
+              {{ item.status === 'PENDING' ? '待执行' : '已应用' }}
+            </V3Tag>
+            <span class="supplement-time">{{ (item.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
+          </header>
+          <p class="supplement-content">{{ item.content }}</p>
+          <p v-if="item.reason" class="supplement-reason">针对的问题：{{ item.reason }}</p>
+        </article>
+      </div>
+      <template #footer>
+        <V3Button variant="ghost" @click="showSupplements = false">关闭</V3Button>
+      </template>
+    </V3Modal>
+
     <!-- 写作要求 -->
     <V3Modal :visible="showRequirement" title="本章写作要求" width="640px" @close="showRequirement = false">
       <p class="modal-hint">「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。</p>
@@ -1236,6 +1293,32 @@ watch(() => props.chapter?.id, () => {
 }
 .writer-chat { flex: 1; min-height: 0; padding: 18px 22px; }
 .chat-empty { max-width: 400px; margin: 10vh auto 0; text-align: center; }
+.head-count {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--v3-r-pill);
+  background: var(--v3-glow-gold);
+  border: 1px solid var(--v3-hairline-gold);
+  color: var(--v3-gold-bright);
+  font-size: 9px;
+}
+.supplement-list { display: flex; flex-direction: column; gap: 9px; }
+.supplement-card {
+  padding: 12px 14px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+}
+.supplement-card.pending { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.supplement-head { display: flex; align-items: center; gap: 8px; }
+.supplement-no { font-family: var(--v3-font-mono); font-size: 10px; color: var(--v3-gold); }
+.supplement-time { margin-left: auto; font-family: var(--v3-font-mono); font-size: 9.5px; color: var(--v3-text-faint); }
+.supplement-content { margin: 9px 0 0; font-size: 12.5px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
+.supplement-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
 
 /* 时间线里的策划指令：未执行展开，已执行折叠 */
 .chat-instruction {

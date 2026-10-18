@@ -91,6 +91,8 @@ const toolLabels = {
   delete_setting: '删设定',
   delete_blueprint: '删蓝图',
   create_chapter: '新建章节',
+  review_chapter: '审稿',
+  add_chapter_supplement: '追补充要求',
   instruct_writer: '给写作下指令',
   save_chapter_draft: '写正文'
 }

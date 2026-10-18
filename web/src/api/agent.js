@@ -101,6 +101,10 @@ export function getWriterInstructions(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/instructions`)
 }
 
+export function getChapterSupplements(chapterId) {
+  return http.get(`/agent/writer/chapters/${chapterId}/supplements`)
+}
+
 /** 写作 Agent 的章节删除申请（PENDING 需要作者确认；APPROVED 已删） */
 export function getChapterDeleteRequests(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/chapter-delete-requests`)
