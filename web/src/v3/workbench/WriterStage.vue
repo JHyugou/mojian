@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
@@ -17,7 +17,7 @@ import {
   listVersions, rollbackChapter, saveChapter, saveMemory
 } from '../../api/chapter'
 import {
-  cancelWritingTask, clearWriterHistory, getWriterConversation,
+  cancelWritingTask, clearWriterHistory, getWriterConversation, getWriterInstructions,
   setWritingRequirement, startWritingTask, subscribeWritingTask
 } from '../../api/agent'
 
@@ -51,6 +51,8 @@ const text = ref('')
 const requirement = ref('')
 const advice = ref('')
 const messages = ref([])
+/** 策划 Agent 下发的写作指令（PENDING 待执行 / CONSUMED 已执行） */
+const plannerInstructions = ref([])
 const streamingAnswer = ref('')
 const streamingReasoning = ref('')
 const running = ref(false)
@@ -95,7 +97,8 @@ let contentBuffer = ''
 let flushFrame = 0
 
 const hasBlueprint = computed(() => Boolean(props.blueprint))
-const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || Boolean(text.value))
+const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || Boolean(text.value)
+  || pendingInstructionCount.value > 0)
 const primaryLabel = computed(() => (text.value ? '按这个改' : '开始写'))
 const advicePlaceholder = computed(() => {
   if (text.value) return `对现有稿的意见，比如：把开头改得更陡一些（${sendHint()}）`
@@ -167,6 +170,7 @@ watch(
     if (!id) return
     try {
       await loadChapter(id)
+      await loadInstructions()
     } catch (e) {
       error.value = e.message
     }
@@ -180,7 +184,15 @@ watch(tab, async (value) => {
   if (value === 'memory') await loadMemory()
 })
 
-onMounted(loadConversation)
+onMounted(() => {
+  loadConversation()
+  loadInstructions()
+})
+// 被 KeepAlive 缓存后切回写作模式：策划可能刚下发过新指令，重新拉一次
+onActivated(() => {
+  loadConversation()
+  loadInstructions()
+})
 onBeforeUnmount(() => {
   abortRunning()
   if (source) source.close()
@@ -196,6 +208,20 @@ async function loadConversation() {
     console.warn('读取写作会话失败', e)
   }
 }
+
+async function loadInstructions() {
+  try {
+    plannerInstructions.value = (await getWriterInstructions(props.projectId)) || []
+  } catch (e) {
+    console.warn('读取策划分工指令失败', e)
+  }
+}
+
+/** 只显示当前章的指令；策划可能给其他章也下过指令 */
+const chapterInstructions = computed(() =>
+  plannerInstructions.value.filter((item) => String(item.chapterId) === String(props.chapter?.id)))
+const pendingInstructionCount = computed(() =>
+  chapterInstructions.value.filter((item) => item.status === 'PENDING').length)
 
 async function loadVersions() {
   versionsLoading.value = true
@@ -310,6 +336,7 @@ async function start() {
         try {
           await loadChapter(props.chapter.id)
           await loadConversation()
+          await loadInstructions()
           emit('reload')
         } catch (e) {
           console.warn('写完后刷新失败', e)
@@ -617,7 +644,31 @@ watch(() => props.chapter?.id, () => {
       <!-- ==================== 左：对话 ==================== -->
       <div class="chat-pane">
         <div ref="chatEl" class="writer-chat v3-scroll">
-          <div v-if="!messages.length && !running" class="chat-empty">
+          <!-- 策划 Agent 的指令：写作有两个指令来源，这里把策划那一路显式画出来 -->
+          <div v-if="chapterInstructions.length" class="planner-notes">
+            <header class="pn-head">
+              <span class="pn-sender">策划 Agent</span>
+              <span class="pn-title">给写作 Agent 的指令</span>
+              <span class="pn-count">{{ pendingInstructionCount }} 条待执行</span>
+            </header>
+            <article
+              v-for="ins in chapterInstructions"
+              :key="ins.id"
+              class="planner-note"
+              :class="{ pending: ins.status === 'PENDING' }"
+            >
+              <div class="pn-meta">
+                <V3Tag :tone="ins.status === 'PENDING' ? 'gold' : 'line'">
+                  {{ ins.status === 'PENDING' ? '待执行' : '已执行' }}
+                </V3Tag>
+                <span class="pn-time">{{ (ins.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
+              </div>
+              <p class="pn-content">{{ ins.content }}</p>
+              <p v-if="ins.reason" class="pn-reason">策划的理由：{{ ins.reason }}</p>
+            </article>
+          </div>
+
+          <div v-if="!messages.length && !running && !chapterInstructions.length" class="chat-empty">
             <span class="empty-seal">文</span>
             <h3>和写作 Agent 聊</h3>
             <p>右边是这一章的正文。你可以直接说要写什么、要怎么改。</p>
@@ -644,6 +695,10 @@ watch(() => props.chapter?.id, () => {
         </div>
 
         <footer class="composer">
+          <p v-if="pendingInstructionCount" class="pending-hint">
+            策划 Agent 有 {{ pendingInstructionCount }} 条待执行指令；开始写作时会自动带上。你也可以在下面补充作者要求。
+            <button class="pending-run" @click="start">按策划指令开写</button>
+          </p>
           <div class="input-box">
             <textarea
               v-model="advice"
@@ -931,6 +986,44 @@ watch(() => props.chapter?.id, () => {
 }
 .writer-chat { flex: 1; min-height: 0; padding: 18px 22px; }
 .chat-empty { max-width: 400px; margin: 10vh auto 0; text-align: center; }
+.planner-notes { margin: 0 0 18px; }
+.pn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pn-sender { font-size: 11px; letter-spacing: 0.12em; color: var(--v3-gold-bright); }
+.pn-title { font-family: var(--v3-font-serif); font-size: 12.5px; color: var(--v3-text-soft); }
+.pn-count { margin-left: auto; font-size: 10px; color: var(--v3-text-faint); }
+.planner-note {
+  padding: 11px 13px;
+  margin-bottom: 7px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+}
+.planner-note.pending { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.pn-meta { display: flex; align-items: center; gap: 8px; }
+.pn-time { font-size: 9.5px; color: var(--v3-text-faint); font-family: var(--v3-font-mono); }
+.pn-content { margin: 8px 0 0; font-size: 12px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
+.pn-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
+.pending-hint {
+  margin: 0 0 8px;
+  padding: 7px 11px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-radius: var(--v3-r-xs);
+  background: var(--v3-glow-gold);
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--v3-gold-bright);
+}
+.pending-run {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--v3-gold-bright);
+  font-size: 10.5px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 .empty-seal {
   display: inline-grid;
   place-items: center;

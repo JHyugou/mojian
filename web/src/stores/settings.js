@@ -26,6 +26,7 @@ const KEY_THEME = 'mojian.theme'
 const KEY_THINKING = 'mojian.thinkingMode'
 const KEY_SEND = 'mojian.sendKey'
 const KEY_AUTO_APPROVE = 'mojian.autoApprove'
+const KEY_ROLLBACK_DB = 'mojian.rollbackDatabase'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -36,7 +37,9 @@ export const useSettingsStore = defineStore('settings', {
     /** enter | shift-enter */
     sendKey: localStorage.getItem(KEY_SEND) || 'enter',
     /** 采纳模式：是否自动采纳 Agent 起草的内容 */
-    autoApprove: localStorage.getItem(KEY_AUTO_APPROVE) === '1'
+    autoApprove: localStorage.getItem(KEY_AUTO_APPROVE) === '1',
+    /** 回滚对话时是否连带撤销数据库改动；默认开 */
+    rollbackDatabase: localStorage.getItem(KEY_ROLLBACK_DB) !== '0'
   }),
 
   actions: {
@@ -59,6 +62,11 @@ export const useSettingsStore = defineStore('settings', {
     setAutoApprove(value) {
       this.autoApprove = value
       localStorage.setItem(KEY_AUTO_APPROVE, value ? '1' : '0')
+    },
+
+    setRollbackDatabase(value) {
+      this.rollbackDatabase = value
+      localStorage.setItem(KEY_ROLLBACK_DB, value ? '1' : '0')
     },
 
     /**

@@ -84,6 +84,7 @@ function refreshOnFocus() {
 
 function onResourcesChanged() {
   state.refreshResources()
+  state.loadReports()
 }
 
 watch(projectId, () => {
@@ -200,30 +201,38 @@ function goHome() {
     </div>
 
     <div v-else class="wb3">
+      <!--
+        两个舞台缓存挂载：切到写作再切回来，策划的对话、正在跑的思考气泡、
+        输入框草稿都还在。之前用 v-if 直接卸载，onBeforeUnmount 里的 abort 会掐断
+        前端请求，但后端任务还在跑 —— 用户回来只看到"任务没了"的错觉。
+        KeepAlive 只切走 DOM，不销毁组件，异步任务与状态都保留。
+      -->
       <Transition name="stage">
-        <PlannerStage
-          v-if="mode === 'planner'"
-          key="planner"
-          :project-id="projectId"
-          :conversation-id="route.query.conv"
-          :fresh-token="route.query.fresh"
-          :citations="state.citations"
-          @conversation-changed="(id) => router.replace({ path: '/workbench', query: { ...route.query, conv: id, mode: 'planner' } })"
-          @remove-citation="state.removeCitation"
-          @clear-citations="state.clearCitations"
-          @resources-changed="onResourcesChanged"
-        />
-        <WriterStage
-          v-else
-          key="writer"
-          :project-id="projectId"
-          :chapter="state.activeChapter"
-          :chapters="state.chapters"
-          :blueprint="state.activeBlueprint"
-          :blueprint-options="chapterBlueprints"
-          @select-chapter="selectChapter"
-          @reload="afterWriterChanged"
-        />
+        <KeepAlive>
+          <PlannerStage
+            v-if="mode === 'planner'"
+            key="planner"
+            :project-id="projectId"
+            :conversation-id="route.query.conv"
+            :fresh-token="route.query.fresh"
+            :citations="state.citations"
+            @conversation-changed="(id) => router.replace({ path: '/workbench', query: { ...route.query, conv: id, mode: 'planner' } })"
+            @remove-citation="state.removeCitation"
+            @clear-citations="state.clearCitations"
+            @resources-changed="onResourcesChanged"
+          />
+          <WriterStage
+            v-else
+            key="writer"
+            :project-id="projectId"
+            :chapter="state.activeChapter"
+            :chapters="state.chapters"
+            :blueprint="state.activeBlueprint"
+            :blueprint-options="chapterBlueprints"
+            @select-chapter="selectChapter"
+            @reload="afterWriterChanged"
+          />
+        </KeepAlive>
       </Transition>
 
       <!-- 舞台与资料栏之间的拖拽分割线 -->
@@ -247,6 +256,7 @@ function goHome() {
           :counts="state.counts"
           @cite="onCite"
           @open-chapter="openChapterFromPanel"
+          @changed="onResourcesChanged"
           @close="rightOpen = false"
         />
       </Transition>

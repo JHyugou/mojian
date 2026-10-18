@@ -5,6 +5,10 @@ import V3Tag from '../../components/v3/V3Tag.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Modal from '../../components/v3/V3Modal.vue'
 import { citationPreview } from '../../utils/citation'
+import { useV3Notify } from '../notify'
+import { deleteCharacter } from '../../api/character'
+import { deleteSetting } from '../../api/setting'
+import { deleteOutlineNode } from '../../api/outline'
 
 /**
  * 右栏资料面板（v3）：资料概览、人物、设定、蓝图。
@@ -18,12 +22,16 @@ const props = defineProps({
   reports: { type: Object, default: () => ({ PLANNER: null, WRITER: null }) },
   counts: { type: Object, default: () => ({}) }
 })
-const emit = defineEmits(['cite', 'close', 'open-chapter'])
+const emit = defineEmits(['cite', 'close', 'open-chapter', 'changed'])
 
+const notify = useV3Notify()
 const tab = ref('info')
 const keyword = ref('')
 /** 条目详情弹窗；null 表示关闭 */
 const detail = ref(null)
+/** 删除确认：{ kind, title, id, hint } */
+const deleteTarget = ref(null)
+const deleting = ref(false)
 
 const tabs = [
   { key: 'info', label: '资料' },
@@ -103,6 +111,8 @@ function citeOutline(node) {
 function openCharacterDetail(item) {
   detail.value = {
     kind: '人物',
+    entityType: 'character',
+    entityId: item.id,
     title: item.name || '未命名人物',
     subtitle: item.roleIdentity || '',
     meta: `记录 ID ${item.id}`,
@@ -117,6 +127,8 @@ function openSettingDetail(item) {
   if (item.triggerKeywords) marks.push(`触发词：${item.triggerKeywords}`)
   detail.value = {
     kind: '设定',
+    entityType: 'setting',
+    entityId: item.id,
     title: item.title || '未命名设定',
     subtitle: marks.join('｜'),
     meta: `记录 ID ${item.id}`,
@@ -128,11 +140,49 @@ function openSettingDetail(item) {
 function openOutlineDetail(node) {
   detail.value = {
     kind: '蓝图',
+    entityType: 'outline',
+    entityId: node.id,
     title: node.name || '未命名节点',
     subtitle: `${NODE_TEXT[node.nodeType] || node.nodeType || '节点'}${node.status ? ` · ${node.status}` : ''}`,
     meta: `记录 ID ${node.id}`,
     content: node.summary || '（这个节点还没有填写内容）',
     cite: () => citeOutline(node)
+  }
+}
+
+const DELETE_HINTS = {
+  人物: '该人物的版本节点会一并删除，已有关联章节不受影响。',
+  设定: '该设定会从设定库中移除，已注入过的历史对话不会改变。',
+  蓝图: '该节点及其子节点会被删除，关联章节的蓝图关联会被解除，正文不会删除。'
+}
+
+function askDelete() {
+  if (!detail.value) return
+  deleteTarget.value = {
+    kind: detail.value.kind,
+    title: detail.value.title,
+    entityType: detail.value.entityType,
+    entityId: detail.value.entityId,
+    hint: DELETE_HINTS[detail.value.kind] || '删除后不可恢复。'
+  }
+}
+
+async function confirmDelete() {
+  const target = deleteTarget.value
+  if (!target) return
+  deleting.value = true
+  try {
+    if (target.entityType === 'character') await deleteCharacter(target.entityId)
+    else if (target.entityType === 'setting') await deleteSetting(target.entityId)
+    else if (target.entityType === 'outline') await deleteOutlineNode(target.entityId)
+    deleteTarget.value = null
+    detail.value = null
+    emit('changed')
+    notify.success(`已删除「${target.title}」`)
+  } catch (e) {
+    notify.error(e.message || '删除失败')
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -310,10 +360,32 @@ const reportRows = computed(() => [
       </div>
       <template #footer>
         <V3Button variant="ghost" @click="detail = null">关闭</V3Button>
+        <V3Button v-if="detail?.entityType" variant="danger" @click="askDelete">
+          <template #icon><Icon name="trash" :size="13" /></template>
+          删除
+        </V3Button>
         <V3Button v-if="detail?.cite" @click="citeFromDetail">
           <template #icon><Icon name="quote" :size="13" /></template>
           引用进对话
         </V3Button>
+      </template>
+    </V3Modal>
+
+    <!-- 删除确认 -->
+    <V3Modal
+      :visible="!!deleteTarget"
+      title="确认删除"
+      width="460px"
+      @close="deleteTarget = null"
+    >
+      <p v-if="deleteTarget" class="delete-text">
+        确定删除「{{ deleteTarget.title }}」吗？<br />
+        {{ deleteTarget.hint }}
+        <br /><b>删除后不可恢复。</b>
+      </p>
+      <template #footer>
+        <V3Button variant="ghost" @click="deleteTarget = null">取消</V3Button>
+        <V3Button variant="danger" :loading="deleting" @click="confirmDelete">确认删除</V3Button>
       </template>
     </V3Modal>
   </aside>
@@ -487,6 +559,8 @@ const reportRows = computed(() => [
 .detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .detail-sub { font-size: 11.5px; line-height: 1.7; color: var(--v3-text-faint); }
 .detail-id { margin: 10px 0 12px; font-family: var(--v3-font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--v3-text-faint); }
+.delete-text { margin: 0; font-size: 13px; line-height: 2; color: var(--v3-text-soft); }
+.delete-text b { color: var(--v3-cinnabar); }
 .detail-body {
   max-height: 56vh;
   overflow-y: auto;

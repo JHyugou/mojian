@@ -100,6 +100,36 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
         <header class="block-head">
           <span class="block-no">肆</span>
           <div>
+            <h2>对话回滚</h2>
+            <p>回滚到某条用户消息时，策划之后经草稿确认写进书里的人物/设定/蓝图要不要一起撤销。</p>
+          </div>
+        </header>
+        <div class="options two">
+          <button
+            class="option"
+            :class="{ active: settings.rollbackDatabase }"
+            @click="settings.setRollbackDatabase(true)"
+          >
+            <span class="option-label">连带回滚数据库（推荐）</span>
+            <span class="option-hint">撤销这段对话之后采纳的结构改动；被撤销的草稿退回「待确认」，正文不动</span>
+            <span v-if="settings.rollbackDatabase" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+          <button
+            class="option"
+            :class="{ active: !settings.rollbackDatabase }"
+            @click="settings.setRollbackDatabase(false)"
+          >
+            <span class="option-label">只回滚对话</span>
+            <span class="option-hint">只删消息，书里的数据保持现状；适合「只想重说一遍」</span>
+            <span v-if="!settings.rollbackDatabase" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="block">
+        <header class="block-head">
+          <span class="block-no">伍</span>
+          <div>
             <h2>快捷键与说明</h2>
             <p>常用入口集中在这里，避免在写作时到处找按钮。</p>
           </div>

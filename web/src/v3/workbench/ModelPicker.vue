@@ -23,6 +23,7 @@ import { useV3Notify } from '../notify'
 const props = defineProps({
   role: { type: String, default: 'PLANNER' }
 })
+const emit = defineEmits(['change'])
 
 const notify = useV3Notify()
 
@@ -83,12 +84,22 @@ async function load() {
       baseUrl: profile.value?.baseUrl || undefined
     })
     models.value = result?.models || []
+    emitProfile()
   } catch (e) {
     // 拿不到目录不该让选择器消失：至少还能显示当前配置
     console.warn('加载模型列表失败', e)
   } finally {
     loading.value = false
   }
+}
+
+/** 把当前角色的模型与能力告知父组件（输入区据此决定能否发送图片） */
+function emitProfile() {
+  emit('change', {
+    role: props.role,
+    model: currentModel.value,
+    vision: !!currentInfo.value?.vision
+  })
 }
 
 onMounted(load)
@@ -114,6 +125,7 @@ async function pick(model) {
     // 换模型时清掉思考强度：新模型支持哪几档不一定一样，旧值可能是非法档位
     profiles.value = await saveProfile({ model: model.id, reasoningEffort: '' })
     view.value = ''
+    emitProfile()
     notify.success(`已切换到 ${model.name || model.id}`)
   } catch (e) {
     notify.error(e.message || '切换模型失败')
@@ -161,6 +173,7 @@ watch(view, (value) => {
       <Icon name="cpu" :size="12" />
       <span class="mp-model">{{ loading ? '加载中…' : (shortName || '未配置模型') }}</span>
       <span v-if="contextLabel" class="mp-badge">{{ contextLabel }}</span>
+      <span v-if="currentInfo?.vision" class="mp-vision">识图</span>
       <span v-if="effortLabel" class="mp-effort">{{ effortLabel }}</span>
       <Icon name="caret" :size="10" class="mp-caret" />
     </button>
@@ -197,6 +210,7 @@ watch(view, (value) => {
             @click="pick(m)"
           >
             <span class="mp-item-name">{{ m.name || m.id }}</span>
+            <span v-if="m.vision" class="mp-item-vision">识图</span>
             <span v-if="m.contextLimit" class="mp-badge">
               {{ m.contextLimit >= 1000000
                 ? `${Math.round(m.contextLimit / 100000) / 10}M`
@@ -276,6 +290,22 @@ watch(view, (value) => {
   font-family: var(--v3-font-mono);
 }
 .mp-effort { flex: none; color: var(--v3-gold); }
+.mp-vision {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--v3-r-pill);
+  border: 1px solid var(--v3-hairline-gold);
+  color: var(--v3-gold-bright);
+  font-size: 9px;
+}
+.mp-item-vision {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--v3-r-pill);
+  background: var(--v3-glow-gold);
+  color: var(--v3-gold-bright);
+  font-size: 9px;
+}
 /* caret 原始朝向是"下"：向下=默认，向右=-90°，向左=+90° */
 .mp-caret { opacity: 0.6; }
 .mp-chev { transform: rotate(-90deg); opacity: 0.5; }

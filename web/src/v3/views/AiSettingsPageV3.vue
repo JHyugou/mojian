@@ -353,6 +353,7 @@ const reasoningLevelsOf = (modelId) => {
               </button>
               <span class="model-id">{{ m.id }}</span>
               <span class="model-meta">{{ fmtContext(m.contextLimit) }} 上下文</span>
+              <span v-if="m.vision" class="model-vision">识图</span>
               <span v-if="m.inputCost != null" class="model-price">入 {{ fmtCost(m.inputCost) }} / 出 {{ fmtCost(m.outputCost) }}</span>
               <span v-if="m.reasoningLevels?.length" class="model-effort">思考 {{ m.reasoningLevels.join('/') }}</span>
             </div>
@@ -573,6 +574,13 @@ const reasoningLevelsOf = (modelId) => {
 .switch.on i { transform: translateX(15px); background: var(--v3-gold); }
 .model-id { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--v3-font-mono); font-size: 11.5px; color: var(--v3-text-soft); }
 .model-meta { font-size: 10.5px; color: var(--v3-text-faint); }
+.model-vision {
+  padding: 1px 6px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-radius: var(--v3-r-pill);
+  color: var(--v3-gold-bright);
+  font-size: 9px;
+}
 .model-price { font-size: 10.5px; color: var(--v3-text-faint); }
 .model-effort { font-size: 10px; color: var(--v3-gold); }
 

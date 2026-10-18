@@ -12,9 +12,9 @@ const WRITER_TIMEOUT = 30 * 60 * 1000
 
 // ==================== 策划对话 ====================
 
-/** conversationId 传 null 表示新开一段对话；signal 用于中止（用户点"停下"） */
-export function plannerChat(projectId, conversationId, message, signal, runId) {
-  return http.post('/agent/planner/chat', { projectId, conversationId, message, runId },
+/** conversationId 传 null 表示新开一段对话；signal 用于中止（用户点"停下"）；images 为 data URL */
+export function plannerChat(projectId, conversationId, message, signal, runId, images = []) {
+  return http.post('/agent/planner/chat', { projectId, conversationId, message, runId, images },
     { timeout: PLANNER_TIMEOUT, signal })
 }
 
@@ -94,6 +94,11 @@ export function rejectDraft(draftId) {
  */
 export function getWriterConversation(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/conversation`)
+}
+
+/** 策划 Agent 给写作 Agent 的指令（含已执行），写作面板用来显示两个指令来源 */
+export function getWriterInstructions(projectId) {
+  return http.get(`/agent/writer/projects/${projectId}/instructions`)
 }
 
 /** 清空写作会话的历史（保留会话）—— 让它忘掉此前说过的话 */
@@ -207,6 +212,7 @@ export function cancelPlannerRun(runId) {
  * 前端手上只有渲染出来的数组，下标和数据库行号不是一回事（中间夹着工具调用），
  * 所以用"第几条用户消息"这个两边都能算的口径。
  */
-export function rollbackConversation(conversationId, keepUserMessages) {
-  return http.post(`/agent/conversations/${conversationId}/rollback`, { keepUserMessages })
+export function rollbackConversation(conversationId, keepUserMessages, rollbackDatabase = true) {
+  return http.post(`/agent/conversations/${conversationId}/rollback`,
+    { keepUserMessages, rollbackDatabase })
 }

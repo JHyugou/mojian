@@ -15,9 +15,10 @@ import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import {
   acceptAllDrafts, acceptDraft, cancelPlannerRun, getConversationMessages,
-  listConversations, listPlanOptions, listProjectDrafts, plannerChat,
+  listAgentProfiles, listConversations, listPlanOptions, listProjectDrafts, plannerChat,
   rejectDraft, rollbackConversation, selectPlanOption
 } from '../../api/agent'
+import { fetchModels } from '../../api/aiConfig'
 
 /**
  * 策划舞台（v3）：对话 + 方案卡 + 待确认草稿 + 输入区。
@@ -51,6 +52,9 @@ const controller = ref(null)
 const currentRunId = ref(null)
 const openedDrafts = ref(new Set())
 const showDrafts = ref(false)
+/** 回滚确认：{ index, keep, text } */
+const rollbackConfirm = ref(null)
+const rollbacking = ref(false)
 
 // ==================== 输入区工具（附件 / 采纳模式） ====================
 const attachments = ref([])
@@ -58,6 +62,10 @@ const plusOpen = ref(false)
 const approveOpen = ref(false)
 const fileInput = ref(null)
 const autoNotice = ref('')
+/** 当前策划模型是否支持识图（来自模型目录的 vision 标记） */
+const plannerVision = ref(false)
+const plannerModel = ref('')
+const hasImageAttachments = computed(() => attachments.value.some((a) => a.isImage))
 
 const autoApprove = computed(() => settings.autoApprove)
 
@@ -79,6 +87,7 @@ const toolLabels = {
   update_character: '改人物',
   update_setting: '改设定',
   update_blueprint: '改蓝图',
+  instruct_writer: '给写作下指令',
   save_chapter_draft: '写正文'
 }
 
@@ -127,13 +136,17 @@ function pickFiles() {
 async function onFilesPicked(event) {
   const files = Array.from(event.target.files || [])
   for (const file of files) {
-    // 单个文件设上限：几十兆的日志贴进上下文没有意义，只会把请求撑爆
-    if (file.size > 256 * 1024) {
-      notify.error(`「${file.name}」超过 256KB，太大了一律会挤掉正文，先自己节选吧`)
+    const isImage = file.type.startsWith('image/')
+    // 文本附件限制严一点（会进上下文）；图片走视觉消息，允许几 MB 的截图
+    const limit = isImage ? 6 * 1024 * 1024 : 256 * 1024
+    if (file.size > limit) {
+      notify.error(isImage
+        ? `「${file.name}」超过 6MB，先压缩或裁剪一下`
+        : `「${file.name}」超过 256KB，太大了一律会挤掉正文，先自己节选吧`)
       continue
     }
     try {
-      if (file.type.startsWith('image/')) {
+      if (isImage) {
         const dataUrl = await new Promise((resolve) => {
           const reader = new FileReader()
           reader.onload = () => resolve(reader.result)
@@ -176,7 +189,9 @@ async function onPaste(event) {
     dataUrl,
     isImage: true
   }]
-  notify.info('图片已添加为附件（当前模型是纯文本的，看不到图，但会记下文件名）')
+  notify.info(plannerVision.value
+    ? '图片已添加，会随这条消息发给支持识图的模型'
+    : '图片已添加；当前模型未标记识图能力，发送时只会记录文件名')
 }
 
 function removeAttachment(index) {
@@ -190,13 +205,44 @@ function buildOutgoing() {
   let text = buildCitedMessage(props.citations, draftMessage.value)
   for (const att of attachments.value) {
     if (att.isImage) {
-      text += `\n\n[图片附件：${att.name}]\n（当前模型是纯文本的，看不到图片内容；` +
-        '如果这张图里有需要参考的信息，请用文字描述一下）'
+      text += `\n\n[图片附件：${att.name}]`
+      if (!plannerVision.value) {
+        text += '\n（当前模型未标记识图能力，图片内容不会传给模型；如果图里有需要参考的信息，请用文字描述一下）'
+      }
     } else if (att.text) {
       text += `\n\n[附件：${att.name}]\n` + '```' + `\n${att.text}\n` + '```'
     }
   }
   return text
+}
+
+/** 本轮要随消息发送的图片（仅视觉模型） */
+function currentImages() {
+  if (!plannerVision.value) return []
+  return attachments.value
+    .filter((att) => att.isImage && att.dataUrl)
+    .map((att) => att.dataUrl)
+    .slice(0, 4)
+}
+
+/** 加载当前策划模型的能力标记；切换模型后由 ModelPicker change 事件更新 */
+async function loadPlannerModelInfo() {
+  try {
+    const profiles = (await listAgentProfiles()) || []
+    const profile = profiles.find((p) => p.role === 'PLANNER')
+    plannerModel.value = profile?.model || ''
+    const data = await fetchModels({ baseUrl: profile?.baseUrl || undefined })
+    const info = (data?.models || []).find((m) => m.id === plannerModel.value)
+    plannerVision.value = !!info?.vision
+  } catch (e) {
+    console.warn('读取模型识图能力失败', e)
+  }
+}
+
+function onModelChanged(info) {
+  if (info?.role && info.role !== 'PLANNER') return
+  plannerModel.value = info?.model || plannerModel.value
+  plannerVision.value = !!info?.vision
 }
 
 // ==================== 采纳模式 ====================
@@ -359,7 +405,8 @@ async function send() {
   currentRunId.value = runId
 
   try {
-    const data = await plannerChat(props.projectId, conversationId.value, outgoing, controller.value.signal, runId)
+    const data = await plannerChat(props.projectId, conversationId.value, outgoing,
+      controller.value.signal, runId, currentImages())
     const wasNew = !conversationId.value
     conversationId.value = data.conversationId
     if (wasNew) {
@@ -408,19 +455,45 @@ async function stop() {
   scrollToBottom()
 }
 
-async function rollbackTo(index) {
+function rollbackTo(index) {
   const target = messages.value[index]
   if (!target || target.role !== 'user') return
   const keep = messages.value.slice(0, index).filter((m) => m.role === 'user').length
+  // 设置里关掉"连带数据库"就保持原来的轻量回滚；开着则先弹确认，讲清会撤销什么
+  if (!settings.rollbackDatabase) {
+    return doRollback(index, keep, false)
+  }
+  rollbackConfirm.value = { index, keep, text: target.text }
+}
+
+async function doRollback(index, keep, withDb) {
+  rollbacking.value = true
   try {
-    if (conversationId.value) await rollbackConversation(conversationId.value, keep)
+    if (conversationId.value) {
+      const result = await rollbackConversation(conversationId.value, keep, withDb)
+      if (withDb && result?.undone) {
+        notify.success(`已回滚，并撤销 ${result.undone} 条数据库改动（草稿已退回待确认）`)
+      } else {
+        notify.success('已回滚到这条，内容已填回输入框')
+      }
+    }
+    const target = messages.value[index]
     messages.value = messages.value.slice(0, index)
-    draftMessage.value = target.text
+    draftMessage.value = target?.text || ''
     emit('clear-citations')
-    notify.success('已回滚到这条，内容已填回输入框')
+    emit('resources-changed')
+    await refreshSide()
   } catch (e) {
     error.value = e.message
+  } finally {
+    rollbacking.value = false
   }
+}
+
+function confirmRollback(withDb) {
+  const target = rollbackConfirm.value
+  rollbackConfirm.value = null
+  if (target) doRollback(target.index, target.keep, withDb)
 }
 
 // ==================== 方案与草稿 ====================
@@ -476,6 +549,7 @@ function askFix(draft) {
 
 onMounted(() => {
   refreshSide()
+  loadPlannerModelInfo()
   document.addEventListener('click', closeMenus)
 })
 onBeforeUnmount(() => {
@@ -593,6 +667,11 @@ onBeforeUnmount(() => {
           <button class="att-x" title="移除附件" @click="removeAttachment(i)">×</button>
         </span>
       </div>
+      <p v-if="hasImageAttachments" class="vision-note" :class="{ ok: plannerVision }">
+        {{ plannerVision
+          ? '当前模型支持识图，图片会随这条消息一起发送'
+          : '当前模型未标记识图能力，图片只会记下文件名；需要看内容请换成支持识图的模型' }}
+      </p>
 
       <div class="input-box">
         <textarea
@@ -671,7 +750,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="foot-right">
-          <ModelPicker role="PLANNER" />
+          <ModelPicker role="PLANNER" @change="onModelChanged" />
           <span v-if="autoNotice" class="auto-notice">{{ autoNotice }}</span>
           <span class="muted">{{ sendHint() }}</span>
           <span class="muted">上下文 {{ messages.length ? (planOptions.length ? '含待选方案' : '全量注入') : '就绪' }}</span>
@@ -711,6 +790,26 @@ onBeforeUnmount(() => {
       <template #footer>
         <V3Button variant="ghost" @click="showDrafts = false">关闭</V3Button>
         <V3Button v-if="drafts.length > 1" @click="acceptAll">全部采纳（{{ drafts.length }}）</V3Button>
+      </template>
+    </V3Modal>
+
+    <!-- 回滚确认：讲清"对话回滚"与"数据库撤销"是两件事 -->
+    <V3Modal
+      :visible="!!rollbackConfirm"
+      title="回滚到这一步？"
+      width="540px"
+      @close="rollbackConfirm = null"
+    >
+      <p class="rollback-text">将删除这条消息之后的对话，并把这条内容填回输入框。</p>
+      <p class="rollback-text muted">
+        如果选「回滚对话 + 数据库」：这一段对话里经草稿确认写进书的人物、设定、蓝图也会撤销，
+        被撤销的草稿退回「待确认」。<b>正文不会动</b>（正文有自己的版本机制）。
+      </p>
+      <p class="rollback-note">当前偏好：{{ settings.rollbackDatabase ? '回滚时连带数据库' : '只回滚对话' }}（可在偏好设置里修改）</p>
+      <template #footer>
+        <V3Button variant="ghost" :disabled="rollbacking" @click="rollbackConfirm = null">取消</V3Button>
+        <V3Button variant="ghost" :loading="rollbacking" @click="confirmRollback(false)">只回滚对话</V3Button>
+        <V3Button :loading="rollbacking" @click="confirmRollback(true)">回滚对话 + 数据库</V3Button>
       </template>
     </V3Modal>
   </section>
@@ -805,6 +904,11 @@ onBeforeUnmount(() => {
 }
 .msg:hover .msg-rollback { opacity: 1; }
 .msg-rollback:hover { background: var(--v3-surface-2); color: var(--v3-gold-bright); }
+
+.rollback-text { margin: 0 0 10px; font-size: 13px; line-height: 1.9; color: var(--v3-text-soft); }
+.rollback-text.muted { color: var(--v3-text-muted); font-size: 12px; }
+.rollback-text b { color: var(--v3-gold-bright); }
+.rollback-note { margin: 0; font-size: 10.5px; color: var(--v3-text-faint); }
 
 .bubble {
   padding: 16px 20px;
@@ -1030,6 +1134,8 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .att-x:hover { color: var(--v3-cinnabar); }
+.vision-note { margin: -3px 0 9px; font-size: 10.5px; line-height: 1.6; color: var(--v3-text-faint); }
+.vision-note.ok { color: var(--v3-gold); }
 
 /* 草稿 */
 .draft-hint { margin: 0 0 14px; font-size: 12px; line-height: 1.8; color: var(--v3-text-muted); }
