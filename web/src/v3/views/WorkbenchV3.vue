@@ -149,12 +149,15 @@ function onCite(citation) {
 
 function selectChapter(chapter) {
   state.selectChapter(chapter)
+  // 写作上下文与当前章强相关（本章蓝图、只装前文），切章后重算报表
+  state.loadReports()
 }
 
 /** 右栏「章节」里点一条：切到写作模式并选中该章 */
 function openChapterFromPanel(chapter) {
   state.selectChapter(chapter)
   setMode('writer')
+  state.loadReports()
   if (isNarrow) rightOpen.value = false
 }
 

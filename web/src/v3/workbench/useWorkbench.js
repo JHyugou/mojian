@@ -60,9 +60,12 @@ export function useWorkbench(projectIdRef) {
   async function loadReports() {
     const projectId = projectIdRef.value
     if (!projectId) return
+    // 写作 Agent 的上下文依赖"当前章"：有本章蓝图/写作要求，且只装之前的正文。
+    // 不传章节会让"上下文占用"看起来是真实数值、其实不是实际发出去的那份。
+    const writerChapterId = activeChapter.value?.id || null
     const [planner, writer] = await Promise.allSettled([
       getContextReport(projectId, 'PLANNER'),
-      getContextReport(projectId, 'WRITER')
+      getContextReport(projectId, 'WRITER', writerChapterId)
     ])
     reports.value = {
       PLANNER: planner.status === 'fulfilled' ? planner.value : null,

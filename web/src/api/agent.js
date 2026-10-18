@@ -168,8 +168,10 @@ export function subscribeWritingTask(taskId, handlers) {
 // ==================== 可观测性 ====================
 
 /** 上下文装填情况 —— 界面上的"上下文用量"就用它 */
-export function getContextReport(projectId, role = 'PLANNER') {
-  return http.get(`/agent/projects/${projectId}/context-report`, { params: { role } })
+export function getContextReport(projectId, role = 'PLANNER', chapterId = null) {
+  return http.get(`/agent/projects/${projectId}/context-report`, {
+    params: { role, chapterId: chapterId || undefined }
+  })
 }
 
 export function listAgentProfiles() {
