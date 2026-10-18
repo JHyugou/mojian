@@ -1471,17 +1471,30 @@ async function discardDraft(draft) {
 
 .pl-mode-right { margin-left: auto; display: flex; align-items: center; }
 
+/*
+ * 工具条按钮。
+ *
+ * 用固定的 height 而不是靠 padding 撑 —— 靠 padding 的话，
+ * 里面图标大小、字数一不一样，高度就会有半像素的差，
+ * 三个按钮排在一起看着就是"没对齐"。
+ * 定高 + 居中，尺寸才是真的统一。
+ */
 .pl-mode-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  padding: 7px 14px;
+  height: 32px;
+  padding: 0 15px;
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--color-paper-warm);
   cursor: pointer;
+  font-family: var(--font-sans);
   font-size: 12px;
+  line-height: 1;
   color: var(--color-muted);
+  white-space: nowrap;
   transition: background var(--dur) var(--ease-out),
               color var(--dur) var(--ease-out),
               transform var(--dur-fast) var(--ease-spring);
@@ -1563,8 +1576,8 @@ async function discardDraft(draft) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 50%;
   background: var(--color-paper-warm);
