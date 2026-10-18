@@ -124,6 +124,11 @@ export function startWritingTask(chapterId, instruction, autoApproveDelete = fal
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction, autoApproveDelete })
 }
 
+/** 该章当前正在跑的写作任务；用于切走再切回时重新挂载，而不是取消重来 */
+export function getActiveWritingTask(chapterId) {
+  return http.get(`/agent/writer/chapters/${chapterId}/active-task`)
+}
+
 /**
  * 终止一个正在跑的写作任务。
  *

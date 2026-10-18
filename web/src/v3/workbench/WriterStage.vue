@@ -17,8 +17,8 @@ import {
   listVersions, rollbackChapter, saveChapter, saveMemory
 } from '../../api/chapter'
 import {
-  approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getChapterDeleteRequests,
-  getWriterConversation, getWriterInstructions, rejectChapterDeleteRequest,
+  approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
+  getChapterDeleteRequests, getWriterConversation, getWriterInstructions, rejectChapterDeleteRequest,
   setWritingRequirement, startWritingTask, subscribeWritingTask
 } from '../../api/agent'
 
@@ -54,6 +54,8 @@ const advice = ref('')
 const messages = ref([])
 /** 策划 Agent 下发的写作指令（PENDING 待执行 / CONSUMED 已执行） */
 const plannerInstructions = ref([])
+/** 已执行指令默认折叠，点开才展开全文 */
+const expandedInstructions = ref(new Set())
 /** 写作 Agent 提交的章节删除申请 */
 const deleteRequests = ref([])
 /** 待作者确认的删除：点「删除章节」后二次确认 */
@@ -159,7 +161,8 @@ async function loadChapter(id) {
 watch(
   () => props.chapter?.id,
   async (id) => {
-    await abortRunning()
+    // 切章节只"断开这个舞台的观察"，不取消后台任务：只有用户点停下才算中断
+    detachRunning()
     runSeq += 1
     running.value = false
     streamingAnswer.value = ''
@@ -178,6 +181,7 @@ watch(
       await loadChapter(id)
       await loadInstructions()
       await loadDeleteRequests()
+      await reconnectActiveTask()
     } catch (e) {
       error.value = e.message
     }
@@ -201,17 +205,24 @@ onActivated(() => {
   loadConversation()
   loadInstructions()
   loadDeleteRequests()
+  if (!running.value) reconnectActiveTask()
 })
 onBeforeUnmount(() => {
-  abortRunning()
-  if (source) source.close()
+  // 离开工作台不取消后台任务：这次运行是用户发起的，只有点"停下"才终止。
+  // 只断开事件流，任务继续跑；回来时通过 active-task 重新挂上。
+  detachRunning()
   if (flushFrame) cancelAnimationFrame(flushFrame)
 })
 
 async function loadConversation() {
   try {
     const data = await getWriterConversation(props.projectId)
-    messages.value = (data.messages || []).map((m) => ({ role: m.role, text: m.content }))
+    messages.value = (data.messages || []).map((m) => ({
+      role: m.role,
+      text: m.content,
+      createdAt: m.createdAt || '',
+      id: m.id
+    }))
     scrollChat()
   } catch (e) {
     console.warn('读取写作会话失败', e)
@@ -244,6 +255,46 @@ const chapterDeleteRequests = computed(() =>
     || String(item.chapterId) === String(props.chapter?.id)))
 const pendingDeleteCount = computed(() =>
   chapterDeleteRequests.value.filter((item) => item.status === 'PENDING').length)
+
+/**
+ * 把对话消息与"策划的写作指令"按时间合并成一条时间线。
+ *
+ * <p>之前指令固定悬浮在聊天顶部，越聊越远；现在它出现在当时的对话位置，
+ * 随对话一起滚走。已执行（CONSUMED）默认折叠，点开能看全文。
+ */
+const timeline = computed(() => {
+  const items = messages.value.map((msg, index) => ({
+    kind: 'message',
+    at: msg.createdAt || '',
+    order: index,
+    data: msg
+  }))
+  chapterInstructions.value.forEach((ins, index) => {
+    items.push({
+      kind: 'instruction',
+      at: ins.createdAt || '',
+      order: 100000 + index,
+      data: ins
+    })
+  })
+  return items.sort((a, b) => {
+    const byTime = String(a.at).localeCompare(String(b.at))
+    return byTime !== 0 ? byTime : a.order - b.order
+  })
+})
+
+function isInstructionOpen(ins) {
+  if (ins.status === 'PENDING') return true
+  return expandedInstructions.value.has(ins.id)
+}
+
+function toggleInstruction(ins) {
+  if (ins.status === 'PENDING') return
+  const next = new Set(expandedInstructions.value)
+  if (next.has(ins.id)) next.delete(ins.id)
+  else next.add(ins.id)
+  expandedInstructions.value = next
+}
 
 async function approveDelete(request) {
   deleteConfirm.value = null
@@ -318,6 +369,88 @@ async function abortRunning() {
   }
 }
 
+/** 只断开本舞台的订阅，不碰后台任务 */
+function detachRunning() {
+  runSeq += 1
+  currentTaskId = null
+  closeStream()
+  running.value = false
+  statusText.value = ''
+  phase.value = ''
+  streamingAnswer.value = ''
+  streamingReasoning.value = ''
+}
+
+/**
+ * 切走再切回 / 刷新后重新挂上正在跑的任务。
+ *
+ * <p>这是"只有用户手动点停下才中断"的关键：任务在后端照跑，
+ * 前端回来通过 active-task 找到它并恢复事件流，而不是取消重来。
+ */
+async function reconnectActiveTask() {
+  if (!props.chapter?.id || running.value) return
+  try {
+    const data = await getActiveWritingTask(props.chapter.id)
+    if (!data?.taskId) return
+    const seq = ++runSeq
+    currentTaskId = data.taskId
+    running.value = true
+    error.value = ''
+    progress.value = []
+    phase.value = '写作任务仍在后台运行…'
+    statusText.value = '写作中'
+    source = subscribeWritingTask(data.taskId, {
+      onStatus: (s) => {
+        if (seq !== runSeq) return
+        statusText.value = s === 'RUNNING' ? '写作中'
+          : s === 'SUCCEEDED' ? '已完成'
+            : s === 'CANCELLED' ? '已停止'
+              : s === 'FAILED' ? '失败' : s
+      },
+      onProgress: (p) => {
+        if (seq !== runSeq) return
+        progress.value = [...progress.value.slice(-3), p]
+        scrollChat()
+      },
+      onContent: (delta) => { if (seq === runSeq) pushContent(delta) },
+      onContentSnapshot: (snapshot) => {
+        if (seq !== runSeq) return
+        flushContentNow()
+        text.value = snapshot
+        scrollPaper()
+      },
+      onDelta: (delta) => { if (seq === runSeq) { streamingAnswer.value += delta; scrollChat() } },
+      onDeltaSnapshot: (snapshot) => { if (seq === runSeq) streamingAnswer.value = snapshot },
+      onReasoning: (delta) => { if (seq === runSeq) { streamingReasoning.value += delta; scrollChat() } },
+      onReasoningSnapshot: (snapshot) => { if (seq === runSeq) streamingReasoning.value = snapshot },
+      onError: (message) => {
+        if (seq !== runSeq) return
+        running.value = false
+        error.value = message
+      },
+      onEnd: async () => {
+        if (seq !== runSeq) return
+        flushContentNow()
+        running.value = false
+        source = null
+        currentTaskId = null
+        try {
+          await loadChapter(props.chapter.id)
+          await loadConversation()
+          await loadInstructions()
+          emit('reload')
+        } catch (e) {
+          console.warn('写完后刷新失败', e)
+        }
+        streamingAnswer.value = ''
+        streamingReasoning.value = ''
+      }
+    })
+  } catch (e) {
+    console.warn('恢复后台写作任务失败', e)
+  }
+}
+
 async function start() {
   if (!props.chapter?.id || running.value || !canRun.value) return
   const outgoing = advice.value.trim() ||
@@ -327,7 +460,11 @@ async function start() {
   const revising = Boolean(text.value)
   const seq = ++runSeq
 
-  messages.value = [...messages.value, { role: 'user', text: outgoing }]
+  messages.value = [...messages.value, {
+    role: 'user',
+    text: outgoing,
+    createdAt: new Date().toISOString()
+  }]
   advice.value = ''
   running.value = true
   error.value = ''
@@ -347,7 +484,7 @@ async function start() {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing,
       settings.autoApproveDelete)
     if (seq !== runSeq) {
-      try { await cancelWritingTask(taskId) } catch { /* 已结束 */ }
+      // 章节被切走：任务仍在后台跑，不取消；回到该章时会自动重新挂上
       return
     }
     currentTaskId = taskId
@@ -726,41 +863,50 @@ watch(() => props.chapter?.id, () => {
             </article>
           </div>
 
-          <!-- 策划 Agent 的指令：写作有两个指令来源，这里把策划那一路显式画出来 -->
-          <div v-if="chapterInstructions.length" class="planner-notes">
-            <header class="pn-head">
-              <span class="pn-sender">策划 Agent</span>
-              <span class="pn-title">给写作 Agent 的指令</span>
-              <span class="pn-count">{{ pendingInstructionCount }} 条待执行</span>
-            </header>
-            <article
-              v-for="ins in chapterInstructions"
-              :key="ins.id"
-              class="planner-note"
-              :class="{ pending: ins.status === 'PENDING' }"
-            >
-              <div class="pn-meta">
-                <V3Tag :tone="ins.status === 'PENDING' ? 'gold' : 'line'">
-                  {{ ins.status === 'PENDING' ? '待执行' : '已执行' }}
-                </V3Tag>
-                <span class="pn-time">{{ (ins.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
-              </div>
-              <p class="pn-content">{{ ins.content }}</p>
-              <p v-if="ins.reason" class="pn-reason">策划的理由：{{ ins.reason }}</p>
-            </article>
-          </div>
-
-          <div v-if="!messages.length && !running && !chapterInstructions.length" class="chat-empty">
+          <div v-if="!timeline.length && !running" class="chat-empty">
             <span class="empty-seal">文</span>
             <h3>和写作 Agent 聊</h3>
             <p>右边是这一章的正文。你可以直接说要写什么、要怎么改。</p>
             <p class="muted">这段对话跨章连续：你说过的偏好（比如「少写心理描写」），后面每一章它都会记得。</p>
           </div>
 
-          <div v-for="(m, i) in messages" :key="i" class="msg" :class="['is-' + m.role, { failed: m.failed }]">
-            <div class="msg-head"><span class="msg-who">{{ m.role === 'user' ? '你' : '写作 Agent' }}</span></div>
-            <div class="bubble"><MarkdownText :text="m.text" /></div>
-          </div>
+          <!--
+            对话消息 + 策划写作指令合并成一条时间线：
+            指令出现在当时的对话位置，随对话滚走；执行后默认折叠。
+          -->
+          <template v-for="item in timeline" :key="item.kind + '-' + (item.data.id || item.order)">
+            <div
+              v-if="item.kind === 'message'"
+              class="msg"
+              :class="['is-' + item.data.role, { failed: item.data.failed }]"
+            >
+              <div class="msg-head"><span class="msg-who">{{ item.data.role === 'user' ? '你' : '写作 Agent' }}</span></div>
+              <div class="bubble"><MarkdownText :text="item.data.text" /></div>
+            </div>
+
+            <article
+              v-else
+              class="chat-instruction"
+              :class="{ pending: item.data.status === 'PENDING' }"
+            >
+              <header class="ci-head" @click="toggleInstruction(item.data)">
+                <span class="ci-sender">策划 Agent</span>
+                <span class="ci-title">写作指令</span>
+                <V3Tag :tone="item.data.status === 'PENDING' ? 'gold' : 'line'">
+                  {{ item.data.status === 'PENDING' ? '待执行' : '已执行' }}
+                </V3Tag>
+                <span class="ci-time">{{ (item.data.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
+                <span class="ci-fold">
+                  {{ item.data.status === 'PENDING' ? '' : (isInstructionOpen(item.data) ? '收起' : '展开') }}
+                </span>
+              </header>
+              <template v-if="isInstructionOpen(item.data)">
+                <p class="ci-content">{{ item.data.content }}</p>
+                <p v-if="item.data.reason" class="ci-reason">策划的理由：{{ item.data.reason }}</p>
+              </template>
+              <p v-else class="ci-folded">已执行 · 点击展开当时的指令</p>
+            </article>
+          </template>
 
           <div v-if="running" class="msg is-assistant">
             <div class="msg-head"><span class="msg-who">写作 Agent</span></div>
@@ -1090,6 +1236,28 @@ watch(() => props.chapter?.id, () => {
 }
 .writer-chat { flex: 1; min-height: 0; padding: 18px 22px; }
 .chat-empty { max-width: 400px; margin: 10vh auto 0; text-align: center; }
+
+/* 时间线里的策划指令：未执行展开，已执行折叠 */
+.chat-instruction {
+  max-width: 640px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+  cursor: pointer;
+  transition: border-color var(--v3-dur-2), background var(--v3-dur-2);
+}
+.chat-instruction:hover { border-color: var(--v3-hairline-gold); }
+.chat-instruction.pending { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.ci-head { display: flex; align-items: center; gap: 8px; }
+.ci-sender { font-size: 10.5px; letter-spacing: 0.14em; color: var(--v3-gold-bright); }
+.ci-title { font-family: var(--v3-font-serif); font-size: 12.5px; color: var(--v3-text-soft); }
+.ci-time { font-family: var(--v3-font-mono); font-size: 9.5px; color: var(--v3-text-faint); }
+.ci-fold { margin-left: auto; font-size: 10px; color: var(--v3-text-faint); }
+.ci-content { margin: 9px 0 0; font-size: 12px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
+.ci-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
+.ci-folded { margin: 7px 0 0; font-size: 10.5px; color: var(--v3-text-faint); }
 .planner-notes { margin: 0 0 18px; }
 .danger-text { color: #e8a8a0; }
 .danger-text b { color: #ffd9d3; }
