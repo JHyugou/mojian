@@ -1,13 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
-import V3Ambient from '../../components/v3/V3Ambient.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Empty from '../../components/v3/V3Empty.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
-import V3Toasts from '../../components/v3/V3Toasts.vue'
-import { useV3Theme } from '../theme'
 import { useV3Notify } from '../notify'
 import { useProjectStore } from '../../stores/project'
 import { getBook } from '../../api/book'
@@ -15,12 +12,11 @@ import { getBook } from '../../api/book'
 /**
  * 成书页（v3）：沉浸式阅读。
  *
- * 设计意图：这一页不提供编辑，只提供"读"。所以去掉外壳，只留一条极窄的顶栏；
- * 正文用宋体、宽行距、限宽 760px；滚动时顶部有一条墨线进度，左侧目录随滚动高亮。
+ * <p>它和首页/工作台一样住进 WorkspaceShell：左轨、工作区树、顶栏保持一致，
+ * 只在顶栏里放"章/字数/目录"这几个阅读相关的动作。正文用宋体、宽行距、限宽 780px。
  */
 const router = useRouter()
 const projectStore = useProjectStore()
-const { theme, toggleTheme } = useV3Theme()
 const notify = useV3Notify()
 
 const book = ref(null)
@@ -29,6 +25,8 @@ const error = ref('')
 const activeId = ref(null)
 const scrollRatio = ref(0)
 const showToc = ref(true)
+/** 内部滚动容器：页面不再是整页滚动，滚动事件要挂在它身上 */
+const pageEl = ref(null)
 
 const projectId = computed(() => projectStore.currentId)
 
@@ -46,25 +44,30 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // 等正文渲染完再量一次进度/目录高亮（loading 期间 .chapter 还不存在）
+  await nextTick()
+  onScroll()
 }
 
 onMounted(() => {
   load()
-  window.addEventListener('scroll', onScroll, { passive: true })
+  pageEl.value?.addEventListener('scroll', onScroll, { passive: true })
 })
-onBeforeUnmount(() => window.removeEventListener('scroll', onScroll))
+onBeforeUnmount(() => pageEl.value?.removeEventListener('scroll', onScroll))
 
 function onScroll() {
-  const doc = document.documentElement
-  const max = doc.scrollHeight - window.innerHeight
-  scrollRatio.value = max > 0 ? Math.min(1, window.scrollY / max) : 0
+  const el = pageEl.value
+  if (!el) return
+  const max = el.scrollHeight - el.clientHeight
+  scrollRatio.value = max > 0 ? Math.min(1, el.scrollTop / max) : 0
 
-  // 目录高亮：找到最后一个标题已经滚过顶部的章节
+  // 目录高亮：找到最后一个标题已经滚过内容区顶部的章节
   const chapters = book.value?.chapters || []
+  const containerTop = el.getBoundingClientRect().top
   let current = null
   for (const chapter of chapters) {
-    const el = document.getElementById('book-ch-' + chapter.id)
-    if (el && el.getBoundingClientRect().top < 140) current = chapter.id
+    const node = document.getElementById('book-ch-' + chapter.id)
+    if (node && node.getBoundingClientRect().top - containerTop < 140) current = chapter.id
   }
   activeId.value = current || chapters[0]?.id || null
 }
@@ -138,44 +141,35 @@ function cleanContent(content) {
 </script>
 
 <template>
-  <div class="v3-root book-page">
-    <V3Ambient variant="calm" />
-
-    <header class="book-top">
-      <button class="top-back" @click="openWorkbench">
-        <Icon name="arrowRight" :size="14" class="back-icon" />
-        <span>回到工作台</span>
-      </button>
-      <span class="top-title">{{ book?.projectName || projectStore.current?.name || '成书' }}</span>
-      <div class="top-actions">
+  <div ref="pageEl" class="book-page">
+    <Teleport to="#shell-topbar">
+      <div class="book-top-actions">
         <V3Tag v-if="book">{{ book.chapterCount }} 章</V3Tag>
         <V3Tag v-if="book" tone="gold">{{ fmt(book.totalChars) }} 字</V3Tag>
-        <button class="icon-btn" :title="theme === 'inksea' ? '切到素笺' : '切到墨海'" @click="toggleTheme">
-          <Icon :name="theme === 'inksea' ? 'sun' : 'moon'" :size="16" />
-        </button>
-        <button class="icon-btn" title="切换目录" @click="showToc = !showToc">
-          <Icon name="layers" :size="16" />
+        <button class="topbar-toc" :class="{ active: showToc }" title="切换目录" @click="showToc = !showToc">
+          <Icon name="layers" :size="14" />
+          <span>目录</span>
         </button>
       </div>
-    </header>
+    </Teleport>
     <div class="progress"><i :style="{ transform: `scaleX(${scrollRatio})` }"></i></div>
 
-    <div v-if="!projectId" class="book-center">
-      <V3Empty seal="书" title="还没有打开的作品" desc="回首页选一部作品，再来看成书。" action="回到首页" @action="router.push('/')" />
-    </div>
-    <div v-else-if="loading" class="book-center"><span class="loading-text">正在装订成书…</span></div>
-    <div v-else-if="error" class="book-center">
-      <V3Empty seal="误" error title="读取成书失败" :desc="error" action="重试" @action="load" />
-    </div>
-    <div v-else-if="!book?.chapters?.length" class="book-center">
-      <V3Empty
-        seal="书"
-        title="书尚未成"
-        desc="章节还没有被标记为完成。写作面板右上角有「标记完成」，标记后就会出现在这里。"
-        action="去写作"
-        @action="openWorkbench"
-      />
-    </div>
+      <div v-if="!projectId" class="book-center">
+        <V3Empty seal="书" title="还没有打开的作品" desc="回首页选一部作品，再来看成书。" action="回到首页" @action="router.push('/')" />
+      </div>
+      <div v-else-if="loading" class="book-center"><span class="loading-text">正在装订成书…</span></div>
+      <div v-else-if="error" class="book-center">
+        <V3Empty seal="误" error title="读取成书失败" :desc="error" action="重试" @action="load" />
+      </div>
+      <div v-else-if="!book?.chapters?.length" class="book-center">
+        <V3Empty
+          seal="书"
+          title="书尚未成"
+          desc="章节还没有被标记为完成。写作面板右上角有「标记完成」，标记后就会出现在这里。"
+          action="去写作"
+          @action="openWorkbench"
+        />
+      </div>
 
     <div v-else class="book-body">
       <Transition name="toc">
@@ -239,79 +233,56 @@ function cleanContent(content) {
         </footer>
       </article>
     </div>
-
-    <V3Toasts />
   </div>
 </template>
 
 <style scoped>
 .book-page {
-  min-height: 100vh;
-  background: var(--v3-canvas);
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--v3-text);
 }
-.book-top {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  height: 60px;
-  padding: 0 26px;
-  border-bottom: 1px solid var(--v3-hairline);
-  background: color-mix(in srgb, var(--v3-canvas) 78%, transparent);
-  backdrop-filter: blur(16px);
-}
-.top-back {
+
+/* 顶栏动作（放在 WorkspaceShell 的 topbar 插槽里） */
+.book-top-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.topbar-toc {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--v3-hairline-strong);
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--v3-hairline);
   border-radius: var(--v3-r-pill);
-  background: var(--v3-surface-1);
-  color: var(--v3-text-muted);
-  font-family: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  transition: color var(--v3-dur-2), border-color var(--v3-dur-2);
-}
-.top-back:hover { color: var(--v3-text); border-color: var(--v3-hairline-gold); }
-.back-icon { transform: rotate(180deg); }
-.top-title { font-family: var(--v3-font-serif); font-size: 14px; letter-spacing: 0.12em; color: var(--v3-text-soft); }
-.top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.icon-btn {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 50%;
   background: transparent;
-  color: var(--v3-text-faint);
+  color: var(--v3-text-muted);
+  font: inherit;
+  font-size: 10.5px;
   cursor: pointer;
+  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), background var(--v3-dur-2);
 }
-.icon-btn:hover { color: var(--v3-gold-bright); background: var(--v3-surface-2); }
-.progress { position: fixed; top: 60px; left: 0; right: 0; z-index: 21; height: 1px; background: transparent; }
+.topbar-toc:hover, .topbar-toc.active {
+  color: var(--v3-gold-bright);
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-glow-gold);
+}
+.progress { position: sticky; top: 0; z-index: 6; height: 1px; background: transparent; }
 .progress i { display: block; height: 100%; transform-origin: left; background: var(--v3-grad-gold); transition: transform var(--v3-dur-2) linear; }
 
-.book-center { position: relative; z-index: 1; display: grid; place-items: center; min-height: 100vh; }
+.book-center { position: relative; z-index: 1; display: grid; place-items: center; min-height: calc(100vh - 62px); }
 .loading-text { font-family: var(--v3-font-serif); letter-spacing: 0.2em; color: var(--v3-text-muted); }
 
-/* 内容层必须显式抬到环境背景之上：
- * V3Ambient 是 position: fixed; z-index: 0 的定位元素，会盖住同层级的普通块元素。
- * 首页/工作台都有定位过的内容容器，成书页之前漏了 —— 于是正文"渲染了但看不见"。 */
-.book-body { position: relative; z-index: 1; display: flex; align-items: flex-start; max-width: 1240px; margin: 0 auto; padding: 92px 32px 80px; gap: 44px; }
+/* 内容层显式抬到环境背景之上：外壳的环境层是 fixed + z-index:0 */
+.book-body { position: relative; z-index: 1; display: flex; align-items: flex-start; max-width: 1240px; margin: 0 auto; padding: 40px 32px 80px; gap: 44px; }
 .toc {
   position: sticky;
-  top: 92px;
+  top: 24px;
   width: 230px;
   flex-shrink: 0;
-  max-height: calc(100vh - 130px);
+  max-height: calc(100vh - 140px);
   padding-right: 12px;
 }
 .toc-kicker { margin: 0 0 16px; font-size: 10px; letter-spacing: 0.42em; color: var(--v3-gold); }

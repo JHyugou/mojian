@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
-import V3Ambient from '../../components/v3/V3Ambient.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Card from '../../components/v3/V3Card.vue'
 import V3Field from '../../components/v3/V3Field.vue'
@@ -12,11 +11,9 @@ import V3Modal from '../../components/v3/V3Modal.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
 import V3Skeleton from '../../components/v3/V3Skeleton.vue'
 import V3Empty from '../../components/v3/V3Empty.vue'
-import V3Toasts from '../../components/v3/V3Toasts.vue'
-import V3CommandPalette from '../../components/v3/V3CommandPalette.vue'
-import { useV3Theme } from '../theme'
 import { animateCount, vReveal } from '../motion'
 import { useV3Notify } from '../notify'
+import { useShellCommands } from '../shellBus'
 import { useProjectStore } from '../../stores/project'
 import { createProject, deleteProject, listProjects } from '../../api/project'
 import { exportProject, importProject } from '../../api/share'
@@ -24,7 +21,6 @@ import { listChapters } from '../../api/chapter'
 
 const router = useRouter()
 const projectStore = useProjectStore()
-const { theme, toggleTheme } = useV3Theme()
 const notify = useV3Notify()
 
 const projects = ref([])
@@ -225,40 +221,21 @@ async function confirmImport() {
   }
 }
 
-// ==================== 命令面板 ====================
-const paletteOpen = ref(false)
-const paletteItems = computed(() => [
-  { id: 'new-project', label: '新建创作项目', hint: '开始一本新书', icon: 'plus', action: openCreate },
-  { id: 'import-project', label: '导入项目 JSON', hint: '从导出文件恢复', icon: 'upload', action: () => (showImport.value = true) },
-  { id: 'toggle-theme', label: theme.value === 'inksea' ? '切换到素笺（亮色）' : '切换到墨海（暗色）', hint: '主题', icon: theme.value === 'inksea' ? 'sun' : 'moon', action: toggleTheme },
-  { id: 'settings', label: '偏好设置', hint: '主题 / 思维链 / 发送键', icon: 'gear', action: () => router.push('/settings') },
-  { id: 'ai-settings', label: '模型接入', hint: '接口地址与密钥', icon: 'command', action: () => router.push('/ai-settings') },
-  ...projects.value.map((p) => ({
-    id: 'project-' + p.id,
-    label: p.name,
-    hint: p.genre || '打开项目',
-    icon: 'book',
-    action: () => enterProject(p)
-  }))
-])
+// ==================== 主页专属命令（注册进外壳的命令面板） ====================
+const { set: setShellCommands, clear: clearShellCommands } = useShellCommands()
 
-function onPaletteSelect(item) {
-  paletteOpen.value = false
-  item.action?.()
-}
-
-function onGlobalKeydown(event) {
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-    event.preventDefault()
-    paletteOpen.value = true
-  }
-}
-
-onMounted(() => document.addEventListener('keydown', onGlobalKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKeydown))
 const closeCardMenu = () => (menuFor.value = null)
-onMounted(() => document.addEventListener('click', closeCardMenu))
-onBeforeUnmount(() => document.removeEventListener('click', closeCardMenu))
+onMounted(() => {
+  document.addEventListener('click', closeCardMenu)
+  setShellCommands([
+    { id: 'new-project', label: '新建创作项目', hint: '开始一本新书', icon: 'plus', action: openCreate },
+    { id: 'import-project', label: '导入项目 JSON', hint: '从导出文件恢复', icon: 'upload', action: () => (showImport.value = true) }
+  ])
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeCardMenu)
+  clearShellCommands()
+})
 
 const fmtTime = (value) => {
   if (!value) return '刚刚'
@@ -269,38 +246,17 @@ const fmtTime = (value) => {
 </script>
 
 <template>
-  <div class="v3-root v3-landing">
-    <V3Ambient variant="hero" />
-
-    <header class="ld-top">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32">
-            <rect width="32" height="32" rx="10" fill="none" stroke="var(--v3-hairline-gold)" />
-            <path d="M7 23 L13 12 L18 20 L21.5 15 L26 23 Z" fill="var(--v3-gold)" opacity=".85" />
-            <circle cx="23.5" cy="9" r="2.4" fill="var(--v3-cinnabar)" />
-          </svg>
-        </span>
-        <div class="brand-text">
-          <span class="brand-name">墨笺</span>
-          <span class="brand-sub">AI 长篇小说创作工作台</span>
-        </div>
-      </div>
-
-      <div class="ld-top-actions">
-        <button class="ghost-pill" title="命令面板（Ctrl/⌘ + K）" @click="paletteOpen = true">
-          <Icon name="command" :size="14" />
-          <span>命令</span>
-          <kbd>⌘K</kbd>
-        </button>
-        <button class="icon-btn" :title="theme === 'inksea' ? '切到素笺' : '切到墨海'" @click="toggleTheme">
-          <Icon :name="theme === 'inksea' ? 'sun' : 'moon'" :size="17" />
-        </button>
-        <button class="icon-btn" title="偏好设置" @click="router.push('/settings')">
-          <Icon name="gear" :size="17" />
-        </button>
-      </div>
-    </header>
+  <!--
+    首页内容住在外壳的 .ws-content 里（外壳在 App.vue 常驻）。
+    这里只负责自己的滚动区、内容与弹窗，顶栏动作 Teleport 到外壳顶栏。
+  -->
+  <div class="landing-scroll">
+    <Teleport to="#shell-topbar">
+      <button class="topbar-create" @click="openCreate">
+        <Icon name="plus" :size="13" />
+        <span>新建作品</span>
+      </button>
+    </Teleport>
 
     <main class="ld-main">
       <section ref="heroEl" class="hero" @pointermove="onHeroMove">
@@ -493,90 +449,52 @@ const fmtTime = (value) => {
       </template>
     </V3Modal>
 
-    <V3Modal :visible="!!deleteTarget" title="删除项目" width="480px" @close="deleteTarget = null">
-      <p class="danger-text">
-        确定删除「{{ deleteTarget?.name }}」吗？<br />
-        人物、设定、蓝图、章节与全部版本会一并删除，<b>不可恢复</b>。
-      </p>
-      <template #footer>
-        <V3Button variant="ghost" @click="deleteTarget = null">取消</V3Button>
-        <V3Button variant="danger" :loading="deleting" @click="confirmDelete">确认删除</V3Button>
-      </template>
-    </V3Modal>
-
-    <V3CommandPalette
-      :visible="paletteOpen"
-      :items="paletteItems"
-      @close="paletteOpen = false"
-      @select="onPaletteSelect"
-    />
-    <V3Toasts />
+      <V3Modal :visible="!!deleteTarget" title="删除项目" width="480px" @close="deleteTarget = null">
+        <p class="danger-text">
+          确定删除「{{ deleteTarget?.name }}」吗？<br />
+          人物、设定、蓝图、章节与全部版本会一并删除，<b>不可恢复</b>。
+        </p>
+        <template #footer>
+          <V3Button variant="ghost" @click="deleteTarget = null">取消</V3Button>
+          <V3Button variant="danger" :loading="deleting" @click="confirmDelete">确认删除</V3Button>
+        </template>
+      </V3Modal>
   </div>
 </template>
 
 <style scoped>
-.v3-landing {
+/*
+ * 页面内容住在外壳的 .ws-content 里：自身负责纵向滚动，
+ * 高度铺满可用区域，不再用 100vh（那会把顶栏高度也算进去，导致多出一截）。
+ */
+.landing-scroll {
   position: relative;
-  min-height: 100vh;
-  background: var(--v3-canvas);
-  color: var(--v3-text);
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--v3-text);
 }
 
-.ld-top {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 26px 42px;
-}
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark { width: 34px; height: 34px; display: block; }
-.brand-mark svg { width: 100%; height: 100%; }
-.brand-text { display: flex; flex-direction: column; gap: 2px; }
-.brand-name { font-family: var(--v3-font-serif); font-size: 19px; letter-spacing: 0.2em; color: var(--v3-text); }
-.brand-sub { font-size: 10px; letter-spacing: 0.22em; color: var(--v3-text-faint); }
-.ld-top-actions { display: flex; align-items: center; gap: 10px; }
-
-.ghost-pill {
+/* 顶栏里的常驻动作（Teleport 进 #shell-topbar） */
+.topbar-create {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--v3-hairline-strong);
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--v3-hairline-gold);
   border-radius: var(--v3-r-pill);
-  background: var(--v3-surface-1);
-  color: var(--v3-text-muted);
+  background: var(--v3-glow-gold);
+  color: var(--v3-gold-bright);
   font-family: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
-  backdrop-filter: blur(12px);
-  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), transform var(--v3-dur-2) var(--v3-ease-spring);
+  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), transform var(--v3-dur-2);
 }
-.ghost-pill:hover { color: var(--v3-text); border-color: var(--v3-hairline-gold); transform: translateY(-1px); }
-.ghost-pill kbd {
-  padding: 1px 5px;
-  border-radius: 4px;
-  border: 1px solid var(--v3-hairline-strong);
-  font-family: var(--v3-font-mono);
-  font-size: 10px;
-}
-.icon-btn {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--v3-hairline-strong);
-  border-radius: 50%;
-  background: var(--v3-surface-1);
-  color: var(--v3-text-muted);
-  cursor: pointer;
-  backdrop-filter: blur(12px);
-  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), transform var(--v3-dur-2) var(--v3-ease-spring);
-}
-.icon-btn:hover { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); transform: translateY(-1px); }
+.topbar-create:hover { color: var(--v3-text); border-color: var(--v3-hairline-gold); transform: translateY(-1px); }
 
 .ld-main {
   position: relative;
@@ -986,12 +904,9 @@ const fmtTime = (value) => {
   .hero-stats { gap: 40px; }
 }
 @media (max-width: 720px) {
-  .ld-top { padding: 20px 22px; }
   .ld-main { padding: 0 22px 48px; }
   .grid { grid-template-columns: 1fr; }
   .hero { padding: 8vh 0 6vh; }
   .hero-stats { gap: 28px; }
-  .brand-sub { display: none; }
-  .ghost-pill span { display: none; }
 }
 </style>

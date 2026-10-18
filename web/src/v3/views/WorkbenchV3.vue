@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Empty from '../../components/v3/V3Empty.vue'
-import WorkspaceShell from '../layout/WorkspaceShell.vue'
 import PlannerStage from '../workbench/PlannerStage.vue'
 import WriterStage from '../workbench/WriterStage.vue'
 import ResourcePanel from '../workbench/ResourcePanel.vue'
@@ -28,14 +27,6 @@ const mode = ref(route.query.mode === 'writer' ? 'writer' : 'planner')
 // 窄屏默认收起资料栏：否则 320px 的面板会盖住整个正文区
 const isNarrow = typeof window !== 'undefined' && window.innerWidth < 1100
 const rightOpen = ref(!isNarrow)
-
-const breadcrumb = computed(() => {
-  const project = projectStore.current?.name || '工作台'
-  if (mode.value === 'writer' && state.activeChapter?.title) {
-    return `${project} · ${state.activeChapter.title}`
-  }
-  return project
-})
 
 const activeReport = computed(() => (mode.value === 'planner' ? state.reports.PLANNER : state.reports.WRITER))
 
@@ -85,8 +76,8 @@ function goHome() {
 </script>
 
 <template>
-  <WorkspaceShell :breadcrumb="breadcrumb">
-    <template #topbar>
+  <div class="wb-frame">
+    <Teleport to="#shell-topbar">
       <div class="mode-switch">
         <button class="mode-btn" :class="{ active: mode === 'planner' }" @click="setMode('planner')">
           <span class="mode-label">策划</span>
@@ -101,7 +92,7 @@ function goHome() {
       <div v-if="activeReport" class="ctx-pill" :class="{ warn: (activeReport.usagePercent || 0) > 70 }">
         上下文 {{ activeReport.usagePercent }}%
       </div>
-    </template>
+    </Teleport>
 
     <div v-if="!projectId" class="wb-empty">
       <V3Empty
@@ -154,10 +145,11 @@ function goHome() {
         <span>资料</span>
       </button>
     </div>
-  </WorkspaceShell>
+  </div>
 </template>
 
 <style scoped>
+.wb-frame { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
 .wb3 { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
 .wb-empty { flex: 1; display: grid; place-items: center; }
 

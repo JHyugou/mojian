@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
-import WorkspaceShell from '../layout/WorkspaceShell.vue'
 import { useV3Theme } from '../theme'
 import { useSettingsStore, SEND_KEYS, THINKING_MODES } from '../../stores/settings'
 
@@ -18,8 +17,7 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
 </script>
 
 <template>
-  <WorkspaceShell breadcrumb="偏好设置">
-    <div class="prefs v3-scroll">
+  <div class="prefs v3-scroll">
       <header class="prefs-head">
         <p class="kicker">PREFERENCES</p>
         <h1>偏好设置</h1>
@@ -117,8 +115,7 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
       <p class="foot-note">
         当前主题：{{ currentTheme?.name }} · 所有偏好存在本机浏览器里；换浏览器需要重设。
       </p>
-    </div>
-  </WorkspaceShell>
+  </div>
 </template>
 
 <style scoped>

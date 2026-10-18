@@ -22,7 +22,10 @@ vi.mock('./api/http', () => ({
 
 const stubs = {
   RouterLink: { template: '<a><slot /></a>' },
-  RouterView: { template: '<div />' }
+  RouterView: { template: '<div />' },
+  // 页面会把顶栏动作 Teleport 到外壳；单页冒烟时外壳不存在，
+  // stub 掉 Teleport（内容就地渲染）比让 Vue 警告"找不到目标"干净。
+  Teleport: true
 }
 
 async function mountPage(loader) {
@@ -83,7 +86,7 @@ describe('入口冒烟：App 要能挂起来', () => {
     await router.push('/')
     await router.isReady()
 
-    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } })
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router], stubs: { Teleport: true } } })
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     spy.mockRestore()

@@ -6,7 +6,6 @@ import V3Field from '../../components/v3/V3Field.vue'
 import V3Input from '../../components/v3/V3Input.vue'
 import V3Modal from '../../components/v3/V3Modal.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
-import WorkspaceShell from '../layout/WorkspaceShell.vue'
 import { useV3Notify } from '../notify'
 import {
   fetchModels, getAiStatus, listProviders, resetAiConfig,
@@ -257,7 +256,7 @@ const reasoningLevelsOf = (modelId) => {
 </script>
 
 <template>
-  <WorkspaceShell breadcrumb="模型接入">
+  <div class="settings-page">
     <div class="settings v3-scroll">
       <header class="settings-head">
         <p class="kicker">MODELS</p>
@@ -473,10 +472,11 @@ const reasoningLevelsOf = (modelId) => {
         <V3Button variant="danger" :loading="resetting" @click="doReset">确认恢复</V3Button>
       </template>
     </V3Modal>
-  </WorkspaceShell>
+  </div>
 </template>
 
 <style scoped>
+.settings-page { flex: 1; min-width: 0; display: flex; }
 .settings { flex: 1; min-width: 0; overflow-y: auto; padding: 40px 48px 90px; }
 .settings-head { max-width: 900px; }
 .kicker { margin: 0 0 14px; font-size: 10px; letter-spacing: 0.42em; color: var(--v3-gold); }

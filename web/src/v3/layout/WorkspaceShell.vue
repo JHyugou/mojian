@@ -7,6 +7,7 @@ import V3CommandPalette from '../../components/v3/V3CommandPalette.vue'
 import V3Toasts from '../../components/v3/V3Toasts.vue'
 import { useV3Theme } from '../theme'
 import { useV3Notify } from '../notify'
+import { useShellCommands } from '../shellBus'
 import { useProjectStore } from '../../stores/project'
 import { listProjects } from '../../api/project'
 import { deleteConversation, listConversations, renameConversation } from '../../api/agent'
@@ -18,7 +19,7 @@ import { deleteConversation, listConversations, renameConversation } from '../..
  * 内容和文字站到前面。导航轨悬停才展开标签，不做常驻文字。
  */
 const props = defineProps({
-  /** 顶栏左侧要显示的项目名（工作台自己知道当前项目） */
+  /** 顶栏面包屑；不传则按当前路由自动推导 */
   breadcrumb: { type: String, default: '' }
 })
 
@@ -27,6 +28,23 @@ const route = useRoute()
 const projectStore = useProjectStore()
 const { theme, toggleTheme } = useV3Theme()
 const notify = useV3Notify()
+const { commands: pageCommands } = useShellCommands()
+
+/**
+ * 顶栏标题：外壳常驻，所以标题要跟着路由走，而不是由每个页面各自记一份。
+ * 工作台/成书显示当前作品名，其余页面用固定标题。
+ */
+const routeTitles = { '/': '作品架', '/ai-settings': '模型接入', '/settings': '偏好设置' }
+const crumb = computed(() => {
+  if (props.breadcrumb) return props.breadcrumb
+  if (routeTitles[route.path]) return routeTitles[route.path]
+  if (route.path === '/workbench') return projectStore.current?.name || '工作台'
+  if (route.path === '/book') {
+    const name = projectStore.current?.name
+    return name ? `${name} · 成书` : '成书'
+  }
+  return projectStore.current?.name || '墨笺'
+})
 
 const dockOpen = ref(typeof window === 'undefined' ? true : window.innerWidth > 900)
 const paletteOpen = ref(false)
@@ -131,6 +149,7 @@ const paletteItems = computed(() => [
   { id: 'nav-settings', label: '偏好设置', hint: '主题 / 思维链 / 发送键', icon: 'gear', action: () => router.push('/settings') },
   { id: 'toggle-theme', label: theme.value === 'inksea' ? '切换到素笺（亮色）' : '切换到墨海（暗色）', hint: '主题', icon: theme.value === 'inksea' ? 'sun' : 'moon', action: toggleTheme },
   { id: 'toggle-dock', label: dockOpen.value ? '收起工作区树' : '展开工作区树', hint: '布局', icon: 'layers', action: () => (dockOpen.value = !dockOpen.value) },
+  ...pageCommands.value,
   ...projects.value.map((p) => ({
     id: 'project-' + p.id,
     label: p.name,
@@ -285,8 +304,10 @@ defineExpose({ reload: load })
       <div class="ws-main">
         <header class="ws-topbar">
           <Transition name="crumb" mode="out-in">
-            <span :key="breadcrumb" class="topbar-crumb">{{ breadcrumb || projectStore.current?.name || '墨笺' }}</span>
+            <span :key="crumb" class="topbar-crumb">{{ crumb }}</span>
           </Transition>
+          <!-- 页面把顶栏专属动作 Teleport 到这里；外壳常驻，内容随路由替换 -->
+          <div id="shell-topbar" class="topbar-slot"></div>
           <slot name="topbar" />
           <div class="topbar-right">
             <button class="topbar-pill" @click="paletteOpen = true">
@@ -617,7 +638,12 @@ defineExpose({ reload: load })
   font-size: 14px;
   letter-spacing: 0.1em;
   color: var(--v3-text-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 34%;
 }
+.topbar-slot { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .topbar-pill {
   display: inline-flex;
@@ -656,7 +682,7 @@ defineExpose({ reload: load })
 }
 .topbar-icon:hover { color: var(--v3-gold-bright); background: var(--v3-surface-2); }
 
-.ws-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.ws-content { position: relative; flex: 1; min-height: 0; display: flex; overflow: hidden; }
 
 /* ==================== 过渡 ==================== */
 .dock-enter-active, .dock-leave-active { transition: width var(--v3-dur-3) var(--v3-ease-out), opacity var(--v3-dur-2); }
