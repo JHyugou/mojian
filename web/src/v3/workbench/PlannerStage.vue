@@ -5,6 +5,7 @@ import V3Button from '../../components/v3/V3Button.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
 import V3Modal from '../../components/v3/V3Modal.vue'
 import V3Thinking from './V3Thinking.vue'
+import ModelPicker from './ModelPicker.vue'
 import MarkdownText from '../../components/MarkdownText.vue'
 import { useV3Notify } from '../notify'
 import { useComposerSend } from '../../composables/useComposerSend'
@@ -660,6 +661,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="foot-right">
+          <ModelPicker role="PLANNER" />
           <span v-if="autoNotice" class="auto-notice">{{ autoNotice }}</span>
           <span class="muted">{{ sendHint() }}</span>
           <span class="muted">上下文 {{ messages.length ? (planOptions.length ? '含待选方案' : '全量注入') : '就绪' }}</span>

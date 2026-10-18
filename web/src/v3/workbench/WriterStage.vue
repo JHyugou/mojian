@@ -5,6 +5,7 @@ import V3Button from '../../components/v3/V3Button.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
 import V3Modal from '../../components/v3/V3Modal.vue'
 import V3Thinking from './V3Thinking.vue'
+import ModelPicker from './ModelPicker.vue'
 import MarkdownText from '../../components/MarkdownText.vue'
 import { useV3Notify } from '../notify'
 import { useSettingsStore } from '../../stores/settings'
@@ -660,7 +661,8 @@ watch(() => props.chapter?.id, () => {
           </div>
           <div class="composer-foot">
             <span class="muted">{{ primaryLabel }} · {{ sendHint() }}</span>
-            <span class="muted">{{ hasBlueprint ? '已关联本章蓝图' : '未关联蓝图（可先让策划落蓝图）' }}</span>
+            <!-- 蓝图关联状态已经在舞台头部有按钮显示，这里不再重复一行，留给模型/思考强度 -->
+            <ModelPicker role="WRITER" />
           </div>
         </footer>
       </div>
@@ -958,7 +960,8 @@ watch(() => props.chapter?.id, () => {
 .round-btn.send:hover { transform: translateY(-1px) scale(1.03); }
 .round-btn.send:disabled { opacity: 0.35; cursor: not-allowed; }
 .round-btn.stop { background: var(--v3-cinnabar-soft); color: var(--v3-cinnabar); border: 1px solid rgba(201, 76, 59, 0.45); }
-.composer-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: 10.5px; }
+.foot-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 .paper-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--v3-inset); }
 .paper-tabs { display: flex; align-items: center; gap: 4px; padding: 14px 20px 10px; flex-shrink: 0; }
