@@ -63,6 +63,28 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
         return chapter;
     }
 
+    /**
+     * 只调整章节状态（策划审稿通过 / 作者要求），不碰正文与其他字段。
+     *
+     * <p>不用全量 update 接口：那个接口是属性覆盖语义，为了改一个状态传整章风险太大。
+     */
+    @Transactional
+    public Chapter updateStatus(Long chapterId, String status) {
+        Chapter chapter = requireById(chapterId);
+        if (!StringUtils.hasText(status)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "章节状态不能为空");
+        }
+        String normalized = status.trim().toUpperCase();
+        if (!"DRAFT".equals(normalized) && !"WRITING".equals(normalized)
+                && !"COMPLETED".equals(normalized)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID,
+                    "不支持的章节状态：" + status + "（只支持 DRAFT / WRITING / COMPLETED）");
+        }
+        chapter.setStatus(normalized);
+        updateById(chapter);
+        return chapter;
+    }
+
     public Chapter get(Long chapterId) {
         return requireById(chapterId);
     }

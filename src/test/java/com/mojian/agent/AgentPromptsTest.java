@@ -31,6 +31,15 @@ class AgentPromptsTest {
     }
 
     @Test
+    @DisplayName("审稿通过后允许把章节标记完成")
+    void 审稿通过可定稿() {
+        String prompt = AgentPrompts.planner("【本书概况】测试", false);
+        assertThat(prompt).contains("审稿通过后可以定稿");
+        assertThat(prompt).contains("update_chapter_status");
+        assertThat(prompt).contains("不要仅凭\"能看\"").contains("强行定稿");
+    }
+
+    @Test
     @DisplayName("手动采纳模式：如实说等待确认")
     void 手动采纳模式() {
         String prompt = AgentPrompts.planner("【本书概况】测试", false);

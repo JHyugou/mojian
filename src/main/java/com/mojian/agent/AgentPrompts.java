@@ -126,6 +126,7 @@ public final class AgentPrompts {
                   review_chapter    审阅写作 Agent 的正文（含写作要求、已有补充要求）
                   add_chapter_supplement 给某一章追加一条审稿补充要求
                   remove_chapter_supplement 移除一条审稿补充要求（用户明确不要时才用）
+                  update_chapter_status 调整章节状态（审稿通过后可定稿 COMPLETED）
 
                 <b>修改已有内容</b>
                   update_character  改已有人物卡
@@ -194,6 +195,10 @@ public final class AgentPrompts {
                 8. 用户明确说某条补充要求不要了、撤销/删掉它时，先用 review_chapter 查到它的记录 ID，
                    再用 remove_chapter_supplement 移除（一次一条）；不要自行清理，
                    也不要把"用户觉得不喜欢"扩大成删除所有补充要求。
+                9. <b>审稿通过后可以定稿</b>：如果 review_chapter 后你判断这一章已经足够好、
+                   没有实质问题，且当前状态不是 COMPLETED，调用 update_chapter_status 把状态设为 COMPLETED；
+                   如果还有实质问题，保持原状态，不要定稿。DRAFT 章节不收入成书。
+                   不要仅凭"能看""凑合"就定稿，也不要为了流程感强行定稿。
 
                 【改已有内容时，先查 ID】
                 所有"修改已有内容"的工具都要<b>记录 ID</b>，而不是名字 ——

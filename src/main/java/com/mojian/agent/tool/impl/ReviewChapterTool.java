@@ -116,6 +116,8 @@ public class ReviewChapterTool implements AgentTool {
         sb.append("请具体判断：是否满足写作要求、人物/前情是否一致、有没有需要修的地方。");
         sb.append("审稿不是必须提修改：如果这稿已经达标，直接说可以保留/通过，不要调用 add_chapter_supplement。");
         sb.append("只有确实存在具体问题时，才调用 add_chapter_supplement，一条意见一条补充要求；不要自己改正文，也不要只说空泛的好话。");
+        sb.append("如果判断这稿已经足够好，可以调用 update_chapter_status 把章节状态设为 COMPLETED（定稿）；");
+        sb.append("如果还有实质问题，保持原状态。");
         sb.append("如果用户明确说某条补充要求不要了，可以用上面的记录 ID 调 remove_chapter_supplement 移除。");
         return sb.toString();
     }
