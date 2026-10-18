@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
@@ -585,6 +585,13 @@ onMounted(() => {
   refreshSide()
   loadPlannerModelInfo()
   document.addEventListener('click', closeMenus)
+})
+/**
+ * KeepAlive 切回策划模式时 DOM 会被重新插入，浏览器会把 scrollTop 重置为 0。
+ * 这里主动回到最后一条消息，用户不用再手动往下拉。
+ */
+onActivated(() => {
+  scrollToBottom()
 })
 onBeforeUnmount(() => {
   controller.value?.abort()

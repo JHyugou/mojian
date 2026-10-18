@@ -212,6 +212,9 @@ onActivated(() => {
   loadDeleteRequests()
   loadSupplements()
   if (!running.value) reconnectActiveTask()
+  // KeepAlive 切回时 DOM 重新插入会把滚动位置重置到顶部；直接回到最后一条消息
+  scrollChat()
+  scrollPaper()
 })
 onBeforeUnmount(() => {
   // 离开工作台不取消后台任务：这次运行是用户发起的，只有点"停下"才终止。
