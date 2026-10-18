@@ -95,7 +95,8 @@ public class ReviewChapterTool implements AgentTool {
             for (ChapterSupplement supplement : supplements) {
                 sb.append(index++).append(". [")
                         .append("PENDING".equals(supplement.getStatus()) ? "待执行" : "已应用")
-                        .append("] ").append(supplement.getContent().trim()).append('\n');
+                        .append("] [记录 ID ").append(supplement.getId()).append("] ")
+                        .append(supplement.getContent().trim()).append('\n');
                 if (StringUtils.hasText(supplement.getReason())) {
                     sb.append("   原因：").append(supplement.getReason().trim()).append('\n');
                 }
@@ -113,6 +114,7 @@ public class ReviewChapterTool implements AgentTool {
         sb.append("\n\n");
         sb.append("请具体判断：是否满足写作要求、人物/前情是否一致、有没有需要修的地方。");
         sb.append("有意见就调用 add_chapter_supplement，一条意见一条补充要求；不要自己改正文，也不要只说空泛的好话。");
+        sb.append("如果用户明确说某条补充要求不要了，可以用上面的记录 ID 调 remove_chapter_supplement 移除。");
         return sb.toString();
     }
 

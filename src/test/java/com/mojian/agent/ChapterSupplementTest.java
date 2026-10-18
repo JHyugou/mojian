@@ -4,6 +4,7 @@ import com.mojian.agent.entity.ChapterSupplement;
 import com.mojian.agent.service.ChapterSupplementService;
 import com.mojian.agent.service.WriterService;
 import com.mojian.agent.tool.impl.AddChapterSupplementTool;
+import com.mojian.agent.tool.impl.RemoveChapterSupplementTool;
 import com.mojian.agent.tool.impl.ReviewChapterTool;
 import com.mojian.chapter.dto.ChapterSaveRequest;
 import com.mojian.chapter.entity.Chapter;
@@ -37,6 +38,8 @@ class ChapterSupplementTest {
     private ReviewChapterTool reviewTool;
     @Autowired
     private AddChapterSupplementTool supplementTool;
+    @Autowired
+    private RemoveChapterSupplementTool removeTool;
     @Autowired
     private ProjectService projectService;
     @Autowired
@@ -105,6 +108,32 @@ class ChapterSupplementTest {
         // 写作成功后由 WriterService 标记；这里直接验证标记后审稿显示已应用
         supplementService.markApplied(supplementService.pending(chapter.getId()));
         assertThat(reviewTool.execute(context, Map.of("chapterNo", 1))).contains("已应用");
+    }
+
+    @Test
+    @DisplayName("用户不要某条补充要求时，策划可按记录 ID 移除；只删这一条")
+    void 移除单条补充要求() {
+        Chapter chapter = createChapter("第一稿正文。", null);
+        AgentContext context = AgentContext.of(chapter.getProjectId(), AgentRole.PLANNER);
+        supplementTool.execute(context, Map.of("chapterNo", 1, "supplement", "第一条：改成短句。"));
+        supplementTool.execute(context, Map.of("chapterNo", 1, "supplement", "第二条：补一个细节。"));
+        List<ChapterSupplement> pending = supplementService.pending(chapter.getId());
+        assertThat(pending).hasSize(2);
+        ChapterSupplement first = pending.get(0);
+        ChapterSupplement second = pending.get(1);
+
+        String review = reviewTool.execute(context, Map.of("chapterNo", 1));
+        assertThat(review).contains("记录 ID " + first.getId()).contains("记录 ID " + second.getId());
+
+        String removed = removeTool.execute(context, Map.of("supplementId", first.getId()));
+        assertThat(removed).contains("已移除补充要求").contains("第一条");
+        assertThat(supplementService.pending(chapter.getId())).hasSize(1);
+        assertThat(supplementService.pending(chapter.getId()).get(0).getId()).isEqualTo(second.getId());
+
+        String contextText = writerService.contextPreview(chapter.getId()).text();
+        assertThat(contextText).doesNotContain("第一条：改成短句").contains("第二条：补一个细节");
+        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
+                .doesNotContain("第一条：改成短句").contains("第二条：补一个细节");
     }
 
     @Test

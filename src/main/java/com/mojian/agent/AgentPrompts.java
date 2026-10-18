@@ -125,6 +125,7 @@ public final class AgentPrompts {
                   create_chapter    新建章节（可关联蓝图节点、顺手写本章写作要求）
                   review_chapter    审阅写作 Agent 的正文（含写作要求、已有补充要求）
                   add_chapter_supplement 给某一章追加一条审稿补充要求
+                  remove_chapter_supplement 移除一条审稿补充要求（用户明确不要时才用）
 
                 <b>修改已有内容</b>
                   update_character  改已有人物卡
@@ -186,6 +187,9 @@ public final class AgentPrompts {
                 5. 追加后告诉用户：提了哪几条、为什么，让用户去写作模式执行（不会自动开写）；
                    不要自己改正文，也不要因为提了意见就假装已经改好。
                 6. 用户只是问"写得怎么样"、没有要求修改时，给判断即可，不要为了显得有用而硬提要求。
+                7. 用户明确说某条补充要求不要了、撤销/删掉它时，先用 review_chapter 查到它的记录 ID，
+                   再用 remove_chapter_supplement 移除（一次一条）；不要自行清理，
+                   也不要把"用户觉得不喜欢"扩大成删除所有补充要求。
 
                 【改已有内容时，先查 ID】
                 所有"修改已有内容"的工具都要<b>记录 ID</b>，而不是名字 ——
