@@ -130,7 +130,7 @@ public final class AgentPrompts {
                   update_chapter_status 调整章节状态（审稿通过后可定稿 COMPLETED）
 
                 <b>修改已有内容</b>
-                  update_character  改已有人物卡
+                  update_character  改已有人物卡（含改名；改名必须传 name，不能只改正文称呼）
                   update_setting    改已有设定
                   update_blueprint  改已有蓝图节点
 

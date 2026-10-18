@@ -45,6 +45,7 @@ public class UpdateCharacterTool implements AgentTool {
         return "修改一个已有人物卡的内容，提交给用户确认。"
                 + "必须先用 query_character 拿到记录 ID。"
                 + "只传要改的字段，没传的字段保持原样。"
+                + "name 是人物姓名，也是人物卡标题；改名时必须同时传 name，不能只改正文里的称呼。"
                 + "修改 description（人物设定全文）时，请给出修改后的<b>完整内容</b>，"
                 + "并把用户没要求改的部分原样保留进去。";
     }
@@ -61,6 +62,8 @@ public class UpdateCharacterTool implements AgentTool {
                 "properties", Map.of(
                         "characterId", Map.of("type", "integer",
                                 "description", "人物记录 ID（先用 query_character 查到）"),
+                        "name", Map.of("type", "string",
+                                "description", "新的姓名（同时是人物卡标题）；不传表示不改名"),
                         "roleIdentity", Map.of("type", "string",
                                 "description", "新的身份定位；不传表示不改"),
                         "description", Map.of("type", "string",
@@ -79,10 +82,14 @@ public class UpdateCharacterTool implements AgentTool {
         if (characterId == null) {
             return "错误：必须提供 characterId（先用 query_character 查到记录 ID）。";
         }
+        String name = text(arguments.get("name"));
         String roleIdentity = text(arguments.get("roleIdentity"));
         String description = text(arguments.get("description"));
-        if (roleIdentity.isEmpty() && description.isEmpty()) {
-            return "错误：roleIdentity 与 description 至少要提供一个，否则这次修改没有任何内容。";
+        if (name.isEmpty() && roleIdentity.isEmpty() && description.isEmpty()) {
+            return "错误：name、roleIdentity、description 至少要提供一个，否则这次修改没有任何内容。";
+        }
+        if (name.length() > 50) {
+            return "错误：人物姓名不能超过 50 字。";
         }
         String reason = text(arguments.get("reason"));
 
@@ -93,6 +100,9 @@ public class UpdateCharacterTool implements AgentTool {
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
+        if (!name.isEmpty()) {
+            payload.put("name", name);
+        }
         if (!roleIdentity.isEmpty()) {
             payload.put("roleIdentity", roleIdentity);
         }
@@ -100,10 +110,15 @@ public class UpdateCharacterTool implements AgentTool {
             payload.put("description", description);
         }
 
+        // 改名时草稿标题也同步成新名字，待确认列表才看起来对
+        String draftTitle = name.isEmpty() ? profile.getName() : name;
         AgentDraft draft = draftService.draft(conversationId, projectId, DraftType.CHARACTER,
-                profile.getName(), payload, reason, characterId);
+                draftTitle, payload, reason, characterId);
 
-        return "已起草对人物卡「" + profile.getName() + "」的修改（草稿 " + draft.getId() + "），"
+        String changeSummary = name.isEmpty()
+                ? "修改人物卡「" + profile.getName() + "」的内容"
+                : "把人物卡「" + profile.getName() + "」改名为「" + name + "」";
+        return "已起草" + changeSummary + "（草稿 " + draft.getId() + "），"
                 + "尚未生效 —— 它会出现在『待你确认』里。\n"
                 + "现在请停下：用两三句话说明你想改什么、为什么，"
                 + "然后请用户确认。不要继续调用其他工具。";
