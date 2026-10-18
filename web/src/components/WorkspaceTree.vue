@@ -746,4 +746,113 @@ onBeforeUnmount(() => {
   color: var(--color-muted);
   line-height: 1.8;
 }
+
+/* ==================================================================== */
+/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
+/* ==================================================================== */
+
+/* 标题用衬线、字号拉开，并去掉原来的硬分隔线 */
+.ws-head { padding: 6px 4px 12px; }
+
+.ws-title {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--color-muted);
+}
+
+/* 悬浮气泡：圆形 + 柔和阴影，替代原来的方框 */
+.ws-bubble {
+  border-radius: 50%;
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out),
+              transform var(--dur-fast) var(--ease-spring);
+}
+.ws-bubble:hover {
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  transform: scale(1.06);
+}
+
+/* ---------- 项目 / 会话 ---------- */
+
+.ws-project-row {
+  border-radius: var(--radius-s);
+  transition: background var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out);
+}
+.ws-project-row:hover { background: rgba(255, 255, 255, 0.55); }
+.ws-project-head.active { background: var(--color-panel); box-shadow: var(--shadow-xs); }
+
+.ws-project-name {
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+}
+
+/* 计数徽章：药丸形、淡棕底 */
+.ws-count {
+  border-radius: var(--radius-pill);
+  background: rgba(169, 118, 79, 0.12);
+  color: var(--color-brown-deep);
+  padding: 1px 7px;
+  font-size: 10.5px;
+}
+
+/* 会话条目：圆角 + 左侧一条细棕线做"当前"标记 */
+.ws-conv {
+  border-radius: var(--radius-xs);
+  transition: background var(--dur) var(--ease-out);
+}
+.ws-conv:hover { background: rgba(255, 255, 255, 0.5); }
+.ws-conv.active {
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+}
+
+.ws-conv.active .ws-conv-mark {
+  background: linear-gradient(180deg, #c08f66, var(--color-brown));
+  border-radius: var(--radius-pill);
+}
+
+.ws-conv-title { font-size: 12.5px; }
+.ws-conv-time { font-size: 10.5px; opacity: 0.7; }
+
+/* ---------- 浮层 ---------- */
+
+.ws-picker,
+.ws-menu {
+  border-radius: var(--radius-m);
+  border-color: var(--color-line-soft);
+  box-shadow: var(--shadow-float);
+  padding: 6px;
+  animation: mj-pop var(--dur) var(--ease-spring) both;
+  transform-origin: top left;
+}
+
+.ws-menu.is-floating { transform-origin: top left; }
+
+.ws-picker-title {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+  padding: 6px 10px 8px;
+}
+
+.ws-picker-item {
+  border-radius: var(--radius-xs);
+  transition: background var(--dur) var(--ease-out);
+}
+.ws-picker-item:hover { background: var(--color-brown-tint); }
+
+.ws-menu-item {
+  border-radius: var(--radius-xs);
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out);
+}
+.ws-menu-item:hover { background: var(--color-brown-tint); }
+.ws-menu-item.is-danger:hover { background: rgba(179, 68, 51, 0.09); }
+
+.ws-empty { line-height: 1.9; }
+
 </style>

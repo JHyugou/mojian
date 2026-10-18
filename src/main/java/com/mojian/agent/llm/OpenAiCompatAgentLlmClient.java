@@ -63,6 +63,18 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
 
     static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * 从 400 报错里抠出"服务商说可用的模型"。
+     *
+     * <p>各家措辞略有出入，所以匹配得放宽一点：
+     * {@code The supported API model names are deepseek-flash, deepseek-v4-pro}
+     * 或 {@code supported models: x, y} 都能认出来。
+     */
+    private static final java.util.regex.Pattern SUPPORTED_MODELS =
+            java.util.regex.Pattern.compile(
+                    "supported\\s+(?:api\\s+)?model\\s*names?\\s*(?:are|:)\\s*([^.(\\n]+)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
     /** 连接层失败的重试次数。这类失败几乎都是瞬时的，重试往往就好 */
     private static final int CONNECT_RETRY_TIMES = 3;
     /** 退避基数：第 n 次重试前等 n × 这个毫秒数 */
@@ -311,7 +323,8 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
                 // 自报家门（服务方明确要求客户端用自己的 UA，而不是通用 SDK 的名字）
                 .header("User-Agent", "mojian-agent/0.1")
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        buildBody(resolved.model(), resolved.temperature(), messages, availableTools, stream),
+                        buildBody(resolved.model(), resolved.temperature(), messages,
+                                availableTools, stream, resolved.reasoningEffort()),
                         StandardCharsets.UTF_8))
                 .build();
     }
@@ -321,6 +334,24 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         String detail = shorten(body);
         log.warn("Agent 模型返回异常状态: {} (角色 {} / 模型 {}) body={}",
                 statusCode, resolved.agentRole(), resolved.model(), detail);
+
+        /*
+         * 模型名不可用是最常见的 400。
+         *
+         * 服务商的英文原文其实已经把答案给了（"The supported API model names are X, Y"），
+         * 但那句话对作者毫无意义 —— 他只会看到一串英文报错，然后以为自己哪里配错了。
+         * 这里把它翻成"这个模型用不了，能用的是这些，去哪儿换"。
+         *
+         * 真实案例：模型目录（models.dev）里还列着 deepseek-v4.1-flash，
+         * 而服务商已经不支持它了 —— **目录不是实时的**，只有真实报错才是权威。
+         */
+        java.util.regex.Matcher supported = SUPPORTED_MODELS.matcher(body);
+        if (supported.find()) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "「" + resolved.model() + "」这个模型用不了。服务商说可用的模型是："
+                            + supported.group(1).trim()
+                            + " —— 在输入框下方的「模型」里换一个就行");
+        }
 
         ContextLimitParser.parse(body).ifPresent(limit -> {
             try {
@@ -407,6 +438,20 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
      */
     static String buildBody(String model, Double temperature,
                             List<AgentMessage> messages, List<AgentTool> tools, boolean stream) {
+        return buildBody(model, temperature, messages, tools, stream, null);
+    }
+
+    /**
+     * 带思考强度的版本。
+     *
+     * <p>{@code reasoning_effort} 是 OpenAI 兼容接口里的可选字段，各家支持度不同：
+     * 支持的服务商会用它控制"想多久"，不支持的会直接忽略 —— 所以传了也不会坏事。
+     * 为空表示<b>不传这个字段</b>，让服务商用自己的默认值；
+     * 这比硬塞一个 {@code medium} 更安全：不同服务商的默认值本来就是各自调好的。
+     */
+    static String buildBody(String model, Double temperature,
+                            List<AgentMessage> messages, List<AgentTool> tools,
+                            boolean stream, String reasoningEffort) {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("model", model);
         body.put("stream", stream);
@@ -417,6 +462,9 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         }
         if (temperature != null) {
             body.put("temperature", temperature);
+        }
+        if (reasoningEffort != null && !reasoningEffort.isBlank()) {
+            body.put("reasoning_effort", reasoningEffort.trim());
         }
 
         ArrayNode messageArray = body.putArray("messages");

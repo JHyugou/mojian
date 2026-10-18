@@ -25,6 +25,15 @@ public class AgentProfile extends BaseEntity {
     /** 策划宜低（求稳），写作宜高（求发散） */
     private java.math.BigDecimal temperature;
 
+    /**
+     * 思考强度。
+     *
+     * <p>值域各家不同（{@code none/low/medium/high} 或 {@code xhigh/max}），
+     * 所以这里只存字符串、不在库里约束 —— 可选值由模型目录提供。
+     * 为空表示不传这个字段，由服务商用自己的默认值。
+     */
+    private String reasoningEffort;
+
     private Integer maxSteps;
 
     /**

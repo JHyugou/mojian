@@ -7,51 +7,78 @@
  * 令牌名称保持不变、只调数值：这样已有页面不用改一行代码就跟着换风格。
  */
 :root {
-  /* 纸面：以白为主 */
-  --color-paper: #ffffff;        /* 主背景：纯白 */
+  /* ==================== 纸面 ==================== */
+  /* 以白为主，但不是死白：整体带一点暖，像旧宣纸的底 */
+  --color-paper: #fdfbf7;        /* 主背景 */
   --color-panel: #ffffff;        /* 卡片、编辑区 */
-  --color-paper-warm: #faf7f2;   /* 暖白：分区、次级背景 */
-  --color-dai: #f5f1ea;          /* 侧栏、选中区、悬浮态 */
-  --color-line: #e8dfd4;         /* 边框、分割线：浅棕细线（扁平的分层手段） */
+  --color-paper-warm: #f8f3ec;   /* 暖白：分区、次级背景 */
+  --color-dai: #f2ece2;          /* 侧栏、选中区、悬浮态 */
+  --color-line: #ece3d7;         /* 边框、分割线 */
+  --color-line-soft: #f5efe6;    /* 更淡的分隔：用于同一张卡片内部 */
 
-  /* 墨字：近黑棕，比纯黑柔和 */
-  --color-ink: #2b2119;          /* 主文字、标题 */
-  --color-muted: #6b5c4e;        /* 次要文字 */
+  /* ==================== 墨字 ==================== */
+  --color-ink: #2e2620;          /* 主文字 */
+  --color-ink-soft: #4d4238;     /* 次级正文 */
+  --color-muted: #8a7b6c;        /* 说明文字 */
 
-  /* 棕色主色系 */
-  --color-brown: #8b5e3c;        /* 主色 */
-  --color-brown-deep: #5c3a21;   /* 深棕：标题与强调 */
-  --color-brown-soft: #e8dfd4;   /* 浅棕：线条与描边 */
-  --color-gold: #b8860b;         /* 点缀：选中态 */
+  /* ==================== 棕色主色系 ==================== */
+  --color-brown: #a9764f;        /* 主色：比原来的 #8b5e3c 提亮一档，更温润 */
+  --color-brown-deep: #6b4326;   /* 深棕：标题与强调 */
+  --color-brown-soft: #ece3d7;   /* 浅棕：线条与描边 */
+  --color-gold: #c9971f;         /* 点缀：选中态 */
 
-  /* 兼容旧令牌名：主操作色由朱砂红改为棕色，服从"棕为主"的整体取向 */
-  --color-dai-deep: #8b5e3c;
-  --color-cinnabar: #a62b1f;     /* 朱砂印章：只保留极少量，做点睛 */
-  --color-danger: #a62b1f;
+  /* 柔和的棕色底：hover、选中、强调块都用它，比直接上边框轻 */
+  --color-brown-tint: rgba(169, 118, 79, 0.07);
+  --color-brown-tint-strong: rgba(169, 118, 79, 0.13);
 
-  /* 字体：标题用宋体（衬线、有文气），正文用无衬线保证清晰 */
-  --font-serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", serif;
+  /* 兼容旧令牌名 */
+  --color-dai-deep: #a9764f;
+  --color-cinnabar: #b34433;     /* 朱砂：只做点睛 */
+  --color-danger: #b34433;
+
+  /* ==================== 字体 ==================== */
+  /*
+   * 三层字族，各司其职：
+   *   display → 品牌字（毛笔行楷），只出现在"墨笺"这两个字上
+   *   serif   → 标题，有文气
+   *   sans    → 正文，小字号下清晰
+   * 之前只有两层，所以视觉上"字体单一" —— 差的就是 display 那一层。
+   */
+  --font-display: "Ma Shan Zheng", "STKaiti", "KaiTi", cursive;
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
   --font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
   /* 旧别名保持可用 */
   --font-kai: var(--font-serif);
-  --font-brush: var(--font-serif);
+  --font-brush: var(--font-display);
 
-  /* 形状：克制。扁平的国风不需要大圆角 */
-  --radius-s: 3px;
-  --radius-m: 5px;
-  --radius-l: 8px;
+  /* ==================== 形状 ==================== */
+  /*
+   * 圆角整体放开。原来的 3/5/8px 配上细边框，观感就是"硬朗的色块拼接"——
+   * 这个尺寸在白底上几乎看不出圆，只剩边框的锋利感。
+   */
+  --radius-xs: 6px;
+  --radius-s: 10px;
+  --radius-m: 14px;
+  --radius-l: 20px;
+  --radius-xl: 26px;
+  --radius-pill: 999px;
 
-  /* 动效：统一时长与缓动，"过渡自然"靠的是它们一致，而不是各写各的 */
+  /* ==================== 动效 ==================== */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --dur-fast: 160ms;
-  --dur: 220ms;
-  --dur-slow: 360ms;
+  /* 轻微回弹：用于"按下/弹层出现"这类需要一点生命感的动作 */
+  --ease-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --dur-fast: 180ms;
+  --dur: 260ms;
+  --dur-slow: 420ms;
 
-  /* 阴影：只在浮层用，正文区一律靠线条分层 */
-  --shadow-soft: 0 1px 3px rgba(43, 33, 25, 0.06);
-  --shadow-float: 0 6px 24px rgba(43, 33, 25, 0.12);
+  /* ==================== 阴影 ==================== */
+  /* 三层由浅到深，靠阴影而不是纯边框来表达"浮起来多少" */
+  --shadow-xs: 0 1px 2px rgba(70, 52, 36, 0.04);
+  --shadow-soft: 0 2px 8px rgba(70, 52, 36, 0.06), 0 1px 2px rgba(70, 52, 36, 0.04);
+  --shadow-mid: 0 8px 24px rgba(70, 52, 36, 0.09), 0 2px 6px rgba(70, 52, 36, 0.05);
+  --shadow-float: 0 16px 48px rgba(70, 52, 36, 0.16), 0 4px 12px rgba(70, 52, 36, 0.08);
 
-  /* 布局 */
+  /* ==================== 布局 ==================== */
   --nav-width: 216px;
   --context-width: 264px;
 }

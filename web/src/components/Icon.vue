@@ -38,7 +38,9 @@ const PATHS = {
   // 终止
   stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
   // 全部采纳（双勾）
-  checkAll: '<path d="M2 13l4 4L14 9"/><path d="M11 15l1.5 1.5L21 8"/>'
+  checkAll: '<path d="M2 13l4 4L14 9"/><path d="M11 15l1.5 1.5L21 8"/>',
+  // 单选已选中
+  check: '<path d="M4.5 12.5l5 5 10-11"/>'
 }
 </script>
 

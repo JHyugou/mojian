@@ -48,14 +48,18 @@ public class ModelsDevCatalog {
     private static final Duration TTL = Duration.ofHours(24);
 
     /**
-     * @param id            模型 id（调用时填的那个）
-     * @param name          显示名
-     * @param contextLimit  上下文长度；目录没给就是 null
-     * @param inputCost     每百万 token 输入价（美元）；没给就是 null
-     * @param outputCost    每百万 token 输出价（美元）
+     * @param id              模型 id（调用时填的那个）
+     * @param name            显示名
+     * @param contextLimit    上下文长度；目录没给就是 null
+     * @param inputCost       每百万 token 输入价（美元）；没给就是 null
+     * @param outputCost      每百万 token 输出价（美元）
+     * @param reasoningLevels 该模型支持的思考强度档位。空表示不支持这项调节 ——
+     *                        各家值域不一样（{@code low/medium/high} 或 {@code xhigh/max}），
+     *                        所以界面必须按模型来显示，不能写死一套
      */
     public record ModelInfo(String id, String name, Integer contextLimit,
-                            Double inputCost, Double outputCost) {
+                            Double inputCost, Double outputCost,
+                            List<String> reasoningLevels) {
     }
 
     /** api 地址（已去掉结尾斜杠）→ 该地址下的模型 */
@@ -198,6 +202,37 @@ public class ModelsDevCatalog {
         }
     }
 
+    /**
+     * 从目录条目里取"思考强度的可选档位"。
+     *
+     * <p>目录里的结构是 {@code reasoning_options:[{type:"effort", values:[...]}]}，
+     * 但只有 {@code type=effort} 那一条对 {@code reasoning_effort} 有意义 ——
+     * 还有 {@code type=toggle}（开关）之类，那些对应的是别的字段，不能混进来。
+     */
+    private List<String> reasoningLevelsOf(JsonNode model) {
+        JsonNode options = model.path("reasoning_options");
+        if (!options.isArray()) {
+            return List.of();
+        }
+        for (JsonNode option : options) {
+            if (!"effort".equals(option.path("type").asText())) {
+                continue;
+            }
+            JsonNode values = option.path("values");
+            if (!values.isArray()) {
+                continue;
+            }
+            List<String> levels = new ArrayList<>();
+            values.forEach(value -> {
+                if (value.isTextual()) {
+                    levels.add(value.asText());
+                }
+            });
+            return levels;
+        }
+        return List.of();
+    }
+
     /** 只挑走需要的字段，其余当场丢掉 —— 原始 JSON 有 5.6MB */
     private Map<String, List<ModelInfo>> parse(String body) throws Exception {
         JsonNode root = MAPPER.readTree(body);
@@ -220,7 +255,8 @@ public class ModelsDevCatalog {
                         model.path("name").asText(entry.getKey()),
                         limit.hasNonNull("context") ? limit.get("context").asInt() : null,
                         cost.hasNonNull("input") ? cost.get("input").asDouble() : null,
-                        cost.hasNonNull("output") ? cost.get("output").asDouble() : null));
+                        cost.hasNonNull("output") ? cost.get("output").asDouble() : null,
+                        reasoningLevelsOf(model)));
             });
             if (!list.isEmpty()) {
                 result.put(normalize(api), list);

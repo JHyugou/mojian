@@ -77,6 +77,12 @@ public class AgentProfileService {
         if (request.temperature() != null) {
             profile.setTemperature(request.temperature());
         }
+        // 空字符串表示"回到服务商默认"，所以这里区分 null（不动）与 ""（清空）
+        if (request.reasoningEffort() != null) {
+            profile.setReasoningEffort(
+                    StringUtils.hasText(request.reasoningEffort())
+                            ? request.reasoningEffort().trim() : null);
+        }
         if (request.maxSteps() != null) {
             profile.setMaxSteps(request.maxSteps());
         }
@@ -96,6 +102,7 @@ public class AgentProfileService {
                 .eq(AgentProfile::getId, profile.getId())
                 .set(AgentProfile::getModel, profile.getModel())
                 .set(AgentProfile::getTemperature, profile.getTemperature())
+                .set(AgentProfile::getReasoningEffort, profile.getReasoningEffort())
                 .set(AgentProfile::getMaxSteps, profile.getMaxSteps())
                 .set(AgentProfile::getContextLimit, profile.getContextLimit())
                 .set(AgentProfile::getReserveOutputTokens, profile.getReserveOutputTokens())
@@ -121,6 +128,7 @@ public class AgentProfileService {
                 profile.getRole(),
                 profile.getModel(),
                 profile.getTemperature(),
+                profile.getReasoningEffort(),
                 profile.getMaxSteps() == null ? 10 : profile.getMaxSteps(),
                 resolveContextLimit(profile),
                 profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens(),
@@ -186,6 +194,7 @@ public class AgentProfileService {
                 apiKey,
                 profile.getModel(),
                 profile.getTemperature() == null ? 0.8d : profile.getTemperature().doubleValue(),
+                profile.getReasoningEffort(),
                 profile.getMaxSteps() == null ? 10 : profile.getMaxSteps(),
                 resolveContextLimit(profile),
                 profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens());
@@ -224,7 +233,7 @@ public class AgentProfileService {
      * 刻意做成不可变记录：它会被传给模型客户端，中途被改会很难排查。
      */
     public record ResolvedModel(String agentRole, String baseUrl, String apiKey, String model,
-                                double temperature, int maxSteps,
+                                double temperature, String reasoningEffort, int maxSteps,
                                 int contextLimit, int reserveOutputTokens) {
 
         public boolean isPlanner() {

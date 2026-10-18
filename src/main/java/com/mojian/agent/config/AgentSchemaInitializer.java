@@ -208,6 +208,16 @@ public class AgentSchemaInitializer {
         addColumnIfMissing("agent_draft", "target_id",
                 "BIGINT DEFAULT NULL COMMENT '要修改的对象 id；为空表示新增' AFTER payload_json");
 
+        /*
+         * 思考强度。
+         *
+         * 值域各家不一样（有的 none/low/medium/high，有的 xhigh/max），
+         * 所以只存字符串、不在库里约束 —— 真正的可选值由模型目录告诉界面。
+         * 空表示"不传这个字段"，由服务商自己用默认值。
+         */
+        addColumnIfMissing("agent_profile", "reasoning_effort",
+                "VARCHAR(20) DEFAULT NULL COMMENT '思考强度；空=不传，用服务商默认' AFTER temperature");
+
         jdbcTemplate.execute(SEED_PROFILES);
         jdbcTemplate.execute(SEED_WRITER);
         jdbcTemplate.execute(MIGRATE_CONTEXT_LIMIT);

@@ -156,6 +156,11 @@
             </button>
           </div>
         </div>
+
+        <!-- 模型选择：写作 Agent 可以单独用另一个模型（策划求稳、写作求发散，往往不是一颗脑子） -->
+        <div class="wr-mode">
+          <ModelPicker role="WRITER" />
+        </div>
       </footer>
     </section>
 
@@ -228,6 +233,7 @@ import {
   subscribeWritingTask
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
+import ModelPicker from './ModelPicker.vue'
 import Resizer from './Resizer.vue'
 import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
@@ -886,6 +892,15 @@ async function stop() {
 
 .wr-input-side { display: flex; align-items: flex-end; }
 
+/* 写作 Agent 的模型选择条：与策划面板同样的位置，位置一致才好找 */
+.wr-mode {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 2px 26px 14px;
+  position: relative;
+}
+
 /* ==================== 右：章节内容 ==================== */
 .wr-content {
   flex: 1;
@@ -986,4 +1001,176 @@ async function stop() {
   color: var(--color-brown-deep);
 }
 .wr-menu-item:hover { background: var(--color-paper-warm); }
+
+/* ==================================================================== */
+/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
+/* ==================================================================== */
+
+/* ---------- 聊天流 ---------- */
+
+.wr-stream { padding: 22px 24px 8px; }
+
+.wr-msg { margin-bottom: 22px; }
+
+.wr-msg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+}
+.wr-msg-tag::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  background: var(--color-brown-soft);
+}
+
+.wr-bubble {
+  padding: 14px 18px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-xs) var(--radius-m) var(--radius-m) var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  line-height: 1.9;
+  word-break: break-word;
+}
+
+.wr-msg.is-user .wr-bubble {
+  background: var(--color-brown-tint);
+  border-color: transparent;
+  border-radius: var(--radius-m) var(--radius-m) var(--radius-m) var(--radius-xs);
+  box-shadow: none;
+}
+
+/* ---------- 章节选择 ---------- */
+
+.wr-chapter-current {
+  border-radius: var(--radius-pill);
+  border-color: var(--color-line-soft);
+  background: var(--color-paper-warm);
+  transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out);
+}
+.wr-chapter-current:hover {
+  border-color: var(--color-brown-soft);
+  background: var(--color-brown-tint);
+  box-shadow: var(--shadow-xs);
+}
+
+.wr-chapter-menu {
+  border-radius: var(--radius-m);
+  border-color: var(--color-line-soft);
+  box-shadow: var(--shadow-float);
+  padding: 6px;
+  animation: mj-pop var(--dur) var(--ease-spring) both;
+}
+
+.wr-chapter-item {
+  border-radius: var(--radius-xs);
+  transition: background var(--dur) var(--ease-out);
+}
+.wr-chapter-item:hover { background: var(--color-brown-tint); }
+
+.wr-chapter-no {
+  font-family: var(--font-serif);
+  color: var(--color-brown);
+}
+
+/* ---------- 输入区 ---------- */
+
+.wr-input-wrap {
+  border-top: 0;
+  background: linear-gradient(180deg, rgba(253, 251, 247, 0), var(--color-paper) 26px);
+  box-shadow: 0 -10px 24px -18px rgba(70, 52, 36, 0.3);
+}
+
+.wr-input { padding: 14px 24px 8px; }
+
+.wr-input .mj-textarea {
+  padding: 13px 17px;
+  border-radius: var(--radius-l);
+  border-color: var(--color-line-soft);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  line-height: 1.8;
+  transition: border-color var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out);
+}
+.wr-input .mj-textarea:hover { border-color: var(--color-line); }
+.wr-input .mj-textarea:focus {
+  border-color: var(--color-brown);
+  box-shadow: 0 0 0 3px var(--color-brown-tint-strong), var(--shadow-soft);
+}
+
+.wr-input-side .mj-btn-primary {
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 13.5px;
+}
+
+.wr-cites { padding: 0 24px 8px; }
+.wr-cite {
+  border-radius: var(--radius-s);
+  border-color: var(--color-brown-soft);
+  background: var(--color-brown-tint);
+}
+
+/* ---------- 右侧正文区 ---------- */
+
+.wr-content {
+  background: var(--color-paper-warm);
+  box-shadow: inset 8px 0 16px -12px rgba(70, 52, 36, 0.14);
+}
+
+/* 页签做成药丸 */
+.wr-tabs {
+  gap: 4px;
+  padding: 12px 20px 8px;
+  border-bottom: 0;
+}
+
+.wr-tab {
+  padding: 6px 15px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  font-size: 12.5px;
+  color: var(--color-muted);
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out);
+}
+.wr-tab:hover { color: var(--color-brown-deep); }
+.wr-tab.active {
+  color: var(--color-brown-deep);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+}
+
+/* 正文：给一块"纸"的感觉 —— 圆角、留白、极淡阴影 */
+.wr-text {
+  padding: 26px 32px;
+  border-radius: var(--radius-l);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  border: 1px solid var(--color-line-soft);
+}
+
+/* ---------- 空态 ---------- */
+
+.wr-empty { line-height: 2.1; }
+
+/* ---------- 写作要求折叠区 ---------- */
+
+.wr-req {
+  border-radius: var(--radius-m);
+  border-color: var(--color-line-soft);
+  background: var(--color-paper-warm);
+  box-shadow: var(--shadow-xs);
+}
+
 </style>

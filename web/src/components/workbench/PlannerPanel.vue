@@ -243,6 +243,14 @@
         </div>
 
         <span v-if="autoNotice" class="pl-mode-notice mj-fade">{{ autoNotice }}</span>
+
+        <!--
+          模型选择放在右侧：左边是"我怎么审你"，右边是"你用哪颗脑子"。
+          两件都是设定一次长期生效的东西，所以常驻在输入框下方，而不是埋进设置页。
+        -->
+        <div class="pl-mode-right">
+          <ModelPicker role="PLANNER" />
+        </div>
       </div>
     </footer>
   </div>
@@ -263,6 +271,7 @@ import {
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
+import ModelPicker from './ModelPicker.vue'
 import { useLibraryStore } from '../../stores/library'
 import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
@@ -971,24 +980,37 @@ async function discardDraft(draft) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 26px 12px;
+  padding: 2px 26px 14px;
   position: relative;
+}
+
+/* 模型选择靠右：它是"这颗脑子怎么配"，与左边的审阅策略分属两类设定 */
+.pl-mode-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
 }
 
 .pl-mode-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 9px;
-  border: 0;
-  border-radius: var(--radius-s);
-  background: none;
+  padding: 6px 12px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--color-panel);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--color-muted);
-  transition: color var(--dur) var(--ease-out), background var(--dur) var(--ease-out);
+  transition: color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              border-color var(--dur) var(--ease-out);
 }
-.pl-mode-btn:hover { color: var(--color-brown-deep); background: var(--color-paper-warm); }
+.pl-mode-btn:hover {
+  color: var(--color-brown-deep);
+  background: var(--color-brown-tint);
+  border-color: var(--color-brown-soft);
+}
 
 .pl-mode-caret { font-size: 10px; }
 
@@ -1036,4 +1058,174 @@ async function discardDraft(draft) {
   color: var(--color-muted);
   font-size: 13px;
 }
+
+/* ==================================================================== */
+/* 视觉打磨（2026-10 重做：圆润、柔和、有层次）                          */
+/* ==================================================================== */
+
+/* ---------- 对话流 ---------- */
+
+.pl-stream { padding: 26px 30px 10px; }
+
+.pl-msg { margin-bottom: 26px; }
+
+/* 说话人标签：前面加一根小小的棕线，比纯文字更"有归属" */
+.pl-msg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  color: var(--color-muted);
+}
+.pl-msg-tag::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  background: var(--color-brown-soft);
+}
+
+.pl-bubble {
+  padding: 15px 20px;
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  line-height: 1.9;
+  word-break: break-word;
+}
+
+/*
+ * 用户消息不再用"左侧 2px 竖线"（那是硬笔触），
+ * 改成整块淡棕底 + 短圆角。整块的色块比一根线柔和得多。
+ */
+.pl-msg.is-user .pl-bubble {
+  background: var(--color-brown-tint);
+  border-color: transparent;
+  border-left: 0;
+  border-radius: var(--radius-m) var(--radius-m) var(--radius-m) var(--radius-xs);
+  box-shadow: none;
+}
+
+/* 助手气泡：左上角收窄一点，形成"从这边说出来的"方向感 */
+.pl-msg.is-assistant .pl-bubble {
+  border-radius: var(--radius-xs) var(--radius-m) var(--radius-m) var(--radius-m);
+}
+
+/* ---------- 空态 ---------- */
+
+.pl-empty {
+  max-width: 520px;
+  margin: 56px auto 0;
+  line-height: 2.1;
+}
+
+/* ---------- 待确认 / 方案区 ---------- */
+
+/*
+ * 原来用 border-top 硬线分隔。
+ * 现在改成"浅底 + 上方一段渐白"，让下半区像是从纸面里浮出来的另一层。
+ */
+.pl-block {
+  border-top: 0;
+  padding: 18px 30px;
+  background: var(--color-paper-warm);
+  box-shadow: inset 0 12px 16px -14px rgba(70, 52, 36, 0.18);
+}
+
+.pl-block-head { margin-bottom: 14px; }
+
+.pl-option {
+  border-radius: var(--radius-m);
+  transition: border-color var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-out);
+}
+.pl-option:not(:disabled):hover {
+  border-color: var(--color-brown-soft);
+  box-shadow: var(--shadow-soft);
+  transform: translateY(-2px);
+}
+
+/* 方案序号：圆形徽标，比方形徽章更像个"编号" */
+.pl-option-no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-family: var(--font-serif);
+}
+
+/* ---------- 输入区 ---------- */
+
+/* 去掉顶部硬线，改成一层向上的柔和阴影：输入区"托"在内容之上 */
+.pl-input-wrap {
+  border-top: 0;
+  background: linear-gradient(180deg, rgba(253, 251, 247, 0), var(--color-paper) 26px);
+  box-shadow: 0 -10px 24px -18px rgba(70, 52, 36, 0.3);
+}
+
+.pl-input { padding: 14px 30px 8px; }
+
+/* 输入框做成一块浮起来的纸：圆角加大 + 更软的边框 */
+.pl-input .mj-textarea {
+  padding: 13px 17px;
+  border-radius: var(--radius-l);
+  border-color: var(--color-line-soft);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-xs);
+  line-height: 1.8;
+  transition: border-color var(--dur) var(--ease-out),
+              box-shadow var(--dur) var(--ease-out);
+}
+.pl-input .mj-textarea:hover { border-color: var(--color-line); }
+.pl-input .mj-textarea:focus {
+  border-color: var(--color-brown);
+  box-shadow: 0 0 0 3px var(--color-brown-tint-strong), var(--shadow-soft);
+}
+
+/* 发送按钮：稍大一点、加一点阴影，让它明显是这一屏的主操作 */
+.pl-input-side .mj-btn-primary {
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 13.5px;
+}
+
+/* ---------- 引用卡片 ---------- */
+
+.pl-cites { padding: 0 30px 8px; }
+
+.pl-cite {
+  border-radius: var(--radius-s);
+  border-color: var(--color-brown-soft);
+  background: var(--color-brown-tint);
+}
+
+/* ---------- 全部采纳 ---------- */
+
+.pl-accept-all {
+  border-radius: var(--radius-pill);
+  border-color: var(--color-line-soft);
+  padding: 5px 13px;
+  transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out);
+}
+.pl-accept-all:hover {
+  border-color: var(--color-brown-soft);
+  background: var(--color-brown-tint);
+}
+
+/* ---------- 草稿卡片 ---------- */
+
+.pl-draft {
+  border-radius: var(--radius-m);
+  border-color: var(--color-line-soft);
+  box-shadow: var(--shadow-xs);
+}
+
+.pl-draft-body {
+  border-left-width: 3px;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+}
+
 </style>
