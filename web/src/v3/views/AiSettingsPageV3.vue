@@ -517,6 +517,12 @@ const reasoningLevelsOf = (modelId) => {
 .provider-check { position: absolute; top: 12px; right: 12px; color: var(--v3-gold-bright); }
 
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/*
+ * 网格里两个字段是"同一行"，不该再有纵向兄弟间距。
+ * V3Field 自带 `.v3-field + .v3-field { margin-top: 16px }`（竖排表单用），
+ * 在 grid 里会把右列的标签与输入框整体压下去 16px，看起来"两个框高度不一致"。
+ */
+.conn-grid :deep(.v3-field + .v3-field) { margin-top: 0; }
 .conn-grid :deep(.v3-field):last-child { grid-column: 1 / -1; }
 .select, .num, .search {
   width: 100%;
@@ -590,6 +596,8 @@ const reasoningLevelsOf = (modelId) => {
 .role-head p { margin: 0; font-size: 11px; line-height: 1.7; color: var(--v3-text-faint); }
 .role-head :deep(.v3-tag) { margin-left: auto; }
 .role-row { display: grid; grid-template-columns: 1fr 110px; gap: 12px; margin-top: 14px; }
+/* 同上：同一行的两个字段不要再叠纵向兄弟间距，否则右边会低 16px */
+.role-row :deep(.v3-field + .v3-field) { margin-top: 0; }
 .range { width: 100%; accent-color: var(--v3-gold); }
 .role-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .role-hint { font-size: 10.5px; color: var(--v3-text-faint); }
