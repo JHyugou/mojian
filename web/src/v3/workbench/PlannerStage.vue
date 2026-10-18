@@ -94,6 +94,7 @@ const toolLabels = {
   review_chapter: '审稿',
   add_chapter_supplement: '追补充要求',
   remove_chapter_supplement: '撤补充要求',
+  update_chapter_status: '改章节状态',
   instruct_writer: '给写作下指令',
   save_chapter_draft: '写正文'
 }
