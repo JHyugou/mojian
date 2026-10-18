@@ -101,10 +101,6 @@ function goHome() {
       <div v-if="activeReport" class="ctx-pill" :class="{ warn: (activeReport.usagePercent || 0) > 70 }">
         上下文 {{ activeReport.usagePercent }}%
       </div>
-
-      <button class="topbar-icon" :title="rightOpen ? '收起资料栏' : '打开资料栏'" @click="rightOpen = !rightOpen">
-        <Icon name="layers" :size="16" />
-      </button>
     </template>
 
     <div v-if="!projectId" class="wb-empty">
@@ -151,13 +147,51 @@ function goHome() {
         @cite="onCite"
         @close="rightOpen = false"
       />
+
+      <!-- 资料栏收起后，右缘留一个抓手：不重复顶栏图标，但也不让人"关掉就找不回来" -->
+      <button v-if="!rightOpen" class="side-reopen" title="打开资料栏" @click="rightOpen = true">
+        <Icon name="layers" :size="14" />
+        <span>资料</span>
+      </button>
     </div>
   </WorkspaceShell>
 </template>
 
 <style scoped>
-.wb3 { flex: 1; min-width: 0; display: flex; overflow: hidden; }
+.wb3 { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
 .wb-empty { flex: 1; display: grid; place-items: center; }
+
+/* 资料栏收起后的右缘抓手：只在栏关闭时出现，不与栏内的关闭按钮重复 */
+.side-reopen {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 13px 6px;
+  border: 1px solid var(--v3-hairline);
+  border-right: 0;
+  border-radius: 10px 0 0 10px;
+  background: var(--v3-surface-raised);
+  color: var(--v3-text-faint);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: var(--v3-shadow-float);
+  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), transform var(--v3-dur-2);
+}
+.side-reopen span {
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+}
+.side-reopen:hover {
+  color: var(--v3-gold-bright);
+  border-color: var(--v3-hairline-gold);
+}
 
 .mode-switch {
   display: flex;
