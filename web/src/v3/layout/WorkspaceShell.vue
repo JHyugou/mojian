@@ -5,9 +5,11 @@ import Icon from '../../components/Icon.vue'
 import V3Ambient from '../../components/v3/V3Ambient.vue'
 import V3CommandPalette from '../../components/v3/V3CommandPalette.vue'
 import V3Toasts from '../../components/v3/V3Toasts.vue'
+import V3Splitter from '../../components/v3/V3Splitter.vue'
 import { useV3Theme } from '../theme'
 import { useV3Notify } from '../notify'
 import { useShellCommands } from '../shellBus'
+import { useWidthResize } from '../useWidthResize'
 import { useProjectStore } from '../../stores/project'
 import { listProjects } from '../../api/project'
 import { deleteConversation, listConversations, renameConversation } from '../../api/agent'
@@ -47,6 +49,12 @@ const crumb = computed(() => {
 })
 
 const dockOpen = ref(typeof window === 'undefined' ? true : window.innerWidth > 900)
+/** 工作区树宽度可拖拽（双击恢复默认） */
+const {
+  width: dockWidth,
+  onPointerDown: onDockResize,
+  reset: resetDockWidth
+} = useWidthResize({ initial: 264, min: 200, max: 440, storageKey: 'mojian.dockWidth' })
 const paletteOpen = ref(false)
 const projects = ref([])
 const conversations = ref([])
@@ -204,7 +212,7 @@ defineExpose({ reload: load })
   <div class="v3-root ws-shell">
     <V3Ambient variant="calm" />
 
-    <div class="ws-layout">
+    <div class="ws-layout" :style="{ '--dock-width': dockWidth + 'px' }">
       <!-- ==================== 左侧导航轨 ==================== -->
       <nav class="ws-rail" aria-label="主导航">
         <button class="rail-brand" title="墨笺 · 首页" @click="router.push('/')">
@@ -313,6 +321,15 @@ defineExpose({ reload: load })
           </footer>
         </aside>
       </Transition>
+
+      <!-- 工作区树与主区之间的拖拽分割线 -->
+      <V3Splitter
+        v-if="dockOpen"
+        class="dock-splitter"
+        title="拖拽调整工作区宽度，双击恢复默认"
+        @drag-start="onDockResize"
+        @reset="resetDockWidth"
+      />
 
       <!-- ==================== 右：顶栏 + 内容 ==================== -->
       <div class="ws-main">
@@ -449,7 +466,7 @@ defineExpose({ reload: load })
 
 /* ==================== 工作区树 ==================== */
 .ws-dock {
-  width: 264px;
+  width: var(--dock-width, 264px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -716,6 +733,7 @@ defineExpose({ reload: load })
 
 @media (max-width: 900px) {
   .ws-dock { position: absolute; left: 70px; top: 0; bottom: 0; z-index: 30; background: var(--v3-surface-solid); box-shadow: var(--v3-shadow-float); }
+  .dock-splitter { display: none; }
 }
 @media (max-width: 760px) {
   .ws-topbar { gap: 8px; padding: 0 12px; }

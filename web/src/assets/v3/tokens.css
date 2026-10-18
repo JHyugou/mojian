@@ -168,6 +168,17 @@ html[data-v3-theme="sujuan"] {
   border-radius: 6px;
 }
 
+/* 拖拽调整宽度期间：全局显示列宽光标，禁止选中文字与过渡动画 */
+body.v3-resizing,
+body.v3-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.v3-resizing .ws-dock,
+body.v3-resizing .side,
+body.v3-resizing .chat-pane,
+body.v3-resizing .ws-main { transition: none !important; }
+
 .v3-scroll {
   overflow-y: auto;
   scrollbar-width: thin;

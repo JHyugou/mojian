@@ -6,10 +6,12 @@ import V3Tag from '../../components/v3/V3Tag.vue'
 import V3Modal from '../../components/v3/V3Modal.vue'
 import V3Thinking from './V3Thinking.vue'
 import ModelPicker from './ModelPicker.vue'
+import V3Splitter from '../../components/v3/V3Splitter.vue'
 import MarkdownText from '../../components/MarkdownText.vue'
 import { useV3Notify } from '../notify'
 import { useSettingsStore } from '../../stores/settings'
 import { useComposerSend } from '../../composables/useComposerSend'
+import { useWidthResize } from '../useWidthResize'
 import {
   compareVersions, createChapter, getChapter, getMemory, getVersion,
   listVersions, rollbackChapter, saveChapter, saveMemory
@@ -35,6 +37,12 @@ const props = defineProps({
 const emit = defineEmits(['select-chapter', 'reload'])
 
 const notify = useV3Notify()
+/** 写作页"对话 / 正文"宽度可拖拽（双击恢复默认） */
+const {
+  width: chatWidth,
+  onPointerDown: onChatResize,
+  reset: resetChatWidth
+} = useWidthResize({ initial: 420, min: 300, max: 680, storageKey: 'mojian.chatWidth' })
 const settings = useSettingsStore()
 const { onKeydown, sendHint } = useComposerSend(() => start())
 
@@ -605,7 +613,7 @@ watch(() => props.chapter?.id, () => {
       </div>
     </header>
 
-    <div class="writer-body">
+    <div class="writer-body" :style="{ '--chat-width': chatWidth + 'px' }">
       <!-- ==================== 左：对话 ==================== -->
       <div class="chat-pane">
         <div ref="chatEl" class="writer-chat v3-scroll">
@@ -666,6 +674,14 @@ watch(() => props.chapter?.id, () => {
           </div>
         </footer>
       </div>
+
+      <!-- 对话与正文之间的拖拽分割线 -->
+      <V3Splitter
+        class="chat-splitter"
+        title="拖拽调整对话区宽度，双击恢复默认"
+        @drag-start="onChatResize"
+        @reset="resetChatWidth"
+      />
 
       <!-- ==================== 右：纸面 ==================== -->
       <section class="paper-pane">
@@ -905,7 +921,14 @@ watch(() => props.chapter?.id, () => {
 .head-btn.is-linked { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
 
 .writer-body { flex: 1; min-height: 0; display: flex; }
-.chat-pane { width: 42%; min-width: 320px; max-width: 560px; display: flex; flex-direction: column; border-right: 1px solid var(--v3-hairline); }
+.chat-pane {
+  width: var(--chat-width, 420px);
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--v3-hairline);
+}
 .writer-chat { flex: 1; min-height: 0; padding: 18px 22px; }
 .chat-empty { max-width: 400px; margin: 10vh auto 0; text-align: center; }
 .empty-seal {
@@ -1146,6 +1169,7 @@ html[data-v3-theme='sujuan'] .paper-text { background: #fffdf7; }
 @media (max-width: 900px) {
   .writer-body { flex-direction: column; }
   .chat-pane { width: 100%; max-width: none; border-right: 0; border-bottom: 1px solid var(--v3-hairline); }
+  .chat-splitter { display: none; }
   .paper-pane { min-height: 50vh; }
 }
 @media (max-width: 760px) {

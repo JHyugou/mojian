@@ -4,11 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
 import V3Empty from '../../components/v3/V3Empty.vue'
+import V3Splitter from '../../components/v3/V3Splitter.vue'
 import PlannerStage from '../workbench/PlannerStage.vue'
 import WriterStage from '../workbench/WriterStage.vue'
 import ResourcePanel from '../workbench/ResourcePanel.vue'
 import { useProjectStore } from '../../stores/project'
 import { useWorkbench } from '../workbench/useWorkbench'
+import { useWidthResize } from '../useWidthResize'
 import { listAllConversations } from '../../api/agent'
 import { listProjects } from '../../api/project'
 
@@ -29,6 +31,13 @@ const mode = ref(route.query.mode === 'writer' ? 'writer' : 'planner')
 // 窄屏默认收起资料栏：否则 320px 的面板会盖住整个正文区
 const isNarrow = typeof window !== 'undefined' && window.innerWidth < 1100
 const rightOpen = ref(!isNarrow)
+
+/** 资料栏宽度可拖拽（往左拖变宽，双击恢复默认） */
+const {
+  width: sideWidth,
+  onPointerDown: onSideResize,
+  reset: resetSideWidth
+} = useWidthResize({ initial: 320, min: 260, max: 480, storageKey: 'mojian.sideWidth', invert: true })
 
 const activeReport = computed(() => (mode.value === 'planner' ? state.reports.PLANNER : state.reports.WRITER))
 
@@ -214,9 +223,19 @@ function goHome() {
         />
       </Transition>
 
+      <!-- 舞台与资料栏之间的拖拽分割线 -->
+      <V3Splitter
+        v-if="rightOpen"
+        class="side-splitter"
+        title="拖拽调整资料栏宽度，双击恢复默认"
+        @drag-start="onSideResize"
+        @reset="resetSideWidth"
+      />
+
       <Transition name="side">
         <ResourcePanel
           v-if="rightOpen"
+          :style="{ '--panel-width': sideWidth + 'px' }"
           :characters="state.characters"
           :settings="state.settings"
           :outline-tree="state.outlineTree"
@@ -241,6 +260,7 @@ function goHome() {
 <style scoped>
 .wb-frame { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
 .wb3 { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
+.side-splitter { display: flex; }
 
 /* 策划 ↔ 写作：交叉淡入淡出，离场页绝对定位，避免两个舞台把布局挤一下 */
 .stage-enter-active,
@@ -330,6 +350,10 @@ function goHome() {
 }
 .ctx-pill.warn { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); }
 
+@media (max-width: 900px) {
+  .side-splitter { display: none; }
+  .side { position: absolute; right: 0; top: 62px; bottom: 0; z-index: 30; background: var(--v3-surface-solid); box-shadow: var(--v3-shadow-float); }
+}
 @media (max-width: 760px) {
   .mode-hint { display: none; }
   .mode-btn { padding: 6px 12px; white-space: nowrap; }

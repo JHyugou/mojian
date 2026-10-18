@@ -221,7 +221,7 @@ const reportRows = computed(() => [
 
 <style scoped>
 .side {
-  width: 320px;
+  width: var(--panel-width, 320px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -379,7 +379,7 @@ const reportRows = computed(() => [
   color: var(--v3-text-faint);
 }
 @media (max-width: 1200px) {
-  .side { width: 280px; }
+  .side { width: var(--panel-width, 280px); }
 }
 @media (max-width: 900px) {
   .side { position: absolute; right: 0; top: 62px; bottom: 0; z-index: 30; background: var(--v3-surface-solid); box-shadow: var(--v3-shadow-float); }
