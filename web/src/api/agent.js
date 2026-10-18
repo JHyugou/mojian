@@ -175,8 +175,13 @@ export function updateAgentProfile(role, data) {
   return http.put(`/agent/profiles/${role}`, data)
 }
 
-export function listAgentTools() {
-  return http.get('/agent/tools')
+export function listAgentTools(role) {
+  return http.get('/agent/tools', { params: role ? { role } : {} })
+}
+
+/** 用量与花销（美元）：最近调用流水 + 近 N 天汇总 */
+export function getAgentUsage(limit = 20, days = 30) {
+  return http.get('/agent/usage', { params: { limit, days } })
 }
 
 /**

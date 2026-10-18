@@ -51,6 +51,13 @@ public class ToolRegistry {
         return List.copyOf(tools.values());
     }
 
+    /** 某个角色可用的工具子集（策划/写作的边界在工具层落实，而不是只写在提示词里） */
+    public List<AgentTool> forRole(String role) {
+        return tools.values().stream()
+                .filter(tool -> tool.roles().contains(role))
+                .toList();
+    }
+
     public Optional<AgentTool> find(String name) {
         return Optional.ofNullable(tools.get(name));
     }

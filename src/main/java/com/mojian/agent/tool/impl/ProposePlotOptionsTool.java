@@ -49,6 +49,11 @@ public class ProposePlotOptionsTool implements AgentTool {
     }
 
     @Override
+    public List<String> roles() {
+        return List.of("PLANNER");
+    }
+
+    @Override
     public Map<String, Object> parametersSchema() {
         return Map.of(
                 "type", "object",

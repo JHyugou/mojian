@@ -116,21 +116,59 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         AgentProfileService.ResolvedModel resolved = profileService.resolve(context.agentRole());
         HttpRequest request = buildRequest(context, resolved, messages, availableTools, true);
 
+        /*
+         * 写作主链路走的正是这个方法；之前它完全没有重试 ——
+         * 一次瞬时连接失败就会让整章写作失败（而正文可能已经生成了一半）。
+         * 现在对"连接层失败 / 429 / 5xx"做退避重试，但有一个硬约束：
+         * 一旦已经有字流给界面（delivered=true），就绝不能重试，否则同一段正文会写两遍。
+         */
+        BusinessException last = null;
+        for (int attempt = 1; attempt <= CONNECT_RETRY_TIMES; attempt++) {
+            DeliveryTrackingListener tracker = new DeliveryTrackingListener(listener);
+            try {
+                return streamOnce(request, resolved, availableTools, tracker);
+            } catch (RetryableStreamException e) {
+                last = new BusinessException(ErrorCode.LLM_REQUEST_FAILED, e.getMessage());
+                log.warn("Agent 流式调用失败（第 {}/{} 次，可重试）: {}",
+                        attempt, CONNECT_RETRY_TIMES, e.getMessage());
+                if (attempt < CONNECT_RETRY_TIMES) {
+                    sleepQuietly(RETRY_BACKOFF_MILLIS * attempt);
+                }
+            }
+        }
+        throw last == null
+                ? new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型流式调用失败")
+                : last;
+    }
+
+    /**
+     * 单次流式调用。
+     *
+     * @throws RetryableStreamException 失败发生在"还没有任何内容推给界面"之前，
+     *                                  可以安全重试
+     */
+    private AgentLlmResponse streamOnce(HttpRequest request,
+                                        AgentProfileService.ResolvedModel resolved,
+                                        List<AgentTool> availableTools,
+                                        DeliveryTrackingListener listener) {
         HttpResponse<InputStream> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
         } catch (IOException e) {
-            log.warn("Agent 流式连接失败: {}", e.getMessage());
-            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
-                    "连不上模型服务：" + e.getMessage());
+            throw new RetryableStreamException("连不上模型服务：" + e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, "模型调用被中断");
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            // 错误路径要把 body 读出来才能给出有用的信息（状态码本身说明不了什么）
-            failWithStatus(response.statusCode(), resolved, readQuietly(response.body()));
+            String body = readQuietly(response.body());
+            // 429 / 5xx 是"服务端暂时不行"，值得退避重试；4xx 是我们自己配错了，重试没有意义
+            if (response.statusCode() == 429 || response.statusCode() >= 500) {
+                throw new RetryableStreamException(
+                        "模型服务暂时不可用（HTTP " + response.statusCode() + "）：" + shorten(body));
+            }
+            failWithStatus(response.statusCode(), resolved, body);
         }
 
         try (BufferedReader reader = new BufferedReader(
@@ -145,9 +183,60 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
             log.debug("[{}] {} 流式 -> {}", resolved.agentRole(), resolved.model(), parsed.usage().describe());
             return parsed;
         } catch (IOException e) {
-            log.warn("Agent 流式读取中断: {}", e.getMessage());
+            if (!listener.delivered) {
+                throw new RetryableStreamException("模型流式读取中断：" + e.getMessage());
+            }
+            log.warn("Agent 流式读取中断（已输出内容，不再重试）: {}", e.getMessage());
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
                     "模型流式输出中断：" + e.getMessage());
+        }
+    }
+
+    /** 连接层可重试的失败（与"调用已经被服务方受理"的错误区分开） */
+    private static final class RetryableStreamException extends RuntimeException {
+        RetryableStreamException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * 记录"是否已经有内容推给界面"的包装器。
+     * 正文一旦开始流出，重试就会导致重复内容 —— 是否可重试全靠这个标记判断。
+     */
+    private static final class DeliveryTrackingListener implements LlmStreamListener {
+        private final LlmStreamListener delegate;
+        private volatile boolean delivered = false;
+
+        DeliveryTrackingListener(LlmStreamListener delegate) {
+            this.delegate = delegate == null ? LlmStreamListener.NOOP : delegate;
+        }
+
+        @Override
+        public boolean cancelled() {
+            return delegate.cancelled();
+        }
+
+        @Override
+        public void onDelta(String delta) {
+            delivered = true;
+            delegate.onDelta(delta);
+        }
+
+        @Override
+        public void onReasoning(String delta) {
+            delivered = true;
+            delegate.onReasoning(delta);
+        }
+
+        @Override
+        public void onToolCallStarted() {
+            delegate.onToolCallStarted();
+        }
+
+        @Override
+        public void onToolContentDelta(String toolName, String delta) {
+            delivered = true;
+            delegate.onToolContentDelta(toolName, delta);
         }
     }
 

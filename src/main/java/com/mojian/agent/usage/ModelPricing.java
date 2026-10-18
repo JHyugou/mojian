@@ -32,6 +32,14 @@ public final class ModelPricing {
 
     private static final BigDecimal MILLION = BigDecimal.valueOf(1_000_000);
 
+    /**
+     * 未知模型的兜底单价（按常见中端模型估）。
+     *
+     * <p>之前查不到就直接记 0：换一家供应商之后，界面上永远显示"本次花费 $0"，
+     * 比没有数字更糟 —— 它会让人以为不要钱。宁可偏高一点，也不要假装免费。
+     */
+    private static final Price FALLBACK = new Price(0.15, 0.003, 0.60);
+
     private ModelPricing() {
     }
 
@@ -45,7 +53,7 @@ public final class ModelPricing {
     public static BigDecimal estimateCost(String model, int promptTokens, int cachedTokens, int completionTokens) {
         Price price = PRICES.get(model);
         if (price == null) {
-            return BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP);
+            price = FALLBACK;
         }
         int cached = Math.max(0, Math.min(cachedTokens, promptTokens));
         int uncached = Math.max(0, promptTokens - cached);

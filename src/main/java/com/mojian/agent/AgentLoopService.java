@@ -42,6 +42,15 @@ public class AgentLoopService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * 单次工具结果回灌的上限。
+     *
+     * <p>工具结果会留在消息里跟着后续每一轮请求一起发，而且是<b>累积</b>的：
+     * 模型多调几次 query_chapter，几万字原文就会永久占住上下文。
+     * 超过上限就截断并明确告知模型"原文更长、可再取"——它需要时可以再查一次。
+     */
+    private static final int MAX_TOOL_RESULT_CHARS = 12_000;
+
     private final AgentLlmClient llmClient;
     private final ToolRegistry toolRegistry;
     private final AgentProperties properties;
@@ -121,8 +130,9 @@ public class AgentLoopService {
              */
             AgentLlmResponse response;
             try {
+                // 只把该角色能用的工具发给模型：角色边界在工具层落实，不要靠提示词自律
                 response = llmClient.chat(context, List.copyOf(messages),
-                        toolRegistry.all(), sink.asLlmListener());
+                        toolRegistry.forRole(context.agentRole()), sink.asLlmListener());
             } catch (com.mojian.common.exception.BusinessException e) {
                 if (sink.cancelled()) {
                     log.info("[{}] 模型调用被用户叫停（第 {} 轮），已生成的部分丢弃", context.agentRole(), step);
@@ -137,7 +147,8 @@ public class AgentLoopService {
             if (hasNamelessToolCall(response)) {
                 log.warn("[{}] 流式解析得到的工具调用没有名字，本轮退回非流式重试",
                         context.agentRole());
-                response = llmClient.chat(context, List.copyOf(messages), toolRegistry.all());
+                response = llmClient.chat(context, List.copyOf(messages),
+                        toolRegistry.forRole(context.agentRole()));
             }
 
             totalUsage = totalUsage.plus(response.usage());
@@ -173,8 +184,7 @@ public class AgentLoopService {
                 sink.onToolResult(call.name(), result);
                 // 观察结果回填 —— 模型下一轮就是靠这个判断"刚才那步成不成"
                 messages.add(AgentMessage.tool(call.id(), result));
-                trace.add(new AgentStep(step, call.name(), call.arguments(), result));
-            }
+                trace.add(new AgentStep(step, call.name(), call.arguments(), result));            }
         }
 
         // 出口②：刹车
@@ -192,18 +202,28 @@ public class AgentLoopService {
     private String executeTool(AgentContext context, AgentToolCall call) {
         AgentTool tool = toolRegistry.find(call.name()).orElse(null);
         if (tool == null) {
-            return "错误：没有名为「" + call.name() + "」的工具。可用工具：" + availableToolNames();
+            return "错误：没有名为「" + call.name() + "」的工具。可用工具：" + availableToolNames(context.agentRole());
         }
         try {
             Map<String, Object> arguments = parseArguments(call.arguments());
             String result = tool.execute(context, arguments);
-            log.debug("工具 {} 执行完成，返回 {} 字", call.name(), result == null ? 0 : result.length());
-            return result;
+            String bounded = truncateToolResult(result);
+            log.debug("工具 {} 执行完成，返回 {} 字", call.name(), bounded == null ? 0 : bounded.length());
+            return bounded;
         } catch (Exception e) {
             log.warn("工具 {} 执行失败: {}", call.name(), e.getMessage());
             return "错误：工具「" + call.name() + "」执行失败（" + e.getMessage()
                     + "）。请换一种方式，或者直接说明你无法完成。";
         }
+    }
+
+    /** 工具结果过长时截断，并告诉模型"可以再取一次" */
+    private String truncateToolResult(String result) {
+        if (result == null || result.length() <= MAX_TOOL_RESULT_CHARS) {
+            return result;
+        }
+        return result.substring(0, MAX_TOOL_RESULT_CHARS)
+                + "\n……（结果过长，已截断。需要后续内容时请换一个更精确的查询条件，或分段再取一次）";
     }
 
     /**
@@ -231,7 +251,7 @@ public class AgentLoopService {
         }
     }
 
-    private String availableToolNames() {
-        return toolRegistry.all().stream().map(AgentTool::name).toList().toString();
+    private String availableToolNames(String role) {
+        return toolRegistry.forRole(role).stream().map(AgentTool::name).toList().toString();
     }
 }

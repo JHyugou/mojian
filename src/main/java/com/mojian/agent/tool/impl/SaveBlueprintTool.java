@@ -44,9 +44,15 @@ public class SaveBlueprintTool implements AgentTool {
     public String description() {
         return "把确定的剧情走向落成蓝图节点（章节级别的剧情规划），提交给用户确认。"
                 + "当用户已经选定某条走向、需要把它固化成后续写作的依据时使用。"
+                + "可以通过 parentId 挂到某个卷/段节点下（不传则是根节点）。"
                 + "调用后草稿进入『待确认』状态，不会立刻写入蓝图树。"
                 + "内容要写到『可执行』的程度：在哪里、谁在场、各自动机、冲突是什么、"
                 + "改变了什么、给后面留下什么钩子，以及为什么选这条而不是别的。";
+    }
+
+    @Override
+    public List<String> roles() {
+        return List.of("PLANNER");
     }
 
     @Override
@@ -57,6 +63,11 @@ public class SaveBlueprintTool implements AgentTool {
                         "name", Map.of("type", "string", "description", "节点名，通常就是章节名"),
                         "nodeType", Map.of("type", "string",
                                 "description", "节点类型：VOLUME（卷）/ ARC（段落）/ CHAPTER（章）。默认 CHAPTER"),
+                        "parentId", Map.of("type", "integer",
+                                "description", "可选：父节点 ID（先用 query_outline 查到）。"
+                                        + "建章节节点时挂到所属的卷/段下；不传则作为根节点"),
+                        "sortOrder", Map.of("type", "integer",
+                                "description", "可选：同级排序，数字小的在前；不传按 0 处理"),
                         "summary", Map.of("type", "string",
                                 "description", "一句话概括这段剧情要发生什么"),
                         "detail", Map.of("type", "string",
@@ -81,6 +92,14 @@ public class SaveBlueprintTool implements AgentTool {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("name", name);
         payload.put("nodeType", nodeType);
+        Long parentId = longOf(arguments.get("parentId"));
+        if (parentId != null) {
+            payload.put("parentId", parentId);
+        }
+        Integer sortOrder = intOf(arguments.get("sortOrder"));
+        if (sortOrder != null) {
+            payload.put("sortOrder", sortOrder);
+        }
         payload.put("summary", summary);
         payload.put("detail", detail);
 
@@ -104,5 +123,25 @@ public class SaveBlueprintTool implements AgentTool {
 
     private String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Long longOf(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try {
+            return Long.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer intOf(Object value) {
+        if (value instanceof Number number) return number.intValue();
+        if (value == null) return null;
+        try {
+            return Integer.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

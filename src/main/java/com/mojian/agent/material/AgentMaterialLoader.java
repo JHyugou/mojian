@@ -110,6 +110,16 @@ public class AgentMaterialLoader {
      * 出现在上下文里 —— 既浪费 token（一章五千字），也会让模型搞不清哪份才算数。
      */
     public List<AgentContextSection> loadAll(Long projectId, Long excludeChapterId) {
+        return loadAll(projectId, excludeChapterId, null);
+    }
+
+    /**
+     * 取全部材料，并排除当前章节与本章蓝图节点。
+     *
+     * <p>{@code excludeOutlineNodeId} 是 writer 传进来的：本章蓝图会作为 REQUIRED 材料
+     * 单独注入，如果"已有蓝图"里再来一遍，模型会看到两份内容略有出入的任务书。
+     */
+    public List<AgentContextSection> loadAll(Long projectId, Long excludeChapterId, Long excludeOutlineNodeId) {
         List<AgentContextSection> sections = new ArrayList<>();
         // 概况放最前：书名、题材、文风、写作规则 —— 这是"这本书是什么"，
         // 比任何细节都更该先看到。漏了它，Agent 就会在完全不知道题材的情况下
@@ -117,7 +127,7 @@ public class AgentMaterialLoader {
         addIfPresent(sections, projectSection(projectId));
         addIfPresent(sections, draftSection(projectId));
         addIfPresent(sections, memorySection(projectId));
-        addIfPresent(sections, outlineSection(projectId));
+        addIfPresent(sections, outlineSection(projectId, excludeOutlineNodeId));
         addIfPresent(sections, characterSection(projectId));
         addIfPresent(sections, settingSection(projectId));
         sections.addAll(chapterSections(projectId, excludeChapterId));
@@ -179,7 +189,7 @@ public class AgentMaterialLoader {
                     character.getDescription());
         }
         return AgentContextSection.optional("人物", "人物档案", sb.toString().trim(),
-                PRIORITY_CHARACTER, ContextSectionPolicy.TRUNCATE_TO_FIT);
+                PRIORITY_CHARACTER, ContextSectionPolicy.DROP_IF_NOT_FIT);
     }
 
     // ==================== 设定 ====================
@@ -207,7 +217,7 @@ public class AgentMaterialLoader {
                     setting.getContent());
         }
         return AgentContextSection.optional("设定", "世界观设定", sb.toString().trim(),
-                PRIORITY_SETTING, ContextSectionPolicy.TRUNCATE_TO_FIT);
+                PRIORITY_SETTING, ContextSectionPolicy.DROP_IF_NOT_FIT);
     }
 
     // ==================== 前情摘要 ====================
@@ -329,9 +339,13 @@ public class AgentMaterialLoader {
         return AgentContextSection.optional("草稿", "待作者确认的草稿", sb.toString().trim(),
                 PRIORITY_DRAFT, ContextSectionPolicy.TRUNCATE_TO_FIT);
     }
-    private AgentContextSection outlineSection(Long projectId) {
+    private AgentContextSection outlineSection(Long projectId, Long excludeNodeId) {
         List<PlotOutline> nodes = plotOutlineMapper.selectList(
                 new LambdaQueryWrapper<PlotOutline>().eq(PlotOutline::getProjectId, projectId));
+        if (excludeNodeId != null) {
+            // 本章蓝图会以【本章蓝图】单独注入，这里不再重复（子节点仍保留，不会丢）
+            nodes = nodes.stream().filter(node -> !excludeNodeId.equals(node.getId())).toList();
+        }
         if (nodes.isEmpty()) {
             return null;
         }

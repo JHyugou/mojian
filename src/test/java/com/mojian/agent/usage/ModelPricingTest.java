@@ -57,10 +57,11 @@ class ModelPricingTest {
     }
 
     @Test
-    @DisplayName("未知模型不报错，返回 0（单价表里没有的模型仍能记录 token 数）")
-    void 未知模型返回零() {
+    @DisplayName("未知模型按兜底单价估算（不再假装免费）")
+    void 未知模型按兜底单价() {
+        // 兜底价按 0.15 / 0.60 每百万：100 万入 + 100 万出 = 0.15 + 0.60 = 0.75
         assertThat(ModelPricing.estimateCost("some-unknown-model", 1_000_000, 0, 1_000_000))
-                .isEqualByComparingTo(BigDecimal.ZERO);
+                .isEqualByComparingTo(new BigDecimal("0.750000"));
         assertThat(ModelPricing.known(FLASH)).isTrue();
         assertThat(ModelPricing.known("some-unknown-model")).isFalse();
     }

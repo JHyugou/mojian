@@ -52,6 +52,11 @@ public class SaveChapterDraftTool implements AgentTool {
     }
 
     @Override
+    public List<String> roles() {
+        return List.of("WRITER");
+    }
+
+    @Override
     public Map<String, Object> parametersSchema() {
         return Map.of(
                 "type", "object",

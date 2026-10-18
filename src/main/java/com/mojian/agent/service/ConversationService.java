@@ -181,6 +181,32 @@ public class ConversationService {
         return messages;
     }
 
+    /**
+     * 只保留最近的、总字符数不超过预算的历史。
+     *
+     * <p>为什么必须要有上限：会话是<b>跨章长期存续</b>的，作者聊上几十轮之后，
+     * 历史本身就会把上下文吃掉；而历史越多，真正重要的材料反而被挤压。
+     * 从最新往回取，保证"最近的对话最完整"；早期内容丢掉的代价是可接受的
+     * （真正的长期记忆已经落在章节记忆、人物卡与蓝图里）。
+     */
+    public static List<AgentMessage> trimHistory(List<AgentMessage> history, int maxChars) {
+        if (history == null || history.isEmpty()) {
+            return List.of();
+        }
+        java.util.ArrayDeque<AgentMessage> kept = new java.util.ArrayDeque<>();
+        int used = 0;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            AgentMessage message = history.get(i);
+            int cost = message.content() == null ? 0 : message.content().length();
+            if (!kept.isEmpty() && used + cost > maxChars) {
+                break;
+            }
+            kept.addFirst(message);
+            used += cost;
+        }
+        return new ArrayList<>(kept);
+    }
+
     /** 原始记录（带 stepNo 等字段），给界面展示 trace 用 */
     public List<AgentMessageLog> loadLogs(Long conversationId) {
         return messageLogMapper.selectByConversation(conversationId);
@@ -306,6 +332,16 @@ public class ConversationService {
     @Transactional
     public List<AgentPlanOption> savePlanOptions(Long conversationId, Long messageId,
                                                  List<PlanOptionDraft> drafts) {
+        /*
+         * 新一轮方案覆盖上一轮：先把这段会话里还没被选的旧方案删掉。
+         *
+         * 为什么不能留着：方案序号每批从 1 开始，旧方案留着会和新方案撞号，
+         * "选第 2 条"就可能选到上一批；而且它们会被反复注入上下文，越滚越长。
+         * 已被用户选中的旧方案也不留 —— 新一批方案出现，本身就意味着要重新决定。
+         */
+        planOptionMapper.delete(Wrappers.<AgentPlanOption>lambdaQuery()
+                .eq(AgentPlanOption::getConversationId, conversationId));
+
         List<AgentPlanOption> saved = new ArrayList<>();
         int index = 1;
         for (PlanOptionDraft draft : drafts) {

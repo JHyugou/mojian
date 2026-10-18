@@ -58,7 +58,8 @@ public class AgentContextAssembler {
                 .sorted(Comparator.comparingInt(AgentContextSection::priority))
                 .toList();
 
-        for (AgentContextSection section : ordered) {
+        for (int i = 0; i < ordered.size(); i++) {
+            AgentContextSection section = ordered.get(i);
             int cost = section.estimateTokens();
             if (used + cost <= usable) {
                 kept.add(section);
@@ -78,6 +79,15 @@ public class AgentContextAssembler {
                 }
             } else {
                 trimmed.add(section.title());
+            }
+
+            /*
+             * 严格优先级：一旦有一段装不下，后面的不再尝试。
+             * 但报表要把它们如实记成"被裁掉"—— 之前只记当前这一段，
+             * 于是"裁掉 1 段"实际上可能是 50 章原文全没了，排查时会被报表误导。
+             */
+            for (int j = i + 1; j < ordered.size(); j++) {
+                trimmed.add(ordered.get(j).title());
             }
             break;
         }

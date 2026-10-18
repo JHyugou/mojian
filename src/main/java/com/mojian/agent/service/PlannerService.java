@@ -44,12 +44,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PlannerService {
 
+    /** 带进本轮请求的对话历史上限（字符）。材料本身已有明确预算，历史不该无限增长 */
+    private static final int HISTORY_MAX_CHARS = 80_000;
+
     private final AgentLoopService agentLoopService;
     private final AgentContextService agentContextService;
     private final ConversationService conversationService;
     private final AgentProfileService profileService;
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
+    private final AgentRunService runService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
                                        String runId) {
@@ -59,14 +63,19 @@ public class PlannerService {
                 : conversationService.require(conversationId);
         requirePlannerConversation(conversation, projectId);
 
-        // 2. 历史（必须在落本轮消息之前读）
-        List<AgentMessage> history = conversationService.loadMessages(conversation.getId());
+        // 2. 历史（必须在落本轮消息之前读）；按字符预算裁掉太早的轮次
+        List<AgentMessage> history = ConversationService.trimHistory(
+                conversationService.loadMessages(conversation.getId()), HISTORY_MAX_CHARS);
 
-        // 3. 材料：全量注入 + 上一轮尚未选定的方案
+        // 3. 材料：全量注入 + 待选方案 + 已选定方案
         List<AgentContextSection> extra = new ArrayList<>();
         AgentContextSection pending = pendingOptionsSection(conversation.getId());
         if (pending != null) {
             extra.add(pending);
+        }
+        AgentContextSection selected = selectedOptionsSection(conversation.getId());
+        if (selected != null) {
+            extra.add(selected);
         }
         AgentContextAssembly materials = agentContextService.assemble(AgentRole.PLANNER, projectId, extra);
         String systemPrompt = AgentPrompts.planner(materials.text());
@@ -106,10 +115,12 @@ public class PlannerService {
             }
         };
         AgentResult result;
+        long startedAt = System.currentTimeMillis();
         try {
             result = agentLoopService.run(context, systemPrompt, history, userMessage,
                     maxSteps(), listener);
         } catch (RuntimeException e) {
+            runService.recordFailure(context, System.currentTimeMillis() - startedAt, safeMessage(e));
             // 失败也要在会话里留一条回答：用户消息已经落库了，
             // 只留"用户说了话、没人应"的孤立消息，下次会被当历史带上，模型只会困惑。
             // （写作链路早就有这个兜底，策划这边之前漏了。）
@@ -126,6 +137,8 @@ public class PlannerService {
 
         // 7. 记账 —— 花销要看得见，否则作者只能等到欠费才知道
         usageService.record(context, result.usage());
+        runService.record(context, result, System.currentTimeMillis() - startedAt,
+                materials.report().summary());
 
         log.info("策划对话完成（会话 {}）：{} 步 / {} / {}", conversation.getId(),
                 result.steps(), result.status(), result.usage().describe());
@@ -158,6 +171,37 @@ public class PlannerService {
         }
         sb.append("（用户还没有选定。如果用户说\"选第 2 条\"，指的就是上面的编号。）");
         return AgentContextSection.required("待用户选择的方案", sb.toString().trim());
+    }
+
+    /**
+     * 用户已经选定的方案，也必须注入。
+     *
+     * <p>之前只注入"未选定"的方案，于是"选完了"的那一条反而从上下文里消失了 ——
+     * 策划下一轮要把它落成蓝图时，根本没有细节可写。已选方案是<b>后续动作的依据</b>，
+     * 和待选方案一样短、一样关键，所以同样标 REQUIRED。
+     */
+    private AgentContextSection selectedOptionsSection(Long conversationId) {
+        List<AgentPlanOption> selected = conversationService.listPlanOptions(conversationId).stream()
+                .filter(option -> Boolean.TRUE.equals(option.getSelected()))
+                .toList();
+        if (selected.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("用户已经从上一批方案里选定了下面这条。接下来的细化、落蓝图都以它为准；\n")
+                .append("不要重新给出选项，也不要在方案之外另起炉灶。\n\n");
+        for (AgentPlanOption option : selected) {
+            sb.append("■ 方案 ").append(option.getOptionIndex()).append("：")
+                    .append(option.getTitle()).append('\n');
+            if (StringUtils.hasText(option.getSummary())) {
+                sb.append(option.getSummary().trim()).append('\n');
+            }
+            if (StringUtils.hasText(option.getDetail())) {
+                sb.append(option.getDetail().trim()).append('\n');
+            }
+            sb.append('\n');
+        }
+        return AgentContextSection.required("用户已选定的方案", sb.toString().trim());
     }
 
     private int maxSteps() {

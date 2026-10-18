@@ -180,6 +180,36 @@ public class AgentSchemaInitializer {
             UPDATE agent_profile SET context_limit = 0 WHERE context_limit = 131072
             """;
 
+    /**
+     * Agent 运行轨迹 —— 每次运行一行。
+     *
+     * <p>会话消息只存"人话"；工具轨迹、步数、耗时、上下文报表都在这张表里。
+     * 它是排查"为什么没查资料 / 为什么这么慢"与做评测的数据底座。
+     */
+    private static final String AGENT_RUN_DDL = """
+            CREATE TABLE IF NOT EXISTS agent_run (
+                id                BIGINT       NOT NULL,
+                project_id        BIGINT       DEFAULT NULL,
+                conversation_id   BIGINT       DEFAULT NULL,
+                agent_role        VARCHAR(20)  NOT NULL COMMENT 'PLANNER / WRITER',
+                model             VARCHAR(100) DEFAULT NULL,
+                status            VARCHAR(20)  NOT NULL COMMENT 'FINISHED / MAX_STEPS / CANCELLED / FAILED',
+                steps             INT          NOT NULL DEFAULT 0,
+                prompt_tokens     INT          NOT NULL DEFAULT 0,
+                cached_tokens     INT          NOT NULL DEFAULT 0,
+                completion_tokens INT          NOT NULL DEFAULT 0,
+                latency_ms        BIGINT       NOT NULL DEFAULT 0,
+                context_summary   TEXT         DEFAULT NULL,
+                trace_json        MEDIUMTEXT   DEFAULT NULL,
+                error_message     VARCHAR(1000) DEFAULT NULL,
+                created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_agent_run_project (project_id, created_at),
+                KEY idx_agent_run_role (agent_role, created_at)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'Agent 运行轨迹'
+            """;
+
     private final JdbcTemplate jdbcTemplate;
 
     @PostConstruct
@@ -190,6 +220,7 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(AGENT_PLAN_OPTION_DDL);
         jdbcTemplate.execute(AGENT_USAGE_LOG_DDL);
         jdbcTemplate.execute(AGENT_DRAFT_DDL);
+        jdbcTemplate.execute(AGENT_RUN_DDL);
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段

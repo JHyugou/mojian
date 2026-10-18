@@ -83,7 +83,9 @@ class AgentContextAssemblerTest {
         AgentContextAssembly assembly = assembler.assemble(sections, BUDGET);
 
         assertThat(assembly.report().keptTitles()).containsExactly("本章蓝图");
-        assertThat(assembly.report().trimmedTitles()).containsExactly("第 12 章");
+        // 严格优先级：后面的也不再尝试；但报表要把它们全部如实记成"被裁掉"，
+        // 否则"裁掉 1 段"可能是 50 章原文全没了，排查时会被报表误导。
+        assertThat(assembly.report().trimmedTitles()).containsExactly("第 12 章", "一条小设定");
         assertThat(assembly.text()).doesNotContain("一条小设定");
     }
 

@@ -258,4 +258,26 @@ class DraftServiceTest {
                 .extracting(AgentDraft::getTitle)
                 .isEqualTo("乙");
     }
+
+    @Test
+    @DisplayName("蓝图草稿可以挂到卷/段下：parentId 与排序要真正落库")
+    void 蓝图草稿保留父节点() {
+        Long projectId = newProject();
+        com.mojian.outline.dto.OutlineNodeSaveRequest volume = new com.mojian.outline.dto.OutlineNodeSaveRequest();
+        volume.setNodeType("VOLUME");
+        volume.setName("第一卷 雪落");
+        Long volumeId = outlineService.create(projectId, volume).getId();
+
+        AgentDraft draft = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一章 神宫往事",
+                Map.of("name", "第一章 神宫往事", "nodeType", "CHAPTER",
+                        "parentId", volumeId, "sortOrder", 3,
+                        "summary", "主角在边关的最后一夜", "detail", "细节"),
+                "按用户选定的走向落成章节节点");
+
+        AgentDraft accepted = draftService.accept(draft.getId());
+        PlotOutline node = outlineService.requireById(accepted.getAppliedId());
+
+        assertThat(node.getParentId()).isEqualTo(volumeId);
+        assertThat(node.getSortOrder()).isEqualTo(3);
+    }
 }

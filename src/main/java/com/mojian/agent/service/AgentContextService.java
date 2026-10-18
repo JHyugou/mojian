@@ -61,10 +61,22 @@ public class AgentContextService {
     public AgentContextAssembly assemble(String agentRole, Long projectId,
                                          List<AgentContextSection> extraSections,
                                          Long excludeChapterId) {
+        return assemble(agentRole, projectId, extraSections, excludeChapterId, null);
+    }
+
+    /**
+     * 按角色预算装填，并可同时排除某一章与某个蓝图节点。
+     *
+     * @param excludeOutlineNodeId 写作时排除本章蓝图（它会作为 REQUIRED 单独注入），
+     *                             避免同一份任务书出现两遍
+     */
+    public AgentContextAssembly assemble(String agentRole, Long projectId,
+                                         List<AgentContextSection> extraSections,
+                                         Long excludeChapterId, Long excludeOutlineNodeId) {
         AgentContextBudget budget = budgetOf(agentRole);
 
         List<AgentContextSection> sections = new ArrayList<>(
-                materialLoader.loadAll(projectId, excludeChapterId));
+                materialLoader.loadAll(projectId, excludeChapterId, excludeOutlineNodeId));
         if (extraSections != null && !extraSections.isEmpty()) {
             sections.addAll(extraSections);
         }

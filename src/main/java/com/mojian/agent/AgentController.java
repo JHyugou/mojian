@@ -31,6 +31,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -73,6 +74,7 @@ public class AgentController {
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
     private final TaskEventBroker broker;
+    private final com.mojian.generation.mapper.GenerationTaskMapper generationTaskMapper;
 
     // ==================== 策划对话 ====================
 
@@ -214,7 +216,51 @@ public class AgentController {
      */
     @GetMapping(value = "/writer/tasks/{taskId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter writingEvents(@PathVariable Long taskId) {
+        /*
+         * 服务重启后内存里已经没有这个任务的事件通道了。
+         * 如果数据库里它已经是终态（启动期僵尸回收会把 RUNNING 标成 FAILED），
+         * 就在这里直接把终态作为事件回放并结束 —— 否则前端会一直等一个永远不会来的 end。
+         */
+        com.mojian.generation.entity.GenerationTask task = generationTaskMapper.selectById(taskId);
+        if (task != null && isFinalTaskStatus(task.getStatus())) {
+            SseEmitter emitter = new SseEmitter(30_000L);
+            try {
+                emitter.send(SseEmitter.event().name("status").data(task.getStatus()));
+                if (com.mojian.generation.GenerationConst.STATUS_FAILED.equals(task.getStatus())
+                        && task.getErrorMessage() != null) {
+                    emitter.send(SseEmitter.event().name("task-error").data(task.getErrorMessage()));
+                }
+                emitter.send(SseEmitter.event().name("end").data(task.getStatus()));
+                emitter.complete();
+            } catch (Exception ignored) {
+                // 客户端可能已经断开
+            }
+            return emitter;
+        }
         return broker.subscribe(taskId);
+    }
+
+    private boolean isFinalTaskStatus(String status) {
+        return "SUCCEEDED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status);
+    }
+
+    /** 查询一个写作任务的状态（刷新页面后靠它找回"刚才那章写完了没"） */
+    @GetMapping("/writer/tasks/{taskId}")
+    public ApiResponse<Map<String, Object>> writingTask(@PathVariable Long taskId) {
+        com.mojian.generation.entity.GenerationTask task = generationTaskMapper.selectById(taskId);
+        if (task == null) {
+            throw new com.mojian.common.exception.BusinessException(
+                    com.mojian.common.api.ErrorCode.NOT_FOUND, "任务不存在: " + taskId);
+        }
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("taskId", String.valueOf(task.getId()));
+        data.put("chapterId", task.getChapterId() == null ? null : String.valueOf(task.getChapterId()));
+        data.put("status", task.getStatus());
+        data.put("errorMessage", task.getErrorMessage());
+        data.put("result", task.getResultSnapshot());
+        data.put("startedAt", task.getStartedAt());
+        data.put("finishedAt", task.getFinishedAt());
+        return ApiResponse.ok(data);
     }
 
     /**
@@ -425,10 +471,14 @@ public class AgentController {
         return ApiResponse.ok(AgentChatResponse.from(result));
     }
 
-    /** 查看当前注册了哪些工具、它们的说明书长什么样（排查"模型为什么不调某个工具"的第一站） */
+    /** 查看当前注册了哪些工具（可按角色过滤），排查"模型为什么不调某个工具"的第一站 */
     @GetMapping("/tools")
-    public ApiResponse<List<Map<String, String>>> tools() {
-        return ApiResponse.ok(toolRegistry.all().stream()
+    public ApiResponse<List<Map<String, String>>> tools(
+            @RequestParam(required = false) String role) {
+        List<com.mojian.agent.tool.AgentTool> tools = StringUtils.hasText(role)
+                ? toolRegistry.forRole(role.toUpperCase())
+                : toolRegistry.all();
+        return ApiResponse.ok(tools.stream()
                 .map(tool -> Map.of("name", tool.name(), "description", tool.description()))
                 .toList());
     }

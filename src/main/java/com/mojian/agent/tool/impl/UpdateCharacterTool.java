@@ -50,6 +50,11 @@ public class UpdateCharacterTool implements AgentTool {
     }
 
     @Override
+    public java.util.List<String> roles() {
+        return java.util.List.of("PLANNER");
+    }
+
+    @Override
     public Map<String, Object> parametersSchema() {
         return Map.of(
                 "type", "object",

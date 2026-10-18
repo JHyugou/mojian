@@ -2,6 +2,7 @@ package com.mojian.agent.tool;
 
 import com.mojian.agent.AgentContext;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -54,5 +55,16 @@ public interface AgentTool {
      */
     default String streamingContentField() {
         return null;
+    }
+
+    /**
+     * 这个工具属于哪些角色。
+     *
+     * <p>为什么要区分：把写作工具发给策划、把方案工具发给写作，不只是多烧 token ——
+     * 模型会真的去调不该由它调的工具（策划调 save_chapter_draft 必然报"没有目标章节"），
+     * 提示词里写的角色边界和真实工具清单自相矛盾，行为就不可预期。
+     */
+    default List<String> roles() {
+        return List.of("PLANNER", "WRITER");
     }
 }

@@ -208,13 +208,32 @@ public class DraftService {
         OutlineNodeSaveRequest request = new OutlineNodeSaveRequest();
         request.setNodeType(firstNonBlank(payload.get("nodeType"), "CHAPTER"));
         request.setName(firstNonBlank(payload.get("name"), draft.getTitle()));
+        request.setParentId(longOrNull(payload.get("parentId")));
+        request.setSortOrder(intOrZero(payload.get("sortOrder")));
         request.setSummary(joinSections(
                 payload.get("summary"),
                 payload.get("detail"),
                 StringUtils.hasText(draft.getAgentReason()) ? "【决策理由】" + draft.getAgentReason() : null));
-        request.setSortOrder(0);
         request.setStatus("PLANNED");
         return outlineService.create(draft.getProjectId(), request).getId();
+    }
+
+    private Long longOrNull(String value) {
+        if (!StringUtils.hasText(value)) return null;
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer intOrZero(String value) {
+        if (!StringUtils.hasText(value)) return 0;
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**

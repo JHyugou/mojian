@@ -1,6 +1,7 @@
 package com.mojian.agent.service;
 
-import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mojian.agent.AgentContext;
 import com.mojian.agent.AgentLoopService;
 import com.mojian.agent.AgentPrompts;
@@ -16,14 +17,20 @@ import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.material.ChapterIndex;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.service.ChapterService;
+import com.mojian.common.api.ErrorCode;
+import com.mojian.common.exception.BusinessException;
+import com.mojian.generation.entity.GenerationTask;
+import com.mojian.generation.mapper.GenerationTaskMapper;
 import com.mojian.generation.sse.TaskEventBroker;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -81,29 +88,64 @@ public class WriterService {
     private final ChapterIndex chapterIndex;
     private final TaskEventBroker broker;
     private final AgentUsageService usageService;
+    private final ChapterMemoryWorker memoryWorker;
+    private final GenerationTaskMapper generationTaskMapper;
+    private final AgentRunService runService;
     private final ExecutorService agentTaskExecutor;
+
+    /** 写作任务的统一类型标记（写进 generation_task.task_type） */
+    public static final String TASK_TYPE_AGENT_WRITE = "AGENT_WRITE";
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     // ==================== 异步任务（给界面用） ====================
 
     /**
      * 启动一次写作任务，立刻返回任务 id。
      *
-     * <p><b>任务 id 与会话 id 现在是两个东西</b>：会话是长期存续的（整本书一个，跨章保持上下文），
-     * 而任务是一次性的。之前拿会话 id 当任务 id，是因为「一次任务=一段会话」；
-     * 现在会话不再新建，两者必须分开，否则两次写作会共用同一个事件通道。
+     * <p>任务会先落一条 {@code generation_task}（task_type=AGENT_WRITE），
+     * 再提交线程池。这一步是可靠性的地基：
+     * <ul>
+     *   <li><b>防重复</b>：表的 {@code (chapter_id, active_slot)} 唯一索引在数据库层保证
+     *       同一章同时只有一个活动任务 —— 之前内存 Map 拦不住并发/多实例</li>
+     *   <li><b>可审计</b>：谁、什么时候、跑成没跑成，都有一行记录</li>
+     *   <li><b>可恢复</b>：服务重启后，启动期的僵尸任务回收会把 RUNNING 标成 FAILED，
+     *       而不是让界面永远停在"写作中"</li>
+     * </ul>
      */
     public Long startTask(Long chapterId, String instruction) {
         chapterService.requireById(chapterId);
-        Long taskId = IdWorker.getId();
+
+        GenerationTask task = new GenerationTask();
+        task.setChapterId(chapterId);
+        task.setTaskType(TASK_TYPE_AGENT_WRITE);
+        task.setStatus(STATUS_RUNNING);
+        task.setStartedAt(LocalDateTime.now());
+        task.setInputSnapshot(writeInputSnapshot(instruction));
+        try {
+            generationTaskMapper.insert(task);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "这一章已经有一个写作任务在跑。等它结束，或先把它终止再重试。");
+        }
+
+        Long taskId = task.getId();
         broker.publishStatus(taskId, STATUS_RUNNING);
-        Future<?> future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+        Future<?> future;
+        try {
+            future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction));
+        } catch (RuntimeException e) {
+            // 线程池拒绝（队列满/正在关闭）：不能让任务行永远停在 RUNNING
+            updateTaskStatus(taskId, STATUS_FAILED, null, "写作任务执行器繁忙，请稍后重试");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "写作任务执行器繁忙，请稍后重试");
+        }
         runningTasks.put(taskId, future);
         log.info("写作任务 {} 已提交（第 {} 章）", taskId, chapterId);
         return taskId;
     }
 
     /**
-     * 终止一个正在跑的写作任务。
+     * 终止一个正在跑（或还在排队）的写作任务。
      *
      * <p>{@code cancel(true)} 会中断线程 —— 循环在下一轮开始前会看到中断标记并停下，
      * 正在等模型返回的 HTTP 调用也会被中断。两者都必要：只标记不中断的话，
@@ -113,6 +155,8 @@ public class WriterService {
      */
     public boolean cancel(Long taskId) {
         Future<?> future = runningTasks.get(taskId);
+        // 即使线程池里已经没有（比如排队时被取消），也要把数据库里的活动状态收掉
+        updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
         if (future == null) {
             return false;
         }
@@ -133,27 +177,62 @@ public class WriterService {
             WriterResult result = execute(chapterId, instruction, taskListener(taskId));
             if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
                 // 用户停的：如实说"停了"，不要伪装成"写完了"
+                updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
                 broker.publishEvent(taskId, "result", "已按你的要求停下");
                 broker.finish(taskId, STATUS_CANCELLED, null);
                 return;
             }
-            broker.publishEvent(taskId, "result",
-                    (result.saved() ? "已写入正文 " + result.charCount() + " 字，版本 "
-                            + result.versionNo() : "未产出正文") + "｜" + result.answer());
+            String summary = (result.saved()
+                    ? "已写入正文 " + result.charCount() + " 字，版本 " + result.versionNo()
+                    : "未产出正文") + "｜" + (result.answer() == null ? "" : result.answer());
+            updateTaskStatus(taskId, STATUS_SUCCEEDED, summary, null);
+            broker.publishEvent(taskId, "result", summary);
             broker.finish(taskId, STATUS_SUCCEEDED, null);
         } catch (Exception e) {
             // 区分"用户停的"和"自己失败的"：前者不是错误，日志里不该出现 WARN
             if (cancelledTasks.contains(taskId) || Thread.currentThread().isInterrupted()) {
                 log.info("写作任务 {} 已终止", taskId);
+                updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
                 broker.finish(taskId, STATUS_CANCELLED, null);
                 return;
             }
             log.warn("写作任务 {} 失败: {}", taskId, e.getMessage());
+            updateTaskStatus(taskId, STATUS_FAILED, null, e.getMessage());
             recordFailure(chapterId, e.getMessage());
             broker.finish(taskId, STATUS_FAILED, e.getMessage());
         } finally {
             runningTasks.remove(taskId);
             cancelledTasks.remove(taskId);
+        }
+    }
+
+    /** 条件更新任务终态：只有 CREATED/RUNNING 才能流转，避免重复回调覆盖 */
+    private void updateTaskStatus(Long taskId, String status, String result, String error) {
+        try {
+            var update = Wrappers.<GenerationTask>lambdaUpdate()
+                    .eq(GenerationTask::getId, taskId)
+                    .in(GenerationTask::getStatus, "CREATED", STATUS_RUNNING)
+                    .set(GenerationTask::getStatus, status)
+                    .set(GenerationTask::getFinishedAt, LocalDateTime.now());
+            if (result != null) {
+                update.set(GenerationTask::getResultSnapshot, result);
+            }
+            if (error != null) {
+                update.set(GenerationTask::getErrorMessage,
+                        error.length() > 1000 ? error.substring(0, 1000) : error);
+            }
+            generationTaskMapper.update(null, update);
+        } catch (Exception e) {
+            // 状态写失败不该影响任务本身：正文已经落库，这才是最重要的
+            log.warn("写作任务 {} 状态写回失败（不影响正文）: {}", taskId, e.getMessage());
+        }
+    }
+
+    private String writeInputSnapshot(String instruction) {
+        try {
+            return MAPPER.writeValueAsString(Map.of("instruction", instruction == null ? "" : instruction));
+        } catch (Exception e) {
+            return "{}";
         }
     }
 
@@ -250,7 +329,8 @@ public class WriterService {
         // 1. 写作会话：整本书一个，跨章存续。
         //    这样副 Agent 才记得住你上一章说过的偏好与约束，而不是每章从零开始。
         AgentConversation conversation = conversationService.findOrCreateWriter(projectId);
-        List<AgentMessage> history = conversationService.loadTextHistory(conversation.getId());
+        List<AgentMessage> history = ConversationService.trimHistory(
+                conversationService.loadTextHistory(conversation.getId()), 80_000);
 
         // 2. 必备材料：本章蓝图 + 本章写作要求（改稿时再加"现有稿"）。全部 REQUIRED，永不裁
         boolean revising = StringUtils.hasText(chapter.getContent());
@@ -271,7 +351,7 @@ public class WriterService {
         // 3. 组装（全量材料 + 必备材料）。排除当前章：它已作为"本章现有稿"单独注入，
         //    再以"前文原文"的名义出现一遍既是重复（一章五千字），也会让模型分不清哪份算数
         AgentContextAssembly materials = agentContextService.assemble(
-                AgentRole.WRITER, projectId, required, chapterId);
+                AgentRole.WRITER, projectId, required, chapterId, chapter.getOutlineNodeId());
         String systemPrompt = AgentPrompts.writer(materials.text(), revising);
 
         // 4. 本轮指令落库
@@ -281,7 +361,14 @@ public class WriterService {
         // 5. 跑循环（带上这段会话的历史 —— 这是"跨章保持上下文"落地的地方）
         AgentContext context = AgentContext.forChapter(projectId, AgentRole.WRITER,
                 conversation.getId(), chapterId);
-        AgentResult result = agentLoopService.run(context, systemPrompt, history, userInput, maxSteps(), listener);
+        long loopStartedAt = System.currentTimeMillis();
+        AgentResult result;
+        try {
+            result = agentLoopService.run(context, systemPrompt, history, userInput, maxSteps(), listener);
+        } catch (RuntimeException e) {
+            runService.recordFailure(context, System.currentTimeMillis() - loopStartedAt, e.getMessage());
+            throw e;
+        }
 
         // 6. 回答落库（进这段长期会话，下一章写作时它会作为历史被带上）
         conversationService.append(conversation.getId(), result.steps(),
@@ -294,6 +381,18 @@ public class WriterService {
 
         // 8. 记账。被终止的运行也要记：钱已经花出去了，不能因为"没写完"就不算
         usageService.record(context, result.usage());
+        runService.record(context, result, System.currentTimeMillis() - loopStartedAt,
+                materials.report().summary());
+
+        /*
+         * 9. 收尾：正文真的写进库后，自动在后台提炼一次章节记忆。
+         * 这是"长篇连续性"闭环的一半 —— 之前完全靠作者记得手动点一次。
+         * 失败只记日志，不影响写作结果；作者仍可在界面上改。
+         */
+        if (saved) {
+            memoryWorker.schedule(projectId, chapterId);
+            log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
+        }
 
         log.info("写作任务完成（第 {} 章）：{} 步 / {} / 落库={} / {}",
                 chapterId, result.steps(), result.status(), saved, result.usage().describe());

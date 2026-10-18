@@ -12,7 +12,7 @@ import {
   fetchModels, getAiStatus, listProviders, resetAiConfig,
   saveAiConfig, saveEnabledModels, testAiConnection
 } from '../../api/aiConfig'
-import { listAgentProfiles, updateAgentProfile } from '../../api/agent'
+import { listAgentProfiles, updateAgentProfile, getAgentUsage } from '../../api/agent'
 
 /**
  * 模型接入（v3）：一个页面管完三件事 ——
@@ -37,6 +37,7 @@ const profiles = ref([])
 const profileDrafts = reactive({})
 const showReset = ref(false)
 const resetting = ref(false)
+const usage = ref(null)
 
 const hasStoredKey = computed(() => status.value?.mode === 'LIVE' && status.value?.source === 'DB')
 const keyMask = computed(() => status.value?.apiKeyMasked || '')
@@ -62,6 +63,14 @@ const fmtContext = (n) => {
   if (!n) return '—'
   return n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M` : `${Math.round(n / 1000)}K`
 }
+async function loadUsage() {
+  try {
+    usage.value = await getAgentUsage(12, 30)
+  } catch (e) {
+    console.warn('读取用量失败', e)
+  }
+}
+
 const fmtCost = (n) => (n == null ? '—' : `$${n}`)
 
 async function load() {
@@ -96,6 +105,7 @@ async function load() {
       }
     }
     if (form.baseUrl) await loadModels(true)
+    loadUsage()
   } catch (e) {
     notify.error(e.message || '读取模型设置失败')
   } finally {
@@ -410,9 +420,45 @@ const reasoningLevelsOf = (modelId) => {
           </div>
         </section>
 
-        <section class="block danger-block">
+        <!-- 伍 · 用量与花销 -->
+        <section class="block">
           <header class="block-head">
             <span class="block-no">伍</span>
+            <div>
+              <h2>用量与花销</h2>
+              <p>Agent 的花销没有"提交"动作，是在对话里悄悄累积的。这里把它变成看得见的数字（美元，按公开定价估算）。</p>
+            </div>
+          </header>
+          <div v-if="usage" class="usage-summary">
+            <div class="usage-stat">
+              <b>{{ usage.summary?.calls ?? 0 }}</b>
+              <span>近 {{ usage.summary?.days ?? 30 }} 天调用次数</span>
+            </div>
+            <div class="usage-stat">
+              <b>{{ fmtCost(usage.summary?.cost) }}</b>
+              <span>估算花费（{{ usage.currency || 'USD' }}）</span>
+            </div>
+          </div>
+          <div v-if="usage?.recent?.length" class="usage-list">
+            <div v-for="row in usage.recent" :key="row.id" class="usage-row">
+              <V3Tag :tone="row.agentRole === 'WRITER' ? 'gold' : 'line'">
+                {{ row.agentRole === 'WRITER' ? '写作' : '策划' }}
+              </V3Tag>
+              <span class="usage-model">{{ row.model }}</span>
+              <span class="usage-tokens">{{ row.promptTokens }} 入 / {{ row.completionTokens }} 出</span>
+              <span class="usage-cost">{{ fmtCost(row.estimatedCost) }}</span>
+              <span class="usage-time">{{ (row.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
+            </div>
+          </div>
+          <p v-else class="empty-line">还没有调用记录。开始写作后，这里会显示每次运行的花销。</p>
+          <p class="usage-note">
+            历史记录里出现 $0 的，是旧版本对未知模型按零计费留下的；新运行会按兜底单价估算。
+          </p>
+        </section>
+
+        <section class="block danger-block">
+          <header class="block-head">
+            <span class="block-no">陆</span>
             <div><h2>演示模式</h2><p>清除界面保存的接入配置，退回环境变量 / 内置演示模式。不会删除你的书。</p></div>
           </header>
           <V3Button variant="danger" size="sm" @click="showReset = true">恢复演示模式</V3Button>
@@ -547,6 +593,28 @@ const reasoningLevelsOf = (modelId) => {
 .range { width: 100%; accent-color: var(--v3-gold); }
 .role-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .role-hint { font-size: 10.5px; color: var(--v3-text-faint); }
+
+.usage-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 520px; margin-bottom: 16px; }
+.usage-stat { padding: 14px 18px; border: 1px solid var(--v3-hairline); border-radius: var(--v3-r-sm); background: var(--v3-surface-1); }
+.usage-stat b { display: block; font-family: var(--v3-font-serif); font-size: 24px; font-weight: 600; color: var(--v3-text); }
+.usage-stat span { font-size: 10.5px; letter-spacing: 0.1em; color: var(--v3-text-faint); }
+.usage-list { display: flex; flex-direction: column; gap: 5px; }
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-xs);
+  background: var(--v3-surface-1);
+  font-size: 11.5px;
+  color: var(--v3-text-muted);
+}
+.usage-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--v3-font-mono); font-size: 11px; }
+.usage-tokens { font-size: 10.5px; color: var(--v3-text-faint); }
+.usage-cost { font-family: var(--v3-font-mono); font-size: 11px; color: var(--v3-gold-bright); }
+.usage-time { font-size: 10px; color: var(--v3-text-faint); }
+.usage-note { margin: 10px 0 0; font-size: 10.5px; color: var(--v3-text-faint); }
 .danger-block { max-width: 980px; }
 .modal-text { margin: 0; font-size: 13px; line-height: 1.95; color: var(--v3-text-soft); }
 
