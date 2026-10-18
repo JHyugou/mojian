@@ -3,6 +3,8 @@ package com.mojian.agent.service;
 import com.mojian.agent.draft.DraftStatus;
 import com.mojian.agent.draft.DraftType;
 import com.mojian.agent.entity.AgentDraft;
+import com.mojian.chapter.entity.Chapter;
+import com.mojian.chapter.service.ChapterService;
 import com.mojian.common.exception.BusinessException;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.vo.OutlineNodeVO;
@@ -47,6 +49,8 @@ class DraftServiceTest {
     private SettingService settingService;
     @Autowired
     private com.mojian.outline.service.OutlineService outlineService;
+    @Autowired
+    private ChapterService chapterService;
 
     private Long newProject() {
         ProjectSaveRequest request = new ProjectSaveRequest();
@@ -144,6 +148,33 @@ class DraftServiceTest {
                 .contains("【决策理由】")
                 .contains("因为第三章还没到揭示仇怨的时机");
         assertThat(accepted.getAppliedId()).isEqualTo(node.getId());
+    }
+
+    @Test
+    @DisplayName("CHAPTER 蓝图确认后自动创建并关联空章节（作者不用再手动建章）")
+    void 蓝图确认后自动建章() {
+        Long projectId = newProject();
+        AgentDraft draft = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第三章 穿甲",
+                Map.of("name", "第三章 穿甲", "nodeType", "CHAPTER", "summary", "穿甲"),
+                "用户确认了这一章");
+
+        AgentDraft accepted = draftService.accept(draft.getId());
+
+        List<Chapter> chapters = chapterService.list(projectId);
+        assertThat(chapters).hasSize(1);
+        assertThat(chapters.get(0).getTitle()).isEqualTo("第三章 穿甲");
+        assertThat(chapters.get(0).getOutlineNodeId()).isEqualTo(accepted.getAppliedId());
+        assertThat(chapters.get(0).getStatus()).isEqualTo("DRAFT");
+    }
+
+    @Test
+    @DisplayName("VOLUME 蓝图确认不会创建章节")
+    void 卷蓝图不建章() {
+        Long projectId = newProject();
+        AgentDraft draft = draftService.draft(CONVERSATION_ID, projectId, DraftType.BLUEPRINT, "第一卷",
+                Map.of("name", "第一卷", "nodeType", "VOLUME", "summary", "卷概要"), "卷");
+        draftService.accept(draft.getId());
+        assertThat(chapterService.list(projectId)).isEmpty();
     }
 
     // ==================== 修改已有内容（引用式改稿的落点） ====================

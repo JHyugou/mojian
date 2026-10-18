@@ -30,7 +30,7 @@ public class AgentUndoLog extends BaseEntity {
     /** CREATED / UPDATED */
     private String actionType;
 
-    /** CHARACTER / SETTING / OUTLINE */
+    /** CHARACTER / SETTING / OUTLINE / CHAPTER */
     private String entityType;
 
     private Long entityId;

@@ -54,6 +54,7 @@ public class PlannerService {
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
     private final AgentRunService runService;
+    private final DraftService draftService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
                                        String runId, List<String> images, boolean autoApprove) {
@@ -156,10 +157,32 @@ public class PlannerService {
         runService.record(context, result, System.currentTimeMillis() - startedAt,
                 materials.report().summary());
 
+        /*
+         * 自动采纳放在后端做，而不是只靠前端在响应后调 accept-all：
+         * 用户切走页面、HTTP 断开、前端卡住时，草稿仍会照常入库。
+         * 这也解释了之前"开着自动采纳却仍要手动确认"的偶发问题。
+         */
+        List<String> autoApproved = new ArrayList<>();
+        List<String> autoApproveFailed = new ArrayList<>();
+        if (autoApprove) {
+            for (com.mojian.agent.entity.AgentDraft draft : draftService.listPendingByProject(projectId)) {
+                try {
+                    draftService.accept(draft.getId());
+                    autoApproved.add(draft.getTitle());
+                } catch (Exception e) {
+                    autoApproveFailed.add(draft.getTitle());
+                    log.warn("自动采纳草稿 {} 失败: {}", draft.getId(), e.getMessage());
+                }
+            }
+            if (!autoApproved.isEmpty() || !autoApproveFailed.isEmpty()) {
+                log.info("策划自动采纳：成功 {} 条，失败 {} 条", autoApproved.size(), autoApproveFailed.size());
+            }
+        }
+
         log.info("策划对话完成（会话 {}）：{} 步 / {} / {}", conversation.getId(),
                 result.steps(), result.status(), result.usage().describe());
         return PlannerChatResponse.of(conversation.getId(), result, materials.report(),
-                reasoning.isEmpty() ? null : reasoning.toString());
+                reasoning.isEmpty() ? null : reasoning.toString(), autoApproved, autoApproveFailed);
     }
 
     /**

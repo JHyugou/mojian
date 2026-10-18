@@ -6,6 +6,7 @@ import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentUndoLog;
 import com.mojian.agent.mapper.AgentDraftMapper;
 import com.mojian.agent.mapper.AgentUndoLogMapper;
+import com.mojian.chapter.service.ChapterService;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.mapper.PlotOutlineMapper;
 import com.mojian.outline.service.OutlineService;
@@ -47,6 +48,7 @@ public class AgentUndoLogService {
     private final CharacterService characterService;
     private final SettingService settingService;
     private final OutlineService outlineService;
+    private final ChapterService chapterService;
     private final ConversationService conversationService;
 
     /** 新增类草稿确认后登记：撤销时删除该记录 */
@@ -127,6 +129,11 @@ public class AgentUndoLogService {
             case "OUTLINE" -> {
                 if (outlineService.getById(log.getEntityId()) != null) {
                     outlineService.delete(log.getEntityId());
+                }
+            }
+            case "CHAPTER" -> {
+                if (chapterService.getById(log.getEntityId()) != null) {
+                    chapterService.delete(log.getEntityId());
                 }
             }
             default -> throw new IllegalStateException("未知实体类型 " + log.getEntityType());

@@ -8,6 +8,9 @@ import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.mapper.AgentDraftMapper;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.exception.BusinessException;
+import com.mojian.chapter.dto.ChapterSaveRequest;
+import com.mojian.chapter.entity.Chapter;
+import com.mojian.chapter.service.ChapterService;
 import com.mojian.outline.dto.OutlineNodeSaveRequest;
 import com.mojian.outline.entity.PlotOutline;
 import com.mojian.outline.service.OutlineService;
@@ -46,6 +49,7 @@ public class DraftService {
     private final CharacterService characterService;
     private final SettingService settingService;
     private final OutlineService outlineService;
+    private final ChapterService chapterService;
     private final AgentUndoLogService undoLogService;
 
     // ==================== 起草 ====================
@@ -156,6 +160,13 @@ public class DraftService {
             };
         }
 
+        Long autoChapterId = null;
+        if ("OUTLINE".equals(entityType)) {
+            // 蓝图里的 CHAPTER 节点落库后，如果没有对应章节，自动建一个空章节
+            // —— 否则作者采纳完只看到蓝图，章节列表里没有这一章。
+            autoChapterId = ensureChapterForBlueprint(draft.getProjectId(), appliedId);
+        }
+
         draft.setStatus(DraftStatus.ACCEPTED);
         draft.setAppliedId(appliedId);
         draftMapper.updateById(draft);
@@ -164,9 +175,33 @@ public class DraftService {
         } else {
             undoLogService.recordCreation(draft, entityType, appliedId);
         }
-        log.info("草稿 {}「{}」已确认{}，业务记录 {}",
-                draft.getDraftType(), draft.getTitle(), revising ? "（修改）" : "", appliedId);
+        if (autoChapterId != null) {
+            undoLogService.recordCreation(draft, "CHAPTER", autoChapterId);
+        }
+        log.info("草稿 {}「{}」已确认{}，业务记录 {}{}",
+                draft.getDraftType(), draft.getTitle(), revising ? "（修改）" : "", appliedId,
+                autoChapterId == null ? "" : "，自动创建章节 " + autoChapterId);
         return draft;
+    }
+
+    /** CHAPTER 类型蓝图节点没有对应章节时，自动建一个空章节并关联；返回章节 id（已有则 null） */
+    private Long ensureChapterForBlueprint(Long projectId, Long outlineNodeId) {
+        com.mojian.outline.entity.PlotOutline node = outlineService.requireById(outlineNodeId);
+        if (!"CHAPTER".equals(node.getNodeType())) {
+            return null;
+        }
+        boolean exists = chapterService.list(projectId).stream()
+                .anyMatch(chapter -> outlineNodeId.equals(chapter.getOutlineNodeId()));
+        if (exists) {
+            return null;
+        }
+        ChapterSaveRequest request = new ChapterSaveRequest();
+        request.setTitle(node.getName());
+        request.setOutlineNodeId(outlineNodeId);
+        request.setStatus("DRAFT");
+        Chapter chapter = chapterService.create(projectId, request);
+        log.info("蓝图节点 {} 确认后自动创建章节 {}「{}」", outlineNodeId, chapter.getId(), chapter.getTitle());
+        return chapter.getId();
     }
 
     private String entityTypeOf(String draftType) {
