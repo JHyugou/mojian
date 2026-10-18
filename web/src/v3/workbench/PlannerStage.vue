@@ -265,18 +265,45 @@ function setAutoApprove(value) {
  */
 async function applyAutoApprove() {
   if (!autoApprove.value) return
+  const titles = drafts.value.map((d) => d.title).filter(Boolean)
   try {
     const result = await acceptAllDrafts(props.projectId)
     if (result.accepted > 0) {
       autoNotice.value = `已自动采纳 ${result.accepted} 条` +
         (result.failed?.length ? `，${result.failed.length} 条失败` : '')
       setTimeout(() => { autoNotice.value = '' }, 5000)
+      /*
+       * 自动采纳以前是静默的：模型说"等你确认"、待确认列表又是空的，
+       * 用户会以为流程坏了。在对话流里补一条系统消息，明确说清哪些已经写进书里。
+       */
+      messages.value.push({
+        role: 'system',
+        system: true,
+        text: `已自动采纳 ${result.accepted} 条草稿` +
+          (titles.length ? `：${titles.slice(0, result.accepted).join('、')}` : '') +
+          '。它们已经写入本书，不再出现在待确认列表里。'
+      })
+      scrollToBottom()
       await refreshSide()
       library.touch()
+    }
+    if (result.failed?.length) {
+      messages.value.push({
+        role: 'system',
+        system: true,
+        text: `自动采纳有 ${result.failed.length} 条失败：${result.failed.join('、')}。请到待确认列表手动处理。`
+      })
+      scrollToBottom()
     }
   } catch (e) {
     autoNotice.value = '自动采纳失败：' + e.message
     setTimeout(() => { autoNotice.value = '' }, 6000)
+    messages.value.push({
+      role: 'system',
+      system: true,
+      text: `自动采纳失败：${e.message}。草稿仍在待确认列表，需要你手动确认。`
+    })
+    scrollToBottom()
   }
 }
 
@@ -290,7 +317,7 @@ function exportLog() {
   const lines = [`# ${conversationTitle.value || '未命名对话'}`, '',
     `导出时间：${new Date().toLocaleString('zh-CN')}`, '']
   for (const msg of messages.value) {
-    lines.push(msg.role === 'user' ? '## 你' : '## 策划 Agent')
+    lines.push(msg.system ? '## 系统' : msg.role === 'user' ? '## 你' : '## 策划 Agent')
     lines.push('')
     if (msg.reasoning && settings.thinkingMode !== 'hidden') {
       lines.push('> **思考过程**', '>')
@@ -409,7 +436,7 @@ async function send() {
 
   try {
     const data = await plannerChat(props.projectId, conversationId.value, outgoing,
-      controller.value.signal, runId, currentImages())
+      controller.value.signal, runId, currentImages(), autoApprove.value)
     const wasNew = !conversationId.value
     conversationId.value = data.conversationId
     if (wasNew) {
@@ -592,10 +619,10 @@ onBeforeUnmount(() => {
         v-for="(msg, i) in messages"
         :key="i"
         class="msg"
-        :class="['is-' + msg.role, { 'is-stopped': msg.stopped }]"
+        :class="['is-' + msg.role, { 'is-stopped': msg.stopped, 'is-system': msg.system }]"
       >
         <div class="msg-head">
-          <span class="msg-who">{{ msg.role === 'user' ? '你' : '策划 Agent' }}</span>
+          <span class="msg-who">{{ msg.system ? '系统' : msg.role === 'user' ? '你' : '策划 Agent' }}</span>
           <button v-if="msg.role === 'user' && !sending" class="msg-rollback" title="回到这一步" @click="rollbackTo(i)">
             <Icon name="undo" :size="12" />
           </button>
@@ -892,6 +919,14 @@ onBeforeUnmount(() => {
 .msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
 .msg.is-user .msg-head { justify-content: flex-end; }
 .msg-who { font-size: 10.5px; letter-spacing: 0.18em; color: var(--v3-text-faint); }
+.msg.is-system .msg-head { justify-content: center; }
+.msg.is-system .msg-who { color: var(--v3-gold); }
+.msg.is-system .bubble {
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-glow-gold);
+  font-size: 11.5px;
+  color: var(--v3-text-soft);
+}
 .msg-rollback {
   width: 22px;
   height: 22px;
