@@ -22,6 +22,15 @@ class AgentPromptsTest {
     }
 
     @Test
+    @DisplayName("审稿不是必须提修改：稿子够好时允许零补充要求")
+    void 审稿允许零补充要求() {
+        String prompt = AgentPrompts.planner("【本书概况】测试", false);
+        assertThat(prompt).contains("审稿不是必须提修改");
+        assertThat(prompt).contains("零条补充要求是完全正常的结果");
+        assertThat(prompt).contains("不要为了证明自己审过而强行提要求");
+    }
+
+    @Test
     @DisplayName("手动采纳模式：如实说等待确认")
     void 手动采纳模式() {
         String prompt = AgentPrompts.planner("【本书概况】测试", false);

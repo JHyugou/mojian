@@ -39,7 +39,9 @@ public class AddChapterSupplementTool implements AgentTool {
     public String description() {
         return "给某一章追加一条审稿补充要求（与本章写作要求分开管理，多条要求互不覆盖）。"
                 + "写作 Agent 下次写这一章时会把它作为必备材料执行，成功后标记为已应用。"
-                + "必须先 review_chapter 看过正文；一条意见调用一次，不要把多个问题塞进一条。"
+                + "必须先 review_chapter 看过正文；只有确实存在具体问题才调用 —— "
+                + "如果这稿已经足够好，不要提任何补充要求，直接告诉用户通过。"
+                + "一条意见调用一次，不要把多个问题塞进一条。"
                 + "chapterNo 从 1 开始；supplement 写具体改法，reason 说明针对什么问题。"
                 + "不要自动开写，追加后告诉用户去写作模式执行。";
     }

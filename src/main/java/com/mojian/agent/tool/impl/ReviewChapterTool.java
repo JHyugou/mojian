@@ -40,7 +40,8 @@ public class ReviewChapterTool implements AgentTool {
     public String description() {
         return "审阅某一章写作 Agent 写出的正文：返回正文全文、写作要求、已有补充要求与执行状态。"
                 + "用户让你看看写得怎么样、或者你准备给写作 Agent 提修改意见时先用它。"
-                + "chapterNo 从 1 开始。审完后用 add_chapter_supplement 逐条追加补充要求，不要自己改正文。";
+                + "chapterNo 从 1 开始。审完后如果觉得足够好，可以直接给通过结论，不必提补充要求；"
+                + "只有确实需要修改时，才用 add_chapter_supplement 逐条追加，不要自己改正文。";
     }
 
     @Override
@@ -113,7 +114,8 @@ public class ReviewChapterTool implements AgentTool {
         }
         sb.append("\n\n");
         sb.append("请具体判断：是否满足写作要求、人物/前情是否一致、有没有需要修的地方。");
-        sb.append("有意见就调用 add_chapter_supplement，一条意见一条补充要求；不要自己改正文，也不要只说空泛的好话。");
+        sb.append("审稿不是必须提修改：如果这稿已经达标，直接说可以保留/通过，不要调用 add_chapter_supplement。");
+        sb.append("只有确实存在具体问题时，才调用 add_chapter_supplement，一条意见一条补充要求；不要自己改正文，也不要只说空泛的好话。");
         sb.append("如果用户明确说某条补充要求不要了，可以用上面的记录 ID 调 remove_chapter_supplement 移除。");
         return sb.toString();
     }
