@@ -524,13 +524,15 @@ const fmtTime = (value) => {
   pointer-events: none;
   transition: opacity var(--v3-dur-4);
 }
-/* 标题上方一团极淡的金色顶光 */
+/* 标题上方一团极淡的金色顶光。
+ * 宽度必须是"整页"而不是 hero 的 74vw：hero 限宽居中后两侧会留下一道没有光晕的
+ * 竖直色差（左侧尤其明显）。用 100vw 让它铺满内容区，超出部分由 overflow 裁掉。 */
 .hero::before {
   content: '';
   position: absolute;
   left: 50%;
   top: -18vh;
-  width: 74vw;
+  width: 100vw;
   height: 74vh;
   transform: translateX(-50%);
   background: radial-gradient(ellipse at 50% 42%, var(--v3-glow-gold), transparent 62%);

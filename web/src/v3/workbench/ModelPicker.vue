@@ -339,6 +339,15 @@ watch(view, (value) => {
 }
 .mp-item:hover:not(:disabled) { background: var(--v3-surface-1); color: var(--v3-text); }
 .mp-item.active { background: var(--v3-glow-gold); color: var(--v3-text); }
+/*
+ * 已选项的 hover 必须"还在选中态"里：之前 .mp-item:hover 的特异性比 .active 高，
+ * 鼠标移上去会把金色选中底换成普通 hover 底，看起来像"选中丢了"。
+ * 这里让 active 在 hover 时只轻微提亮，而不是换掉选中色。
+ */
+.mp-item.active:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--v3-gold) 24%, transparent);
+  color: var(--v3-text);
+}
 .mp-item:disabled { opacity: 0.5; cursor: wait; }
 .mp-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
 .mp-item-hint { font-size: 9.5px; color: var(--v3-text-faint); font-family: var(--v3-font-mono); }

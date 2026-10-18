@@ -105,39 +105,43 @@ function goHome() {
     </div>
 
     <div v-else class="wb3">
-      <PlannerStage
-        v-if="mode === 'planner'"
-        :key="'planner-' + projectId"
-        :project-id="projectId"
-        :conversation-id="route.query.conv"
-        :fresh-token="route.query.fresh"
-        :citations="state.citations"
-        @conversation-changed="(id) => router.replace({ path: '/workbench', query: { ...route.query, conv: id, mode: 'planner' } })"
-        @remove-citation="state.removeCitation"
-        @clear-citations="state.clearCitations"
-      />
-      <WriterStage
-        v-else
-        :key="'writer-' + projectId"
-        :project-id="projectId"
-        :chapter="state.activeChapter"
-        :chapters="state.chapters"
-        :blueprint="state.activeBlueprint"
-        :blueprint-options="chapterBlueprints"
-        @select-chapter="selectChapter"
-        @reload="afterWriterChanged"
-      />
+      <Transition name="stage">
+        <PlannerStage
+          v-if="mode === 'planner'"
+          key="planner"
+          :project-id="projectId"
+          :conversation-id="route.query.conv"
+          :fresh-token="route.query.fresh"
+          :citations="state.citations"
+          @conversation-changed="(id) => router.replace({ path: '/workbench', query: { ...route.query, conv: id, mode: 'planner' } })"
+          @remove-citation="state.removeCitation"
+          @clear-citations="state.clearCitations"
+        />
+        <WriterStage
+          v-else
+          key="writer"
+          :project-id="projectId"
+          :chapter="state.activeChapter"
+          :chapters="state.chapters"
+          :blueprint="state.activeBlueprint"
+          :blueprint-options="chapterBlueprints"
+          @select-chapter="selectChapter"
+          @reload="afterWriterChanged"
+        />
+      </Transition>
 
-      <ResourcePanel
-        v-if="rightOpen"
-        :characters="state.characters"
-        :settings="state.settings"
-        :outline-tree="state.outlineTree"
-        :reports="state.reports"
-        :counts="state.counts"
-        @cite="onCite"
-        @close="rightOpen = false"
-      />
+      <Transition name="side">
+        <ResourcePanel
+          v-if="rightOpen"
+          :characters="state.characters"
+          :settings="state.settings"
+          :outline-tree="state.outlineTree"
+          :reports="state.reports"
+          :counts="state.counts"
+          @cite="onCite"
+          @close="rightOpen = false"
+        />
+      </Transition>
 
       <!-- 资料栏收起后，右缘留一个抓手：不重复顶栏图标，但也不让人"关掉就找不回来" -->
       <button v-if="!rightOpen" class="side-reopen" title="打开资料栏" @click="rightOpen = true">
@@ -151,6 +155,24 @@ function goHome() {
 <style scoped>
 .wb-frame { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
 .wb3 { position: relative; flex: 1; min-width: 0; display: flex; overflow: hidden; }
+
+/* 策划 ↔ 写作：交叉淡入淡出，离场页绝对定位，避免两个舞台把布局挤一下 */
+.stage-enter-active,
+.stage-leave-active {
+  transition: opacity var(--v3-dur-2) var(--v3-ease-out),
+              transform var(--v3-dur-3) var(--v3-ease-out),
+              filter var(--v3-dur-2) var(--v3-ease-out);
+}
+.stage-leave-active { position: absolute; inset: 0; pointer-events: none; }
+.stage-enter-from { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(4px); }
+.stage-leave-to { opacity: 0; transform: translate3d(0, -6px, 0); filter: blur(3px); }
+
+/* 资料栏开合：从右缘滑入滑出 */
+.side-enter-active,
+.side-leave-active { transition: opacity var(--v3-dur-2) var(--v3-ease-out), transform var(--v3-dur-3) var(--v3-ease-out); }
+.side-enter-from,
+.side-leave-to { opacity: 0; transform: translate3d(16px, 0, 0); }
+.wb3 :deep(.side) { position: relative; z-index: 2; }
 .wb-empty { flex: 1; display: grid; place-items: center; }
 
 /* 资料栏收起后的右缘抓手：只在栏关闭时出现，不与栏内的关闭按钮重复 */
@@ -173,6 +195,7 @@ function goHome() {
   font-family: inherit;
   cursor: pointer;
   box-shadow: var(--v3-shadow-float);
+  animation: v3-fade var(--v3-dur-2) var(--v3-ease-out);
   transition: color var(--v3-dur-2), border-color var(--v3-dur-2), transform var(--v3-dur-2);
 }
 .side-reopen span {

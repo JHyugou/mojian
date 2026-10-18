@@ -405,6 +405,13 @@ defineExpose({ reload: load })
   width: 2px;
   border-radius: 2px;
   background: var(--v3-grad-gold);
+  /* 选中条从中间"长出来"，而不是瞬移出现 */
+  transform-origin: center;
+  animation: rail-mark-in var(--v3-dur-3) var(--v3-ease-spring);
+}
+@keyframes rail-mark-in {
+  from { opacity: 0; transform: scaleY(0.2); }
+  to { opacity: 1; transform: scaleY(1); }
 }
 .rail-label {
   position: absolute;
