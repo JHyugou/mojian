@@ -27,6 +27,7 @@ const KEY_THINKING = 'mojian.thinkingMode'
 const KEY_SEND = 'mojian.sendKey'
 const KEY_AUTO_APPROVE = 'mojian.autoApprove'
 const KEY_ROLLBACK_DB = 'mojian.rollbackDatabase'
+const KEY_AUTO_APPROVE_DELETE = 'mojian.autoApproveDelete'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -39,7 +40,12 @@ export const useSettingsStore = defineStore('settings', {
     /** 采纳模式：是否自动采纳 Agent 起草的内容 */
     autoApprove: localStorage.getItem(KEY_AUTO_APPROVE) === '1',
     /** 回滚对话时是否连带撤销数据库改动；默认开 */
-    rollbackDatabase: localStorage.getItem(KEY_ROLLBACK_DB) !== '0'
+    rollbackDatabase: localStorage.getItem(KEY_ROLLBACK_DB) !== '0',
+    /**
+     * 是否自动批准写作 Agent 的删除章节申请；默认关。
+     * 这是不可逆的高危动作：开着时写作 Agent 可以在你不在场时直接删章。
+     */
+    autoApproveDelete: localStorage.getItem(KEY_AUTO_APPROVE_DELETE) === '1'
   }),
 
   actions: {
@@ -67,6 +73,11 @@ export const useSettingsStore = defineStore('settings', {
     setRollbackDatabase(value) {
       this.rollbackDatabase = value
       localStorage.setItem(KEY_ROLLBACK_DB, value ? '1' : '0')
+    },
+
+    setAutoApproveDelete(value) {
+      this.autoApproveDelete = value
+      localStorage.setItem(KEY_AUTO_APPROVE_DELETE, value ? '1' : '0')
     },
 
     /**

@@ -101,14 +101,27 @@ export function getWriterInstructions(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/instructions`)
 }
 
+/** 写作 Agent 的章节删除申请（PENDING 需要作者确认；APPROVED 已删） */
+export function getChapterDeleteRequests(projectId) {
+  return http.get(`/agent/writer/projects/${projectId}/chapter-delete-requests`)
+}
+
+export function approveChapterDeleteRequest(requestId) {
+  return http.post(`/agent/writer/chapter-delete-requests/${requestId}/approve`)
+}
+
+export function rejectChapterDeleteRequest(requestId) {
+  return http.post(`/agent/writer/chapter-delete-requests/${requestId}/reject`)
+}
+
 /** 清空写作会话的历史（保留会话）—— 让它忘掉此前说过的话 */
 export function clearWriterHistory(projectId) {
   return http.delete(`/agent/writer/projects/${projectId}/conversation/messages`)
 }
 
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
-export function startWritingTask(chapterId, instruction) {
-  return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction })
+export function startWritingTask(chapterId, instruction, autoApproveDelete = false) {
+  return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction, autoApproveDelete })
 }
 
 /**

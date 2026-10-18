@@ -17,7 +17,8 @@ import {
   listVersions, rollbackChapter, saveChapter, saveMemory
 } from '../../api/chapter'
 import {
-  cancelWritingTask, clearWriterHistory, getWriterConversation, getWriterInstructions,
+  approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getChapterDeleteRequests,
+  getWriterConversation, getWriterInstructions, rejectChapterDeleteRequest,
   setWritingRequirement, startWritingTask, subscribeWritingTask
 } from '../../api/agent'
 
@@ -53,6 +54,11 @@ const advice = ref('')
 const messages = ref([])
 /** 策划 Agent 下发的写作指令（PENDING 待执行 / CONSUMED 已执行） */
 const plannerInstructions = ref([])
+/** 写作 Agent 提交的章节删除申请 */
+const deleteRequests = ref([])
+/** 待作者确认的删除：点「删除章节」后二次确认 */
+const deleteConfirm = ref(null)
+const deletingChapter = ref(false)
 const streamingAnswer = ref('')
 const streamingReasoning = ref('')
 const running = ref(false)
@@ -171,6 +177,7 @@ watch(
     try {
       await loadChapter(id)
       await loadInstructions()
+      await loadDeleteRequests()
     } catch (e) {
       error.value = e.message
     }
@@ -187,11 +194,13 @@ watch(tab, async (value) => {
 onMounted(() => {
   loadConversation()
   loadInstructions()
+  loadDeleteRequests()
 })
 // 被 KeepAlive 缓存后切回写作模式：策划可能刚下发过新指令，重新拉一次
 onActivated(() => {
   loadConversation()
   loadInstructions()
+  loadDeleteRequests()
 })
 onBeforeUnmount(() => {
   abortRunning()
@@ -214,6 +223,50 @@ async function loadInstructions() {
     plannerInstructions.value = (await getWriterInstructions(props.projectId)) || []
   } catch (e) {
     console.warn('读取策划分工指令失败', e)
+  }
+}
+
+async function loadDeleteRequests() {
+  try {
+    deleteRequests.value = (await getChapterDeleteRequests(props.projectId)) || []
+  } catch (e) {
+    console.warn('读取章节删除申请失败', e)
+  }
+}
+
+/**
+ * 待确认申请必须跨章显示：写作 Agent 只能删"其他章"，如果只按当前章过滤，
+ * 它在写第 N 章时申请删第 M 章，作者切到第 N 章反而看不到这条申请。
+ * 已经处理过的历史记录则只显示当前章的，避免长期占地方。
+ */
+const chapterDeleteRequests = computed(() =>
+  deleteRequests.value.filter((item) => item.status === 'PENDING'
+    || String(item.chapterId) === String(props.chapter?.id)))
+const pendingDeleteCount = computed(() =>
+  chapterDeleteRequests.value.filter((item) => item.status === 'PENDING').length)
+
+async function approveDelete(request) {
+  deleteConfirm.value = null
+  deletingChapter.value = true
+  try {
+    await approveChapterDeleteRequest(request.id)
+    notify.success(`已删除章节《${request.chapterTitle || '未命名'}》`)
+    await loadDeleteRequests()
+    emit('reload')
+  } catch (e) {
+    notify.error(e.message || '删除失败')
+  } finally {
+    deletingChapter.value = false
+  }
+}
+
+async function rejectDelete(request) {
+  try {
+    await rejectChapterDeleteRequest(request.id)
+    notify.info(`已保留章节《${request.chapterTitle || '未命名'}》`)
+    await loadDeleteRequests()
+  } catch (e) {
+    notify.error(e.message || '操作失败')
   }
 }
 
@@ -291,7 +344,8 @@ async function start() {
   const timer = setTimeout(() => (phase.value = '正在写正文…'), 8000)
 
   try {
-    const { taskId } = await startWritingTask(props.chapter.id, outgoing)
+    const { taskId } = await startWritingTask(props.chapter.id, outgoing,
+      settings.autoApproveDelete)
     if (seq !== runSeq) {
       try { await cancelWritingTask(taskId) } catch { /* 已结束 */ }
       return
@@ -644,6 +698,34 @@ watch(() => props.chapter?.id, () => {
       <!-- ==================== 左：对话 ==================== -->
       <div class="chat-pane">
         <div ref="chatEl" class="writer-chat v3-scroll">
+          <!-- 章节删除申请：高风险动作，默认必须作者点确认 -->
+          <div v-if="chapterDeleteRequests.length" class="delete-requests">
+            <header class="dr-head">
+              <span class="dr-sender">写作 Agent</span>
+              <span class="dr-title">申请删除章节</span>
+              <span v-if="pendingDeleteCount" class="dr-count">{{ pendingDeleteCount }} 条待确认</span>
+            </header>
+            <article
+              v-for="req in chapterDeleteRequests"
+              :key="req.id"
+              class="delete-request"
+              :class="{ pending: req.status === 'PENDING', danger: req.status === 'PENDING' }"
+            >
+              <div class="dr-meta">
+                <V3Tag :tone="req.status === 'PENDING' ? 'cinnabar' : 'line'">
+                  {{ req.status === 'PENDING' ? '等待确认' : req.status === 'APPROVED' ? '已删除' : '已保留' }}
+                </V3Tag>
+                <span class="dr-chapter">《{{ req.chapterTitle || '未命名章节' }}》</span>
+              </div>
+              <p v-if="req.reason" class="dr-reason">{{ req.reason }}</p>
+              <p class="dr-risk">删除后正文、历史版本与章节记忆一并移除，<b>不可恢复</b>。</p>
+              <div v-if="req.status === 'PENDING'" class="dr-actions">
+                <V3Button variant="ghost" size="sm" @click="rejectDelete(req)">保留章节</V3Button>
+                <V3Button variant="danger" size="sm" @click="deleteConfirm = req">删除章节</V3Button>
+              </div>
+            </article>
+          </div>
+
           <!-- 策划 Agent 的指令：写作有两个指令来源，这里把策划那一路显式画出来 -->
           <div v-if="chapterInstructions.length" class="planner-notes">
             <header class="pn-head">
@@ -878,6 +960,28 @@ watch(() => props.chapter?.id, () => {
         <div v-for="(line, i) in diffLines" :key="i" class="diff-line" :class="'is-' + line.type">{{ line.text }}</div>
       </div>
     </V3Modal>
+
+    <!-- 删除章节二次确认：高风险动作，不放进请求卡片的单击里 -->
+    <V3Modal
+      :visible="!!deleteConfirm"
+      title="确认删除章节？"
+      width="520px"
+      @close="deleteConfirm = null"
+    >
+      <p class="modal-hint">
+        写作 Agent 申请删除《{{ deleteConfirm?.chapterTitle || '未命名章节' }}》。
+      </p>
+      <p class="modal-hint danger-text">
+        删除会同时移除这一章的正文、所有历史版本与章节记忆，<b>无法撤销</b>。
+        如果只是这一章写得不好，建议用「保留章节」并让它重写，而不是删除。
+      </p>
+      <p v-if="deleteConfirm?.reason" class="modal-hint">Agent 的理由：{{ deleteConfirm.reason }}</p>
+      <template #footer>
+        <V3Button variant="ghost" :disabled="deletingChapter" @click="deleteConfirm = null">取消</V3Button>
+        <V3Button variant="ghost" :disabled="deletingChapter" @click="rejectDelete(deleteConfirm); deleteConfirm = null">保留章节</V3Button>
+        <V3Button variant="danger" :loading="deletingChapter" @click="approveDelete(deleteConfirm)">确认删除</V3Button>
+      </template>
+    </V3Modal>
   </section>
 </template>
 
@@ -987,6 +1091,27 @@ watch(() => props.chapter?.id, () => {
 .writer-chat { flex: 1; min-height: 0; padding: 18px 22px; }
 .chat-empty { max-width: 400px; margin: 10vh auto 0; text-align: center; }
 .planner-notes { margin: 0 0 18px; }
+.danger-text { color: #e8a8a0; }
+.danger-text b { color: #ffd9d3; }
+.delete-requests { margin: 0 0 18px; }
+.dr-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dr-sender { font-size: 11px; letter-spacing: 0.12em; color: #e8a8a0; }
+.dr-title { font-family: var(--v3-font-serif); font-size: 12.5px; color: var(--v3-text-soft); }
+.dr-count { margin-left: auto; font-size: 10px; color: #e8a8a0; }
+.delete-request {
+  padding: 11px 13px;
+  margin-bottom: 7px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+}
+.delete-request.pending { border-color: rgba(201, 76, 59, 0.45); background: var(--v3-cinnabar-soft); }
+.dr-meta { display: flex; align-items: center; gap: 8px; }
+.dr-chapter { font-family: var(--v3-font-serif); font-size: 12.5px; color: var(--v3-text); }
+.dr-reason { margin: 8px 0 0; font-size: 12px; line-height: 1.8; color: var(--v3-text-soft); white-space: pre-wrap; }
+.dr-risk { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: #d8a39c; }
+.dr-risk b { color: #ffd9d3; }
+.dr-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .pn-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .pn-sender { font-size: 11px; letter-spacing: 0.12em; color: var(--v3-gold-bright); }
 .pn-title { font-family: var(--v3-font-serif); font-size: 12.5px; color: var(--v3-text-soft); }

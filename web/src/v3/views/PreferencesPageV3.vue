@@ -130,6 +130,41 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
         <header class="block-head">
           <span class="block-no">伍</span>
           <div>
+            <h2>删除章节</h2>
+            <p>写作 Agent 可以申请删除章节；默认必须由你在写作面板确认，开启自动批准后它会直接删。</p>
+          </div>
+        </header>
+        <div class="options two">
+          <button
+            class="option"
+            :class="{ active: !settings.autoApproveDelete }"
+            @click="settings.setAutoApproveDelete(false)"
+          >
+            <span class="option-label">每次询问我（推荐）</span>
+            <span class="option-hint">Agent 只能提交删除申请，你在写作面板点「删除章节」后才会执行</span>
+            <span v-if="!settings.autoApproveDelete" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+          <button
+            class="option danger"
+            :class="{ active: settings.autoApproveDelete }"
+            @click="settings.setAutoApproveDelete(true)"
+          >
+            <span class="option-label">自动批准删除（高风险）</span>
+            <span class="option-hint">Agent 可直接删除章节，不再询问；只适合你明确要求它整理章节时短暂开启</span>
+            <span v-if="settings.autoApproveDelete" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+        </div>
+        <p v-if="settings.autoApproveDelete" class="risk-warning">
+          ⚠ 自动批准已开启：写作 Agent 可以在你不在场时删除章节，正文、历史版本与章节记忆会一并删除，
+          <b>无法撤销</b>。请确认你有数据库备份（<code>.local-backup/</code> 或你自己的备份），
+          并只在明确要求它整理章节时开启；用完请切回「每次询问我」。
+        </p>
+      </section>
+
+      <section class="block">
+        <header class="block-head">
+          <span class="block-no">陆</span>
+          <div>
             <h2>快捷键与说明</h2>
             <p>常用入口集中在这里，避免在写作时到处找按钮。</p>
           </div>
@@ -160,6 +195,22 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
   letter-spacing: 0.08em;
 }
 .sub { margin: 12px 0 0; font-size: 12.5px; line-height: 1.9; color: var(--v3-text-muted); }
+
+.risk-warning {
+  max-width: 860px;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 76, 59, 0.4);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-cinnabar-soft);
+  font-size: 11.5px;
+  line-height: 1.9;
+  color: #ffd9d3;
+}
+.risk-warning b { color: #fff; }
+.risk-warning code { font-family: var(--v3-font-mono); font-size: 10.5px; }
+.option.danger.active { border-color: rgba(201, 76, 59, 0.55); }
+.option.danger .option-label { color: #e8a8a0; }
 
 .block { max-width: 860px; margin-top: 40px; padding-top: 28px; border-top: 1px solid var(--v3-hairline); }
 .block-head { display: flex; gap: 16px; margin-bottom: 18px; }
