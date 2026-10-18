@@ -15,7 +15,7 @@ import V3Empty from '../../components/v3/V3Empty.vue'
 import V3Toasts from '../../components/v3/V3Toasts.vue'
 import V3CommandPalette from '../../components/v3/V3CommandPalette.vue'
 import { useV3Theme } from '../theme'
-import { vReveal } from '../motion'
+import { animateCount, vReveal } from '../motion'
 import { useV3Notify } from '../notify'
 import { useProjectStore } from '../../stores/project'
 import { createProject, deleteProject, listProjects } from '../../api/project'
@@ -32,6 +32,31 @@ const loading = ref(true)
 const loadError = ref('')
 const chapterCounts = reactive({})
 const heroChars = computed(() => '把一部小说，写成它该有的样子'.split(''))
+// 统计数字用缓动滚上去，比静态数字多一点"作品集"的仪式感
+const shownProjects = ref(0)
+const shownChapters = ref(0)
+const totalChapters = computed(() =>
+  Object.values(chapterCounts).reduce((sum, n) => sum + (Number(n) || 0), 0)
+)
+
+function animateStats() {
+  animateCount(shownProjects.value, projects.value.length, 900, (n) => (shownProjects.value = n))
+  animateCount(shownChapters.value, totalChapters.value, 1200, (n) => (shownChapters.value = n))
+}
+
+/** 首屏跟随鼠标的柔光：把指针位置写进 CSS 变量，由 ::after 渲染 */
+const heroEl = ref(null)
+let spotFrame = 0
+function onHeroMove(event) {
+  const el = heroEl.value
+  if (!el) return
+  if (spotFrame) cancelAnimationFrame(spotFrame)
+  spotFrame = requestAnimationFrame(() => {
+    const rect = el.getBoundingClientRect()
+    el.style.setProperty('--spot-x', `${((event.clientX - rect.left) / rect.width) * 100}%`)
+    el.style.setProperty('--spot-y', `${((event.clientY - rect.top) / rect.height) * 100}%`)
+  })
+}
 
 async function load() {
   loading.value = true
@@ -53,6 +78,7 @@ async function load() {
     loadError.value = e.message || '读取项目失败'
   } finally {
     loading.value = false
+    animateStats()
   }
 }
 
@@ -240,10 +266,6 @@ const fmtTime = (value) => {
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
 }
-
-const totalChapters = computed(() =>
-  Object.values(chapterCounts).reduce((sum, n) => sum + (Number(n) || 0), 0)
-)
 </script>
 
 <template>
@@ -281,7 +303,17 @@ const totalChapters = computed(() =>
     </header>
 
     <main class="ld-main">
-      <section class="hero">
+      <section ref="heroEl" class="hero" @pointermove="onHeroMove">
+        <!-- 装饰层：水墨远山、巨字水印、朱砂印、指针柔光 -->
+        <div class="hero-ink" aria-hidden="true">
+          <svg viewBox="0 0 1440 320" preserveAspectRatio="none">
+            <path d="M0 320 L150 214 Q236 150 318 216 L420 286 L540 196 Q640 122 742 200 L852 280 L980 190 Q1080 118 1190 198 L1300 262 L1440 214 L1440 320 Z" />
+            <path d="M0 320 L210 262 Q320 214 448 272 L620 240 Q748 202 880 258 L1040 240 Q1190 212 1320 264 L1440 250 L1440 320 Z" />
+          </svg>
+        </div>
+        <span class="hero-watermark" aria-hidden="true">墨</span>
+        <span class="hero-seal" aria-hidden="true">墨笺</span>
+
         <p class="hero-eyebrow" v-reveal>写给长篇小说的创作工作台</p>
         <h1 class="hero-title" aria-label="把一部小说，写成它该有的样子">
           <span
@@ -312,11 +344,11 @@ const totalChapters = computed(() =>
         <dl class="hero-stats" v-reveal="{ delay: 280 }">
           <div class="stat">
             <dt>作品</dt>
-            <dd>{{ loading ? '—' : projects.length }}</dd>
+            <dd>{{ loading ? '—' : shownProjects }}</dd>
           </div>
           <div class="stat">
             <dt>章节</dt>
-            <dd>{{ loading ? '—' : totalChapters }}</dd>
+            <dd>{{ loading ? '—' : shownChapters }}</dd>
           </div>
           <div class="stat">
             <dt>数据位置</dt>
@@ -554,8 +586,27 @@ const totalChapters = computed(() =>
   padding: 0 42px 64px;
 }
 
-.hero { position: relative; padding: 12vh 0 10vh; }
-/* 标题上方一团极淡的金色顶光：像展签打在纸上，让首屏有"被照亮"的中心 */
+.hero {
+  position: relative;
+  padding: 12vh 0 10vh;
+  isolation: isolate;
+}
+/* 指针柔光：跟随鼠标的一团极淡金光，让首屏"活的"但不喧宾夺主 */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: -10% -20% 0;
+  z-index: -1;
+  background: radial-gradient(
+    480px circle at var(--spot-x, 50%) var(--spot-y, 42%),
+    rgba(206, 169, 110, 0.1),
+    transparent 62%
+  );
+  opacity: 0.9;
+  pointer-events: none;
+  transition: opacity var(--v3-dur-4);
+}
+/* 标题上方一团极淡的金色顶光 */
 .hero::before {
   content: '';
   position: absolute;
@@ -565,10 +616,67 @@ const totalChapters = computed(() =>
   height: 74vh;
   transform: translateX(-50%);
   background: radial-gradient(ellipse at 50% 42%, var(--v3-glow-gold), transparent 62%);
-  opacity: 0.5;
+  opacity: 0.45;
   pointer-events: none;
   filter: blur(10px);
 }
+
+/* 水墨远山：压在首屏底部，很淡，只提供"纸的纵深" */
+.hero-ink {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -2%;
+  height: 34%;
+  z-index: -1;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.hero-ink svg { width: 100%; height: 100%; }
+.hero-ink path:first-child { fill: rgba(127, 168, 161, 0.1); }
+.hero-ink path:last-child { fill: rgba(206, 169, 110, 0.08); }
+
+/* 巨字水印：竖排一个"墨"，极淡 */
+.hero-watermark {
+  position: absolute;
+  right: 4%;
+  top: 6%;
+  z-index: -1;
+  font-family: var(--v3-font-serif);
+  font-size: clamp(180px, 24vw, 340px);
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--v3-hairline-strong);
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+  animation: v3-float 12s var(--v3-ease-in-out) infinite;
+}
+
+/* 朱砂印章：入场时"盖"下来 */
+.hero-seal {
+  position: absolute;
+  right: 9%;
+  bottom: 22%;
+  z-index: -1;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1.5px solid var(--v3-cinnabar);
+  color: var(--v3-cinnabar);
+  font-family: var(--v3-font-serif);
+  font-size: 15px;
+  line-height: 1.15;
+  letter-spacing: 0.1em;
+  writing-mode: vertical-rl;
+  opacity: 0;
+  transform: rotate(-6deg);
+  animation: v3-seal-in 800ms var(--v3-ease-spring) 900ms forwards;
+}
+
 .hero-eyebrow {
   margin: 0 0 26px;
   font-size: 11.5px;
@@ -663,7 +771,21 @@ const totalChapters = computed(() =>
 
 .shelf { margin-top: 4vh; }
 .shelf-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 24px; }
-.shelf-title { margin: 0; font-family: var(--v3-font-serif); font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
+.shelf-title { position: relative; display: inline-block; margin: 0; font-family: var(--v3-font-serif); font-size: 22px; font-weight: 600; letter-spacing: 0.08em; }
+/* 标题下的金线在进入视口后从左往右长出来 */
+.shelf-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -8px;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--v3-gold), transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 1000ms var(--v3-ease-out) 180ms;
+}
+.shelf-head.is-revealed .shelf-title::after { transform: scaleX(1); }
 .shelf-hint { font-size: 11.5px; letter-spacing: 0.16em; color: var(--v3-text-faint); }
 
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
@@ -678,6 +800,34 @@ const totalChapters = computed(() =>
   padding: 22px !important;
   overflow: visible;
 }
+/* 四角金色细线：像装裱画框的角，悬停时轻微外扩 */
+.project-card::before,
+.project-card::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--v3-hairline-gold);
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity var(--v3-dur-3), transform var(--v3-dur-3) var(--v3-ease-out);
+}
+.project-card::before {
+  left: 10px;
+  top: 10px;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 6px 0 0 0;
+}
+.project-card::after {
+  right: 10px;
+  bottom: 10px;
+  border-left: 0;
+  border-top: 0;
+  border-radius: 0 0 6px 0;
+}
+.project-card:hover::before { transform: translate(-2px, -2px); opacity: 1; }
+.project-card:hover::after { transform: translate(2px, 2px); opacity: 1; }
 .pc-top { display: flex; align-items: center; gap: 10px; }
 .pc-index { font-family: var(--v3-font-serif); font-size: 13px; letter-spacing: 0.12em; color: var(--v3-gold); opacity: 0.85; }
 .pc-spacer { flex: 1; }

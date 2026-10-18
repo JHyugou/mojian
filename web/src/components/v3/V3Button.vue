@@ -1,11 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 
 /**
  * v3 按钮。
  *
- * 变体：primary（金色渐变）/ glass（玻璃）/ ghost（无底）/ outline（金线）/ danger。
- * 悬停有一条很克制的"光扫"（sheen），按下用 scale 0.985 反馈，均只动 transform/opacity。
+ * 变体：primary（哑金）/ glass（玻璃）/ ghost（无底）/ outline（金线）/ danger。
+ * 视觉上刻意偏"平"：主按钮是一段没有镜面高光的哑金渐变，靠悬停位移和一道
+ * 很淡的光晕给反馈，而不是亮片式的光泽。按压用 scale 0.985，只动 transform。
  */
 const props = defineProps({
   variant: { type: String, default: 'primary' },
@@ -23,10 +24,6 @@ const cls = computed(() => [
   `is-${props.size}`,
   { 'is-block': props.block, 'is-loading': props.loading }
 ])
-const sheenKey = ref(0)
-function onEnter() {
-  sheenKey.value += 1
-}
 </script>
 
 <template>
@@ -34,13 +31,11 @@ function onEnter() {
     :type="type"
     :class="cls"
     :disabled="disabled || loading"
-    @mouseenter="onEnter"
     @click="$emit('click', $event)"
   >
     <span v-if="loading" class="spinner" aria-hidden="true"></span>
     <slot name="icon" />
     <span class="label"><slot /></span>
-    <span v-if="variant === 'primary'" :key="sheenKey" class="sheen" aria-hidden="true"></span>
   </button>
 </template>
 
@@ -51,7 +46,6 @@ function onEnter() {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  overflow: hidden;
   border: 1px solid transparent;
   border-radius: var(--v3-r-pill);
   font-family: var(--v3-font-sans);
@@ -70,44 +64,40 @@ function onEnter() {
 .v3-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .v3-btn.is-block { width: 100%; }
 
-/* 尺寸 */
 .is-sm { height: 32px; padding: 0 14px; font-size: 12.5px; }
 .is-md { height: 40px; padding: 0 20px; font-size: 13.5px; }
 .is-lg { height: 50px; padding: 0 28px; font-size: 15px; letter-spacing: 0.04em; }
 
-/* primary：金箔 */
+/* primary：哑金，不做镜面高光 */
 .is-primary {
-  color: #201a10;
-  background: var(--v3-grad-gold);
-  box-shadow: 0 8px 26px -12px var(--v3-glow-gold), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  color: #241d12;
+  background: linear-gradient(135deg, #d9bd86 0%, #c9a46a 58%, #b3905a 100%);
+  box-shadow: 0 10px 30px -20px var(--v3-glow-gold);
 }
-.is-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 36px -14px var(--v3-glow-gold), 0 1px 0 rgba(255, 255, 255, 0.4) inset; }
+.is-primary:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #e2c892 0%, #d0ac71 58%, #b9975f 100%);
+  box-shadow: 0 16px 38px -22px var(--v3-glow-gold);
+}
 .is-primary:active { transform: translateY(0) scale(0.985); }
 
-.sheen {
-  position: absolute;
-  top: -20%;
-  bottom: -20%;
-  width: 42%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: v3-sheen 900ms var(--v3-ease-out) both;
-  pointer-events: none;
-}
-
-/* glass：玻璃面板上的次级动作 */
+/* glass：玻璃面板上的次级动作，只有边界与底色 */
 .is-glass {
-  color: var(--v3-text);
-  background: var(--v3-surface-2);
+  color: var(--v3-text-soft);
+  background: var(--v3-surface-1);
   border-color: var(--v3-hairline-strong);
   backdrop-filter: blur(14px);
 }
-.is-glass:hover { border-color: var(--v3-hairline-gold); background: var(--v3-surface-raised); transform: translateY(-1px); }
+.is-glass:hover {
+  color: var(--v3-text);
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-surface-2);
+  transform: translateY(-1px);
+}
 
-/* ghost：文字按钮 */
-.is-ghost { color: var(--v3-text-soft); background: transparent; }
+.is-ghost { color: var(--v3-text-muted); background: transparent; }
 .is-ghost:hover { color: var(--v3-text); background: var(--v3-surface-2); }
 
-/* outline：金色细线 */
 .is-outline {
   color: var(--v3-gold-bright);
   background: transparent;
@@ -116,7 +106,7 @@ function onEnter() {
 .is-outline:hover { background: var(--v3-glow-gold); transform: translateY(-1px); }
 
 .is-danger { color: #ffd9d3; background: var(--v3-cinnabar-soft); border-color: rgba(201, 76, 59, 0.4); }
-.is-danger:hover { background: rgba(201, 76, 59, 0.24); }
+.is-danger:hover { background: rgba(201, 76, 59, 0.26); }
 
 .spinner {
   width: 14px;
