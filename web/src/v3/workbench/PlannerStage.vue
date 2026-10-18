@@ -14,7 +14,7 @@ import { useLibraryStore } from '../../stores/library'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import {
-  acceptAllDrafts, acceptDraft, cancelPlannerRun, getConversationMessages,
+  acceptAllDrafts, acceptDraft, cancelPlannerRun, dismissPlanOptions, getConversationMessages,
   listAgentProfiles, listConversations, listPlanOptions, listProjectDrafts, plannerChat,
   rejectDraft, rollbackConversation, selectPlanOption
 } from '../../api/agent'
@@ -530,6 +530,7 @@ async function send() {
   const outgoing = buildOutgoing()
   const loadAtSend = loadSeq
   const conversationAtSend = conversationId.value
+  const hadPlanOptions = planOptions.value.length > 0
   const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   messages.value.push({ role: 'user', text: outgoing })
   draftMessage.value = ''
@@ -551,6 +552,10 @@ async function send() {
   currentRunId.value = runId
 
   try {
+    // 用户已经用别的说法回答了，这批选项就过期了：先收起，避免下一轮继续注入旧选项
+    if (hadPlanOptions) {
+      await closePlanOptions()
+    }
     const data = await plannerChat(props.projectId, conversationId.value, outgoing,
       controller.value.signal, runId, currentImages(), autoApprove.value)
     if (loadAtSend !== loadSeq) {
@@ -689,6 +694,18 @@ async function choose(option) {
   }
 }
 
+/** 用户决定不选任何一条、直接说自己的改法时，收起并作废这一批选项 */
+async function closePlanOptions() {
+  const id = conversationId.value
+  planOptions.value = []
+  if (!id) return
+  try {
+    await dismissPlanOptions(id)
+  } catch (e) {
+    console.warn('收起故事走向失败', e)
+  }
+}
+
 async function confirmDraft(draft) {
   try {
     await acceptDraft(draft.id)
@@ -818,7 +835,10 @@ onBeforeUnmount(() => {
     <section v-if="planOptions.length" class="tray">
       <header class="tray-head">
         <h3>故事走向</h3>
-        <span class="muted">选一条，或在下面写你自己的改法</span>
+        <span class="muted">选一条，或在下面写你自己的改法；发送任意消息会自动收起</span>
+        <button class="tray-close" title="收起这些选项" @click="closePlanOptions">
+          <Icon name="close" :size="13" />
+        </button>
       </header>
       <div class="options">
         <button
@@ -1154,6 +1174,19 @@ onBeforeUnmount(() => {
 .tray-head { display: flex; align-items: baseline; gap: 12px; padding: 12px 0 10px; }
 .tray-head h3 { margin: 0; font-family: var(--v3-font-serif); font-size: 15px; letter-spacing: 0.08em; }
 .tray-head .muted { font-size: 11px; }
+.tray-close {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--v3-hairline);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--v3-text-faint);
+  cursor: pointer;
+}
+.tray-close:hover { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); }
 .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-height: 240px; overflow-y: auto; }
 .option {
   position: relative;

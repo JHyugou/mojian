@@ -28,6 +28,11 @@ export function selectPlanOption(conversationId, optionIndex) {
   return http.post(`/agent/conversations/${conversationId}/plan-options/${optionIndex}/select`)
 }
 
+/** 收起当前这一批故事走向（用户不选、改用自己的说法时） */
+export function dismissPlanOptions(conversationId) {
+  return http.post(`/agent/conversations/${conversationId}/plan-options/dismiss`)
+}
+
 // ==================== 会话（项目与对话解耦） ====================
 
 /**
