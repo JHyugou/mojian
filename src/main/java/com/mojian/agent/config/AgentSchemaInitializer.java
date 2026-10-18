@@ -181,6 +181,50 @@ public class AgentSchemaInitializer {
             """;
 
     /**
+     * 策划 → 写作 的指令通道。
+     *
+     * <p>写作 Agent 有两个指令来源：作者与策划 Agent。策划通过工具下发的提示词
+     * 先落这张表，写作任务开始时读取；成功写进正文后标记 CONSUMED。
+     */
+    private static final String WRITER_INSTRUCTION_DDL = """
+            CREATE TABLE IF NOT EXISTS writer_instruction (
+                id          BIGINT       NOT NULL,
+                project_id  BIGINT       NOT NULL,
+                chapter_id  BIGINT       DEFAULT NULL,
+                content     TEXT         NOT NULL COMMENT '策划写的提示词',
+                reason      VARCHAR(500) DEFAULT NULL COMMENT '为什么下这条指令',
+                source      VARCHAR(20)  NOT NULL DEFAULT 'PLANNER',
+                status      VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / CONSUMED',
+                created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_writer_instruction_project (project_id, status, created_at),
+                KEY idx_writer_instruction_chapter (chapter_id, status)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '策划给写作的指令'
+            """;
+
+    /**
+     * 对话回滚时的数据库撤销日志：记录草稿确认对业务表造成的改动。
+     */
+    private static final String AGENT_UNDO_LOG_DDL = """
+            CREATE TABLE IF NOT EXISTS agent_undo_log (
+                id              BIGINT       NOT NULL,
+                project_id      BIGINT       NOT NULL,
+                conversation_id BIGINT       NOT NULL,
+                turn_index      INT          NOT NULL DEFAULT 0 COMMENT '改动时该会话已有多少条 user 消息',
+                action_type     VARCHAR(20)  NOT NULL COMMENT 'CREATED / UPDATED',
+                entity_type     VARCHAR(20)  NOT NULL COMMENT 'CHARACTER / SETTING / OUTLINE',
+                entity_id       BIGINT       NOT NULL,
+                draft_id        BIGINT       DEFAULT NULL,
+                before_json     LONGTEXT     DEFAULT NULL COMMENT 'UPDATED 时的旧值',
+                created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_agent_undo_conversation (conversation_id, turn_index, id)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '对话回滚的数据库撤销日志'
+            """;
+
+    /**
      * Agent 运行轨迹 —— 每次运行一行。
      *
      * <p>会话消息只存"人话"；工具轨迹、步数、耗时、上下文报表都在这张表里。
@@ -221,6 +265,8 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(AGENT_USAGE_LOG_DDL);
         jdbcTemplate.execute(AGENT_DRAFT_DDL);
         jdbcTemplate.execute(AGENT_RUN_DDL);
+        jdbcTemplate.execute(WRITER_INSTRUCTION_DDL);
+        jdbcTemplate.execute(AGENT_UNDO_LOG_DDL);
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段

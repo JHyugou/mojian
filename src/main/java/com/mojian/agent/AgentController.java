@@ -18,8 +18,10 @@ import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.AgentRunRegistry;
 import com.mojian.agent.service.AgentUsageService;
 import com.mojian.agent.service.ConversationService;
+import com.mojian.agent.service.ConversationRollbackService;
 import com.mojian.agent.service.DraftService;
 import com.mojian.agent.service.PlannerService;
+import com.mojian.agent.service.WriterInstructionService;
 import com.mojian.agent.service.WriterService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
@@ -67,12 +69,14 @@ public class AgentController {
     private final AgentContextService agentContextService;
     private final PlannerService plannerService;
     private final ConversationService conversationService;
+    private final ConversationRollbackService conversationRollbackService;
     private final AgentProfileService profileService;
     private final DraftService draftService;
     private final WriterService writerService;
     private final ChapterService chapterService;
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
+    private final WriterInstructionService writerInstructionService;
     private final TaskEventBroker broker;
     private final com.mojian.generation.mapper.GenerationTaskMapper generationTaskMapper;
 
@@ -86,7 +90,8 @@ public class AgentController {
     @PostMapping("/planner/chat")
     public ApiResponse<PlannerChatResponse> plannerChat(@Valid @RequestBody PlannerChatRequest request) {
         return ApiResponse.ok(plannerService.chat(
-                request.projectId(), request.conversationId(), request.message(), request.runId()));
+                request.projectId(), request.conversationId(),
+                request.message(), request.runId(), request.images()));
     }
 
     /**
@@ -113,10 +118,9 @@ public class AgentController {
     @PostMapping("/conversations/{conversationId}/rollback")
     public ApiResponse<Map<String, Object>> rollbackConversation(
             @PathVariable Long conversationId,
-            @RequestBody Map<String, Integer> body) {
-        int keep = body.getOrDefault("keepUserMessages", 0);
-        int deleted = conversationService.rollbackToUserMessage(conversationId, Math.max(0, keep));
-        return ApiResponse.ok(Map.of("deleted", deleted));
+            @RequestBody com.mojian.agent.dto.RollbackRequest body) {
+        return ApiResponse.ok(conversationRollbackService.rollback(
+                conversationId, body.keep(), body.withDatabase()));
     }
     /** 该会话的剧情方案（前端渲染成方案卡） */
     @GetMapping("/conversations/{conversationId}/plan-options")
@@ -173,6 +177,27 @@ public class AgentController {
         return ApiResponse.ok(Map.of(
                 "conversationId", conversation.getId(),
                 "messages", messages));
+    }
+
+    /**
+     * 策划 Agent 给写作 Agent 的指令（含历史）。
+     *
+     * <p>写作面板据此在聊天区标出「策划 Agent 的指令」与执行状态；
+     * 写作任务本身也会读取 PENDING 指令，两处展示从同一张表来。
+     */
+    @GetMapping("/writer/projects/{projectId}/instructions")
+    public ApiResponse<List<Map<String, Object>>> writerInstructions(@PathVariable Long projectId) {
+        return ApiResponse.ok(writerInstructionService.recent(projectId, 30).stream()
+                .map(item -> {
+                    Map<String, Object> data = new java.util.LinkedHashMap<>();
+                    data.put("id", item.getId());
+                    data.put("chapterId", item.getChapterId());
+                    data.put("content", item.getContent());
+                    data.put("reason", item.getReason());
+                    data.put("status", item.getStatus());
+                    data.put("createdAt", item.getCreatedAt());
+                    return data;
+                }).toList());
     }
 
     /**

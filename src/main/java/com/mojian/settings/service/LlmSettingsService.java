@@ -364,9 +364,18 @@ public class LlmSettingsService {
                 for (JsonNode node : data) {
                     JsonNode id = node.has("id") ? node.get("id") : node.get("name");
                     if (id != null && id.isTextual() && StringUtils.hasText(id.asText())) {
+                        boolean vision = false;
+                        JsonNode inputModes = node.path("modalities").path("input");
+                        if (inputModes.isArray()) {
+                            for (JsonNode mode : inputModes) {
+                                if ("image".equalsIgnoreCase(mode.asText())) vision = true;
+                            }
+                        }
+                        if (node.path("attachment").asBoolean(false)) vision = true;
                         // 服务商自己返回的列表没有思考强度信息，留空即可
                         models.add(new ModelsDevCatalog.ModelInfo(
-                                id.asText().trim(), id.asText().trim(), null, null, null, List.of()));
+                                id.asText().trim(), id.asText().trim(), null, null, null,
+                                List.of(), vision));
                     }
                 }
             }

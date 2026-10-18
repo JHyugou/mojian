@@ -622,7 +622,22 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         for (AgentMessage message : messages) {
             ObjectNode node = messageArray.addObject();
             node.put("role", message.role());
-            if (message.content() != null) {
+            if (!message.images().isEmpty() && AgentMessage.ROLE_USER.equals(message.role())) {
+                /*
+                 * OpenAI 视觉消息格式：content 变成数组，文本与图片各一段。
+                 * 图片用 data URL 直接内联，不依赖外部图床；只在本轮用户消息里出现，
+                 * 历史消息永远只有文本，避免每轮重复上传。
+                 */
+                ArrayNode contentArray = node.putArray("content");
+                contentArray.addObject()
+                        .put("type", "text")
+                        .put("text", message.content() == null ? "" : message.content());
+                for (String image : message.images()) {
+                    ObjectNode imageNode = contentArray.addObject();
+                    imageNode.put("type", "image_url");
+                    imageNode.putObject("image_url").put("url", image);
+                }
+            } else if (message.content() != null) {
                 node.put("content", message.content());
             }
             if (message.toolCallId() != null) {

@@ -46,6 +46,7 @@ public class DraftService {
     private final CharacterService characterService;
     private final SettingService settingService;
     private final OutlineService outlineService;
+    private final AgentUndoLogService undoLogService;
 
     // ==================== 起草 ====================
 
@@ -130,6 +131,12 @@ public class DraftService {
         requirePending(draft);
 
         boolean revising = draft.getTargetId() != null;
+        String entityType = entityTypeOf(draft.getDraftType());
+        // 修改类草稿要在落地前留一份旧值，否则撤销时不知道该恢复成什么。
+        // 必须当场序列化：业务实体可能被 MyBatis 一级缓存复用，apply 之后同一对象已被改成新值。
+        String beforeJson = revising
+                ? undoLogService.snapshotOf(snapshotBefore(draft, entityType))
+                : null;
         Long appliedId;
         if (revising) {
             appliedId = switch (draft.getDraftType() == null ? "" : draft.getDraftType()) {
@@ -152,9 +159,34 @@ public class DraftService {
         draft.setStatus(DraftStatus.ACCEPTED);
         draft.setAppliedId(appliedId);
         draftMapper.updateById(draft);
+        if (revising) {
+            undoLogService.recordUpdate(draft, entityType, appliedId, beforeJson);
+        } else {
+            undoLogService.recordCreation(draft, entityType, appliedId);
+        }
         log.info("草稿 {}「{}」已确认{}，业务记录 {}",
                 draft.getDraftType(), draft.getTitle(), revising ? "（修改）" : "", appliedId);
         return draft;
+    }
+
+    private String entityTypeOf(String draftType) {
+        return switch (draftType == null ? "" : draftType) {
+            case DraftType.CHARACTER -> "CHARACTER";
+            case DraftType.SETTING -> "SETTING";
+            case DraftType.BLUEPRINT -> "OUTLINE";
+            default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
+                    "未知的草稿类型: " + draftType);
+        };
+    }
+
+    private Object snapshotBefore(AgentDraft draft, String entityType) {
+        return switch (entityType) {
+            case "CHARACTER" -> characterService.requireById(draft.getTargetId());
+            case "SETTING" -> settingService.requireById(draft.getTargetId());
+            case "OUTLINE" -> outlineService.requireById(draft.getTargetId());
+            default -> throw new BusinessException(ErrorCode.PARAM_INVALID,
+                    "未知的草稿类型: " + draft.getDraftType());
+        };
     }
 
     @Transactional

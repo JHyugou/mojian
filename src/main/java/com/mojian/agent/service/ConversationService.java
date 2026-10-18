@@ -141,6 +141,18 @@ public class ConversationService {
         log.info("会话 {} 回滚：保留 {} 条用户消息，删除 {} 行", conversationId, keepUserMessages, deleted);
         return deleted;
     }
+
+    /** 当前会话里有多少条用户消息 —— 数据库撤销日志用它标记"改动发生在第几个回合之后" */
+    public int countUserMessages(Long conversationId) {
+        if (conversationId == null) {
+            return 0;
+        }
+        Long count = messageLogMapper.selectCount(Wrappers.<AgentMessageLog>lambdaQuery()
+                .eq(AgentMessageLog::getConversationId, conversationId)
+                .eq(AgentMessageLog::getRole, USER_ROLE));
+        return count == null ? 0 : count.intValue();
+    }
+
     @Transactional
     public AgentMessageLog append(Long conversationId, int stepNo, AgentMessage message) {
         /*
@@ -176,7 +188,7 @@ public class ConversationService {
         List<AgentMessage> messages = new ArrayList<>();
         for (AgentMessageLog record : messageLogMapper.selectByConversation(conversationId)) {
             messages.add(new AgentMessage(record.getRole(), record.getContent(), record.getToolCallId(),
-                    readToolCalls(record.getToolCallsJson())));
+                    readToolCalls(record.getToolCallsJson()), List.of()));
         }
         return messages;
     }
@@ -318,7 +330,7 @@ public class ConversationService {
             if (record.getContent() == null || record.getContent().isBlank()) {
                 continue;
             }
-            history.add(new AgentMessage(record.getRole(), record.getContent(), null, null));
+            history.add(new AgentMessage(record.getRole(), record.getContent(), null, null, List.of()));
         }
         return history;
     }

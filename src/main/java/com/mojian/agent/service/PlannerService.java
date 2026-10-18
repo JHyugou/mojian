@@ -56,7 +56,8 @@ public class PlannerService {
     private final AgentRunService runService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
-                                       String runId) {
+                                       String runId, List<String> images) {
+        List<String> userImages = normalizeImages(images);
         // 1. 会话
         AgentConversation conversation = conversationId == null
                 ? conversationService.create(projectId, AgentRole.PLANNER, userMessage)
@@ -133,7 +134,7 @@ public class PlannerService {
         long startedAt = System.currentTimeMillis();
         try {
             result = agentLoopService.run(context, systemPrompt, history, userMessage,
-                    maxSteps(), listener);
+                    maxSteps(), listener, userImages);
         } catch (RuntimeException e) {
             runService.recordFailure(context, System.currentTimeMillis() - startedAt, safeMessage(e));
             // 失败也要在会话里留一条回答：用户消息已经落库了，
@@ -222,6 +223,32 @@ public class PlannerService {
     private int maxSteps() {
         Integer configured = profileService.require(AgentRole.PLANNER).getMaxSteps();
         return configured == null ? 10 : configured;
+    }
+
+    /**
+     * 图片附件校验：只接受 data:image/* 的 base64 URL，最多 4 张、单张不超过 8MB。
+     *
+     * <p>为什么不在前端信任：请求可以直接构造，图片会被原样发给模型服务并计费；
+     * 后端至少要挡住"随便塞一段字符串当图片"和"一次塞几十张"。
+     */
+    private List<String> normalizeImages(List<String> images) {
+        if (images == null || images.isEmpty()) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (String image : images) {
+            if (!StringUtils.hasText(image) || !image.startsWith("data:image/")) {
+                continue;
+            }
+            if (image.length() > 8 * 1024 * 1024) {
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "图片太大（单张上限 8MB），请压缩后再发");
+            }
+            result.add(image);
+            if (result.size() >= 4) {
+                break;
+            }
+        }
+        return result;
     }
 
     /**

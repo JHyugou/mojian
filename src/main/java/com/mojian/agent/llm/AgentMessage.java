@@ -15,7 +15,12 @@ import java.util.List;
  *
  * <p>模型没有记忆。这个列表就是"短期记忆"，每一轮都要<b>整份重新发过去</b>。
  */
-public record AgentMessage(String role, String content, String toolCallId, List<AgentToolCall> toolCalls) {
+public record AgentMessage(String role, String content, String toolCallId,
+                           List<AgentToolCall> toolCalls, List<String> images) {
+
+    public AgentMessage {
+        images = images == null ? List.of() : List.copyOf(images);
+    }
 
     /*
      * 角色名做成常量：它们会出现在好几处判断里
@@ -28,18 +33,23 @@ public record AgentMessage(String role, String content, String toolCallId, List<
     public static final String ROLE_TOOL = "tool";
 
     public static AgentMessage system(String content) {
-        return new AgentMessage(ROLE_SYSTEM, content, null, null);
+        return new AgentMessage(ROLE_SYSTEM, content, null, null, List.of());
     }
 
     public static AgentMessage user(String content) {
-        return new AgentMessage(ROLE_USER, content, null, null);
+        return new AgentMessage(ROLE_USER, content, null, null, List.of());
+    }
+
+    /** 带图片的用户消息；images 是 data:image/...;base64,... 的完整 URL */
+    public static AgentMessage userWithImages(String content, List<String> images) {
+        return new AgentMessage(ROLE_USER, content, null, null, images);
     }
 
     public static AgentMessage assistant(String content, List<AgentToolCall> toolCalls) {
-        return new AgentMessage(ROLE_ASSISTANT, content, null, toolCalls);
+        return new AgentMessage(ROLE_ASSISTANT, content, null, toolCalls, List.of());
     }
 
     public static AgentMessage tool(String toolCallId, String content) {
-        return new AgentMessage(ROLE_TOOL, content, toolCallId, null);
+        return new AgentMessage(ROLE_TOOL, content, toolCallId, null, List.of());
     }
 }

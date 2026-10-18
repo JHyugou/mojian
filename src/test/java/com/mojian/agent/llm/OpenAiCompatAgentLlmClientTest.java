@@ -76,6 +76,24 @@ class OpenAiCompatAgentLlmClientTest {
     }
 
     @Test
+    @DisplayName("图片消息：user.content 序列化为 text + image_url 数组（视觉模型格式）")
+    void 图片消息序列化() throws Exception {
+        AgentMessage user = AgentMessage.userWithImages("看看这张图",
+                List.of("data:image/png;base64,AAA"));
+        String json = OpenAiCompatAgentLlmClient.buildBody(
+                "vision-model", null, List.of(user), List.of(), false, null);
+
+        JsonNode root = parse(json);
+        JsonNode content = root.path("messages").path(0).path("content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(content.get(0).path("text").asText()).isEqualTo("看看这张图");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
+        assertThat(content.get(1).path("image_url").path("url").asText())
+                .isEqualTo("data:image/png;base64,AAA");
+    }
+
+    @Test
     @DisplayName("多轮消息序列化正确：assistant 带 tool_calls、tool 带 tool_call_id")
     void 多轮消息序列化正确() throws Exception {
         List<AgentMessage> messages = List.of(

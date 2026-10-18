@@ -93,6 +93,16 @@ public class AgentLoopService {
      */
     public AgentResult run(AgentContext context, String systemPrompt, List<AgentMessage> history,
                            String userInput, int maxSteps, AgentRunListener listener) {
+        return run(context, systemPrompt, history, userInput, maxSteps, listener, List.of());
+    }
+
+    /**
+     * 带图片输入的版本。图片以 data URL 随<b>本轮用户消息</b>发给支持视觉的模型；
+     * 历史消息里的图片不重发（历史只存文本），避免每轮都重复上传图片。
+     */
+    public AgentResult run(AgentContext context, String systemPrompt, List<AgentMessage> history,
+                           String userInput, int maxSteps, AgentRunListener listener,
+                           List<String> userImages) {
         AgentRunListener sink = listener == null ? AgentRunListener.NOOP : listener;
         // messages 就是那个"每次发给模型的包裹"，它会在循环里一条条长大
         List<AgentMessage> messages = new ArrayList<>();
@@ -100,7 +110,8 @@ public class AgentLoopService {
         if (history != null && !history.isEmpty()) {
             messages.addAll(history);
         }
-        messages.add(AgentMessage.user(userInput));
+        messages.add(AgentMessage.userWithImages(userInput,
+                userImages == null ? List.of() : userImages));
 
         List<AgentStep> trace = new ArrayList<>();
         TokenUsage totalUsage = TokenUsage.NONE;

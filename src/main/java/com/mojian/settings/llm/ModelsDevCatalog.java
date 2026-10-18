@@ -59,7 +59,7 @@ public class ModelsDevCatalog {
      */
     public record ModelInfo(String id, String name, Integer contextLimit,
                             Double inputCost, Double outputCost,
-                            List<String> reasoningLevels) {
+                            List<String> reasoningLevels, boolean vision) {
     }
 
     /** api 地址（已去掉结尾斜杠）→ 该地址下的模型 */
@@ -263,6 +263,19 @@ public class ModelsDevCatalog {
         return List.of();
     }
 
+    /** 目录里是否标记为可看图：modalities.input 含 image，或 attachment=true */
+    private boolean visionOf(JsonNode model) {
+        JsonNode input = model.path("modalities").path("input");
+        if (input.isArray()) {
+            for (JsonNode item : input) {
+                if ("image".equalsIgnoreCase(item.asText())) {
+                    return true;
+                }
+            }
+        }
+        return model.path("attachment").asBoolean(false);
+    }
+
     /** 只挑走需要的字段，其余当场丢掉 —— 原始 JSON 有 5.6MB */
     private Map<String, List<ModelInfo>> parse(String body) throws Exception {
         JsonNode root = MAPPER.readTree(body);
@@ -286,7 +299,8 @@ public class ModelsDevCatalog {
                         limit.hasNonNull("context") ? limit.get("context").asInt() : null,
                         cost.hasNonNull("input") ? cost.get("input").asDouble() : null,
                         cost.hasNonNull("output") ? cost.get("output").asDouble() : null,
-                        reasoningLevelsOf(model)));
+                        reasoningLevelsOf(model),
+                        visionOf(model)));
             });
             if (!list.isEmpty()) {
                 result.put(normalize(api), list);

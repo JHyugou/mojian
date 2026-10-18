@@ -89,6 +89,7 @@ public class WriterService {
     private final TaskEventBroker broker;
     private final AgentUsageService usageService;
     private final ChapterMemoryWorker memoryWorker;
+    private final WriterInstructionService instructionService;
     private final GenerationTaskMapper generationTaskMapper;
     private final AgentRunService runService;
     private final ExecutorService agentTaskExecutor;
@@ -356,6 +357,20 @@ public class WriterService {
             // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
             required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
         }
+        // 策划 Agent 下发的指令：和作者指令一样是"这次要干什么"，必须 REQUIRED
+        List<com.mojian.agent.entity.WriterInstruction> pending =
+                instructionService.pending(chapter.getProjectId(), chapter.getId());
+        if (!pending.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (com.mojian.agent.entity.WriterInstruction instruction : pending) {
+                sb.append("【策划 Agent 的写作指令】\n").append(instruction.getContent().trim()).append('\n');
+                if (StringUtils.hasText(instruction.getReason())) {
+                    sb.append("（策划的下达理由：").append(instruction.getReason().trim()).append("）\n");
+                }
+                sb.append('\n');
+            }
+            required.add(AgentContextSection.required("策划 Agent 的写作指令", sb.toString().trim()));
+        }
         return agentContextService.assemble(AgentRole.WRITER, chapter.getProjectId(), required,
                 chapter.getId(), chapter.getOutlineNodeId(), retrievalQuery);
     }
@@ -454,6 +469,8 @@ public class WriterService {
          * 失败只记日志，不影响写作结果；作者仍可在界面上改。
          */
         if (saved) {
+            // 指令已执行：标记 CONSUMED，下一章不会重复注入；失败/取消则保持 PENDING，重试仍带上
+            instructionService.markConsumed(instructionService.pending(projectId, chapterId));
             memoryWorker.schedule(projectId, chapterId);
             log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
         }

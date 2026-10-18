@@ -17,12 +17,12 @@ import java.util.List;
  */
 public record LlmModelVO(String id, String name,
                          Integer contextLimit, Double inputCost, Double outputCost,
-                         List<String> reasoningLevels, boolean enabled) {
+                         List<String> reasoningLevels, boolean vision, boolean enabled) {
 
     public static LlmModelVO of(ModelsDevCatalog.ModelInfo info, boolean enabled) {
         return new LlmModelVO(info.id(), info.name(), info.contextLimit(),
                 info.inputCost(), info.outputCost(),
                 info.reasoningLevels() == null ? List.of() : info.reasoningLevels(),
-                enabled);
+                info.vision(), enabled);
     }
 }
