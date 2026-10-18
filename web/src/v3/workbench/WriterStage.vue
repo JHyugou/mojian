@@ -266,6 +266,11 @@ async function loadSupplements() {
 const pendingSupplementCount = computed(() =>
   supplements.value.filter((item) => item.status === 'PENDING').length)
 
+function openSupplements() {
+  showSupplements.value = true
+  loadSupplements()
+}
+
 /**
  * 待确认申请必须跨章显示：写作 Agent 只能删"其他章"，如果只按当前章过滤，
  * 它在写第 N 章时申请删第 M 章，作者切到第 N 章反而看不到这条申请。
@@ -448,6 +453,7 @@ async function reconnectActiveTask() {
         if (seq !== runSeq) return
         running.value = false
         error.value = message
+        loadSupplements()
       },
       onEnd: async () => {
         if (seq !== runSeq) return
@@ -473,12 +479,17 @@ async function reconnectActiveTask() {
   }
 }
 
-async function start() {
-  if (!props.chapter?.id || running.value || !canRun.value) return
-  const outgoing = advice.value.trim() ||
-    (text.value
-      ? `这是「${full.value?.title || '本章'}」的现有稿，请通读一遍并在不改动剧情的前提下润色文字。`
-      : '请按本章蓝图与写作要求写这一章的正文。')
+async function start(options = {}) {
+  // 模板里 @click="start" 会把 MouseEvent 传进来；这里只认显式 options
+  if (options instanceof Event) options = {}
+  const supplement = options.supplement || null
+  if (!props.chapter?.id || running.value || (!supplement && !canRun.value)) return
+  const outgoing = supplement
+    ? `请执行本章补充要求（记录 ID ${supplement.id}）：${supplement.content}`
+    : (advice.value.trim() ||
+      (text.value
+        ? `这是「${full.value?.title || '本章'}」的现有稿，请通读一遍并在不改动剧情的前提下润色文字。`
+        : '请按本章蓝图与写作要求写这一章的正文。'))
   const revising = Boolean(text.value)
   const seq = ++runSeq
 
@@ -487,13 +498,13 @@ async function start() {
     text: outgoing,
     createdAt: new Date().toISOString()
   }]
-  advice.value = ''
+  if (!supplement) advice.value = ''
   running.value = true
   error.value = ''
   progress.value = []
   streamingAnswer.value = ''
   streamingReasoning.value = ''
-  phase.value = '正在准备材料…'
+  phase.value = supplement ? '正在处理补充要求…' : '正在准备材料…'
   statusText.value = '写作中'
   scrollChat()
 
@@ -504,7 +515,8 @@ async function start() {
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing,
-      settings.autoApproveDelete)
+      settings.autoApproveDelete, supplement?.id || null)
+    await loadSupplements()
     if (seq !== runSeq) {
       // 章节被切走：任务仍在后台跑，不取消；回到该章时会自动重新挂上
       return
@@ -537,6 +549,7 @@ async function start() {
         if (seq !== runSeq) return
         running.value = false
         error.value = message
+        loadSupplements()
         messages.value = [...messages.value, { role: 'assistant', text: `这次没能完成：${message}`, failed: true }]
       },
       onEnd: async () => {
@@ -564,8 +577,14 @@ async function start() {
     running.value = false
     clearTimeout(timer)
     error.value = e.message
+    loadSupplements()
     messages.value = [...messages.value, { role: 'assistant', text: `任务没能启动：${e.message}`, failed: true }]
   }
+}
+
+function executeSupplement(supplement) {
+  if (supplement.status !== 'PENDING') return
+  start({ supplement })
 }
 
 async function stop() {
@@ -579,6 +598,9 @@ async function stop() {
   if (taskId) {
     try { await cancelWritingTask(taskId) } catch { /* 已结束 */ }
   }
+  await loadSupplements()
+  // 后端在取消后会异步把 EXECUTING 退回 PENDING；稍后再刷一次，保证按钮恢复
+  setTimeout(loadSupplements, 700)
   flushContentNow()
   try {
     await loadChapter(props.chapter.id)
@@ -839,7 +861,7 @@ watch(() => props.chapter?.id, () => {
         <button class="head-btn" @click="openRequirement">
           <Icon name="edit" :size="13" /> 写作要求
         </button>
-        <button class="head-btn" @click="showSupplements = true">
+        <button class="head-btn" @click="openSupplements">
           <Icon name="layers" :size="13" /> 补充要求
           <span v-if="pendingSupplementCount" class="head-count">{{ pendingSupplementCount }}</span>
         </button>
@@ -952,7 +974,7 @@ watch(() => props.chapter?.id, () => {
         <footer class="composer">
           <p v-if="pendingInstructionCount" class="pending-hint">
             策划 Agent 有 {{ pendingInstructionCount }} 条待执行指令；开始写作时会自动带上。你也可以在下面补充作者要求。
-            <button class="pending-run" @click="start">按策划指令开写</button>
+            <button class="pending-run" @click="start()">按策划指令开写</button>
           </p>
           <div class="input-box">
             <textarea
@@ -971,7 +993,7 @@ watch(() => props.chapter?.id, () => {
                 class="round-btn send"
                 :disabled="!chapter || !canRun"
                 :title="primaryLabel"
-                @click="start"
+                @click="start()"
               >
                 <Icon name="quill" :size="15" />
               </button>
@@ -1098,11 +1120,11 @@ watch(() => props.chapter?.id, () => {
       </template>
     </V3Modal>
 
-    <!-- 章节补充要求：与写作要求分开，逐条展示 -->
-    <V3Modal :visible="showSupplements" title="章节补充要求" width="640px" @close="showSupplements = false">
+    <!-- 章节补充要求：与写作要求分开，逐条展示、逐条执行 -->
+    <V3Modal :visible="showSupplements" title="章节补充要求" width="660px" @close="showSupplements = false">
       <p class="modal-hint">
         策划审稿后逐条追加的修改意见，与「写作要求」分开保存、互不覆盖。
-        写作 Agent 下次写这一章时会把它作为必备材料逐条执行；写入正文后标记为已应用。
+        点单条的「执行」只让写作 Agent 处理这一条；执行中状态会实时更新，失败或中断会退回「执行」。
       </p>
       <p v-if="!supplements.length" class="modal-hint muted">这一章还没有补充要求。</p>
       <div v-else class="supplement-list">
@@ -1110,17 +1132,36 @@ watch(() => props.chapter?.id, () => {
           v-for="(item, index) in supplements"
           :key="item.id"
           class="supplement-card"
-          :class="{ pending: item.status === 'PENDING' }"
+          :class="{ pending: item.status === 'PENDING', executing: item.status === 'EXECUTING' }"
         >
           <header class="supplement-head">
             <span class="supplement-no">#{{ index + 1 }}</span>
-            <V3Tag :tone="item.status === 'PENDING' ? 'gold' : 'line'">
-              {{ item.status === 'PENDING' ? '待执行' : '已应用' }}
+            <V3Tag :tone="item.status === 'APPLIED' ? 'jade' : 'gold'">
+              {{ item.status === 'PENDING' ? '待执行' : item.status === 'EXECUTING' ? '执行中' : '已执行' }}
             </V3Tag>
             <span class="supplement-time">{{ (item.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
           </header>
           <p class="supplement-content">{{ item.content }}</p>
           <p v-if="item.reason" class="supplement-reason">针对的问题：{{ item.reason }}</p>
+          <div class="supplement-actions">
+            <V3Button
+              v-if="item.status === 'PENDING'"
+              size="sm"
+              :disabled="running"
+              @click="executeSupplement(item)"
+            >
+              执行
+            </V3Button>
+            <V3Button
+              v-else-if="item.status === 'EXECUTING'"
+              size="sm"
+              loading
+              disabled
+            >
+              执行中
+            </V3Button>
+            <span v-else class="supplement-done">已执行</span>
+          </div>
         </article>
       </div>
       <template #footer>
@@ -1306,19 +1347,32 @@ watch(() => props.chapter?.id, () => {
   color: var(--v3-gold-bright);
   font-size: 9px;
 }
-.supplement-list { display: flex; flex-direction: column; gap: 9px; }
+.supplement-list { display: flex; flex-direction: column; gap: 14px; }
 .supplement-card {
-  padding: 12px 14px;
-  border: 1px solid var(--v3-hairline);
+  padding: 14px 16px;
+  border: 1px solid var(--v3-hairline-strong);
+  border-left: 3px solid var(--v3-hairline-strong);
   border-radius: var(--v3-r-sm);
-  background: var(--v3-surface-1);
+  background: var(--v3-surface-2);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
 }
-.supplement-card.pending { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.supplement-card.pending {
+  border-color: var(--v3-hairline-gold);
+  border-left-color: var(--v3-gold);
+  background: var(--v3-glow-gold);
+}
+.supplement-card.executing {
+  border-color: var(--v3-hairline-gold);
+  border-left-color: var(--v3-gold-bright);
+  background: var(--v3-surface-2);
+}
 .supplement-head { display: flex; align-items: center; gap: 8px; }
 .supplement-no { font-family: var(--v3-font-mono); font-size: 10px; color: var(--v3-gold); }
 .supplement-time { margin-left: auto; font-family: var(--v3-font-mono); font-size: 9.5px; color: var(--v3-text-faint); }
 .supplement-content { margin: 9px 0 0; font-size: 12.5px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
 .supplement-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
+.supplement-actions { display: flex; justify-content: flex-end; margin-top: 11px; }
+.supplement-done { font-size: 10.5px; color: var(--v3-jade); }
 
 /* 时间线里的策划指令：未执行展开，已执行折叠 */
 .chat-instruction {

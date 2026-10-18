@@ -124,8 +124,12 @@ export function clearWriterHistory(projectId) {
 }
 
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
-export function startWritingTask(chapterId, instruction, autoApproveDelete = false) {
-  return http.post(`/agent/writer/chapters/${chapterId}/tasks`, { instruction, autoApproveDelete })
+export function startWritingTask(chapterId, instruction, autoApproveDelete = false, supplementId = null) {
+  return http.post(`/agent/writer/chapters/${chapterId}/tasks`, {
+    instruction,
+    autoApproveDelete,
+    supplementId
+  })
 }
 
 /** 该章当前正在跑的写作任务；用于切走再切回时重新挂载，而不是取消重来 */
