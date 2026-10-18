@@ -277,8 +277,14 @@ async function loadConversationById(id) {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     const target = list.find((c) => String(c.id) === String(id))
     if (!target) {
+      /*
+       * 会话不属于当前项目（典型场景：换项目后 URL 里还留着上一项目的会话 id），
+       * 这不是错误 —— 直接落到当前项目最近的一段对话；没有就新开。
+       * 之前这里弹红字"这段会话不属于当前项目的策划对话"，把一个正常的切换动作
+       * 说成异常，体验很割裂。
+       */
       newConversation()
-      error.value = '这段会话不属于当前项目的策划对话，已为你新开一段。'
+      await loadLatestConversation()
       return
     }
     conversationId.value = id

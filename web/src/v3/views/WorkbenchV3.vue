@@ -9,6 +9,8 @@ import WriterStage from '../workbench/WriterStage.vue'
 import ResourcePanel from '../workbench/ResourcePanel.vue'
 import { useProjectStore } from '../../stores/project'
 import { useWorkbench } from '../workbench/useWorkbench'
+import { listAllConversations } from '../../api/agent'
+import { listProjects } from '../../api/project'
 
 /**
  * v3 创作工作台：外壳（导航/工作区树/顶栏）+ 策划/写作两种模式 + 资料右栏。
@@ -50,6 +52,7 @@ function setMode(next) {
 
 onMounted(() => {
   if (projectId.value) state.loadAll()
+  ensureConversationProject()
   // 右栏统计要"实时"：本地操作走事件立即刷新，其它变化（Agent 异步落库等）靠低频轮询兜底
   pollTimer = window.setInterval(() => {
     if (!document.hidden) state.refreshResources()
@@ -78,6 +81,57 @@ watch(projectId, () => {
   state.clearCitations()
   if (projectId.value) state.loadAll()
 })
+
+/**
+ * 深链/历史记录里的会话可能属于"另一个项目"。
+ *
+ * <p>既然工作区允许自由切项目和会话，就不能拿"会话不属于当前项目"当错误：
+ * 能查到归属就自动把项目切过去；查不到（已删除）就把 URL 上的 conv 摘掉，
+ * 回落到当前项目最近的会话。
+ */
+let syncingConvProject = false
+async function ensureConversationProject() {
+  const convId = route.query.conv
+  if (!convId || syncingConvProject) return
+  try {
+    const all = (await listAllConversations()) || []
+    const target = all.find((c) => String(c.id) === String(convId))
+    const currentProject = projectId.value
+    const expectedMode = target?.role === 'WRITER' ? 'writer' : 'planner'
+
+    if (!target) {
+      const query = { ...route.query }
+      delete query.conv
+      delete query.fresh
+      router.replace({ path: '/workbench', query })
+      return
+    }
+
+    if (String(target.projectId) === String(currentProject)) {
+      if (route.query.mode !== expectedMode) {
+        router.replace({ path: '/workbench', query: { conv: convId, mode: expectedMode } })
+      }
+      return
+    }
+
+    const projects = (await listProjects()) || []
+    const project = projects.find((p) => String(p.id) === String(target.projectId))
+    if (!project) return
+    syncingConvProject = true
+    projectStore.select(project)
+    await router.replace({ path: '/workbench', query: { conv: convId, mode: expectedMode } })
+    syncingConvProject = false
+  } catch (e) {
+    console.warn('校验会话归属失败', e)
+  }
+}
+
+watch(
+  () => route.query.conv,
+  (id) => {
+    if (id) ensureConversationProject()
+  }
+)
 
 function onCite(citation) {
   state.addCitation(citation)

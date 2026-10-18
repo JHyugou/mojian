@@ -89,11 +89,25 @@ async function load() {
 }
 
 function openProject(project) {
+  const sameProject = String(projectStore.currentId) === String(project.id)
   projectStore.select(project)
   expanded.value = new Set([...expanded.value, String(project.id)])
-  const currentPath = route.path
-  if (currentPath !== '/workbench') {
+
+  if (route.path !== '/workbench') {
+    // 从首页/成书/设置点进项目：进入工作台，由工作台载入该项目最近的会话
     router.push('/workbench')
+    return
+  }
+  if (!sameProject) {
+    /*
+     * 已经在工作台里换项目：必须清掉上一项目遗留的 conv/fresh 参数。
+     * 否则策划面板会拿着"别的项目的会话 id"去当前项目里找，找不到就报
+     * "这段会话不属于当前项目" —— 换项目本来就是自由操作，不该被当成错误。
+     */
+    router.replace({
+      path: '/workbench',
+      query: { mode: route.query.mode === 'writer' ? 'writer' : 'planner' }
+    })
   }
 }
 

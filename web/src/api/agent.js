@@ -39,6 +39,11 @@ export function listConversations(projectId, role = 'PLANNER') {
   return http.get('/agent/conversations', { params: { projectId, role } })
 }
 
+/** 全部项目、全部角色的会话（用于深链校验：会话 id 到底属于哪个项目） */
+export function listAllConversations() {
+  return http.get('/agent/conversations')
+}
+
 /** 一段会话的"人话"历史，用于界面上回看 */
 export function getConversationMessages(conversationId) {
   return http.get(`/agent/conversations/${conversationId}/messages`)
