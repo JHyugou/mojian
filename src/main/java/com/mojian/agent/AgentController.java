@@ -94,7 +94,8 @@ public class AgentController {
     public ApiResponse<PlannerChatResponse> plannerChat(@Valid @RequestBody PlannerChatRequest request) {
         return ApiResponse.ok(plannerService.chat(
                 request.projectId(), request.conversationId(),
-                request.message(), request.runId(), request.images()));
+                request.message(), request.runId(), request.images(),
+                Boolean.TRUE.equals(request.autoApprove())));
     }
 
     /**

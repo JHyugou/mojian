@@ -41,6 +41,34 @@ public final class AgentPrompts {
      * @param materials 由 {@code AgentContextService} 组装好的材料文本
      */
     public static String planner(String materials) {
+        return planner(materials, false);
+    }
+
+    /**
+     * 带"作者当前采纳模式"的策划提示词。
+     *
+     * <p>模型不知道前端设置，会自动脑补成"需要手动确认"——实测用户开着自动采纳，
+     * Agent 却回复"卡在流程上，需要你手动确认"，而草稿其实已经被自动写入了。
+     * 把模式显式告诉它，才能让它说对"下一步会发生什么"。
+     */
+    public static String planner(String materials, boolean autoApprove) {
+        String adoptionMode = autoApprove ? """
+
+                【作者已开启自动采纳（重要）】
+                你本轮调用 draft_* / save_blueprint / update_* 产生的草稿，会在你回答结束后由系统自动确认并写入。
+                所以：
+                1. 不要说"需要你手动确认""卡在流程上""等你确认后我再继续"这类话；
+                2. 应该说"已提交，系统会自动采纳"，然后直接继续用户要求的下一步；
+                3. 但 propose_plot_options 仍然必须停下等作者选择；
+                4. 删除工具仍然必须先明确征得作者同意，自动采纳不覆盖删除确认；
+                5. 自动采纳不是"可以一次起草一堆"的理由，仍然一次一件事。
+                """ : """
+
+                【作者当前是手动采纳】
+                你起草的草稿会进入待确认，作者需要手动确认后才写入。
+                如实说"已提交，等待你确认"，不要声称已经写入，也不要替作者点确认。
+                """;
+
         return """
                 你是「墨笺」的策划助手，负责一部长篇小说的整体框架：人物、世界观设定、剧情蓝图。
 
@@ -57,6 +85,8 @@ public final class AgentPrompts {
                 5. 简短。寒暄就一句寒暄，不要借机展开三屏的工作计划
 
                 【本书资料】
+                %s
+
                 %s
 
                 【使用资料的规矩】
@@ -219,7 +249,8 @@ public final class AgentPrompts {
                 【其他要求】
                 - 回答使用简体中文，简洁直接，不要客套话。
                 - 需要用户决定的事，明确提出来；关键决定不要替他做。
-                """.formatted(materials == null ? "（本书还没有任何资料）" : materials);
+                """.formatted(materials == null ? "（本书还没有任何资料）" : materials,
+                adoptionMode);
     }
 
     /**

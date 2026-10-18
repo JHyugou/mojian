@@ -17,11 +17,14 @@ import java.util.List;
  *                       所以需要一个前端自己就能生成的临时标识。可以不传。
  * @param images         本轮图片附件（data URL，最多 4 张）。只发给支持视觉的模型，
  *                       不进历史库 —— 历史只存文本，避免每轮重复上传几 MB 图片。
+ * @param autoApprove    作者当前是否开启自动采纳。开启时后端会告诉策划 Agent
+ *                       "本轮草稿会在回答后自动写入，不要再说需要手动确认"。
  */
 public record PlannerChatRequest(
         @NotNull(message = "缺少 projectId") Long projectId,
         Long conversationId,
         @NotBlank(message = "内容不能为空") String message,
         String runId,
-        List<String> images) {
+        List<String> images,
+        Boolean autoApprove) {
 }

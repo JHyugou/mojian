@@ -56,7 +56,7 @@ public class PlannerService {
     private final AgentRunService runService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
-                                       String runId, List<String> images) {
+                                       String runId, List<String> images, boolean autoApprove) {
         List<String> userImages = normalizeImages(images);
         // 1. 会话
         AgentConversation conversation = conversationId == null
@@ -80,7 +80,7 @@ public class PlannerService {
         }
         AgentContextAssembly materials = agentContextService.assemble(
                 AgentRole.PLANNER, projectId, extra, null, null, userMessage);
-        String systemPrompt = AgentPrompts.planner(materials.text());
+        String systemPrompt = AgentPrompts.planner(materials.text(), autoApprove);
 
         /*
          * 历史也要计入预算。
