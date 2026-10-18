@@ -103,6 +103,7 @@ const toolLabels = {
   delete_blueprint: '删蓝图',
   create_chapter: '新建章节',
   review_chapter: '审稿',
+  read_writer_conversation: '看写作对话',
   add_chapter_supplement: '追补充要求',
   remove_chapter_supplement: '撤补充要求',
   update_chapter_status: '改章节状态',
