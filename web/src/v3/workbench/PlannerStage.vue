@@ -30,7 +30,7 @@ const props = defineProps({
   freshToken: { type: [String, Number], default: null },
   citations: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed'])
+const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed', 'resources-changed'])
 
 const notify = useV3Notify()
 const settings = useSettingsStore()
@@ -372,6 +372,8 @@ async function send() {
     attachments.value = []
     await refreshSide()
     await applyAutoApprove()
+    // 让父级刷新右栏统计（自动采纳/Agent 起草都可能改变资料数量）
+    emit('resources-changed')
   } catch (e) {
     if (e.name !== 'CanceledError' && e.name !== 'AbortError' && !controller.value?.signal.aborted) {
       error.value = e.message || '这次对话失败了'
@@ -431,6 +433,7 @@ async function confirmDraft(draft) {
     await acceptDraft(draft.id)
     await refreshSide()
     library.touch()
+    emit('resources-changed')
     notify.success('已采纳，内容已写进书里')
   } catch (e) {
     notify.error(e.message)
@@ -454,6 +457,7 @@ async function acceptAll() {
       : `已采纳全部 ${result.accepted} 条`)
     await refreshSide()
     library.touch()
+    emit('resources-changed')
   } catch (e) {
     notify.error(e.message)
   }

@@ -70,6 +70,34 @@ export function useWorkbench(projectIdRef) {
     }
   }
 
+  /**
+   * 轻量刷新资料清单（不碰 activeChapter）。
+   *
+   * <p>右栏的统计、人物/设定/蓝图列表靠它保持"实时"：Agent 确认草稿、别处改了资料、
+   * 或者写作落库后，这里几秒内就能反映出来。
+   *
+   * <p>为什么不直接复用 loadAll：loadAll 会重新计算 activeChapter，轮询时可能把
+   * 正在编辑的章节对象换掉（列表接口的字段和详情不完全一样）。资料栏只需要清单，
+   * 不该碰正在写的那一章。
+   */
+  let refreshSeq = 0
+  async function refreshResources() {
+    const projectId = projectIdRef.value
+    if (!projectId) return
+    const seq = ++refreshSeq
+    const [chapterResult, characterResult, settingResult, outlineResult] = await Promise.allSettled([
+      listChapters(projectId),
+      listCharacters(projectId),
+      listSettings(projectId),
+      getOutlineTree(projectId)
+    ])
+    if (seq !== refreshSeq) return
+    if (chapterResult.status === 'fulfilled') chapters.value = chapterResult.value || []
+    if (characterResult.status === 'fulfilled') characters.value = characterResult.value || []
+    if (settingResult.status === 'fulfilled') settings.value = settingResult.value || []
+    if (outlineResult.status === 'fulfilled') outlineTree.value = outlineResult.value || []
+  }
+
   const flatOutline = computed(() => {
     const out = []
     const walk = (nodes, depth = 0) => {
@@ -138,6 +166,7 @@ export function useWorkbench(projectIdRef) {
     counts,
     loadAll,
     loadReports,
+    refreshResources,
     selectChapter,
     refreshChapter,
     addCitation,

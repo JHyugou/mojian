@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
 import V3Button from '../../components/v3/V3Button.vue'
@@ -50,7 +50,29 @@ function setMode(next) {
 
 onMounted(() => {
   if (projectId.value) state.loadAll()
+  // 右栏统计要"实时"：本地操作走事件立即刷新，其它变化（Agent 异步落库等）靠低频轮询兜底
+  pollTimer = window.setInterval(() => {
+    if (!document.hidden) state.refreshResources()
+  }, 5000)
+  window.addEventListener('focus', refreshOnFocus)
+  document.addEventListener('visibilitychange', refreshOnFocus)
 })
+
+onUnmounted(() => {
+  window.clearInterval(pollTimer)
+  window.removeEventListener('focus', refreshOnFocus)
+  document.removeEventListener('visibilitychange', refreshOnFocus)
+})
+
+let pollTimer = 0
+function refreshOnFocus() {
+  if (document.hidden) return
+  state.refreshResources()
+}
+
+function onResourcesChanged() {
+  state.refreshResources()
+}
 
 watch(projectId, () => {
   state.clearCitations()
@@ -64,6 +86,13 @@ function onCite(citation) {
 
 function selectChapter(chapter) {
   state.selectChapter(chapter)
+}
+
+/** 右栏「章节」里点一条：切到写作模式并选中该章 */
+function openChapterFromPanel(chapter) {
+  state.selectChapter(chapter)
+  setMode('writer')
+  if (isNarrow) rightOpen.value = false
 }
 
 async function afterWriterChanged() {
@@ -116,6 +145,7 @@ function goHome() {
           @conversation-changed="(id) => router.replace({ path: '/workbench', query: { ...route.query, conv: id, mode: 'planner' } })"
           @remove-citation="state.removeCitation"
           @clear-citations="state.clearCitations"
+          @resources-changed="onResourcesChanged"
         />
         <WriterStage
           v-else
@@ -136,9 +166,11 @@ function goHome() {
           :characters="state.characters"
           :settings="state.settings"
           :outline-tree="state.outlineTree"
+          :chapters="state.chapters"
           :reports="state.reports"
           :counts="state.counts"
           @cite="onCite"
+          @open-chapter="openChapterFromPanel"
           @close="rightOpen = false"
         />
       </Transition>

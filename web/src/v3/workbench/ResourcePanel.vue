@@ -12,10 +12,11 @@ const props = defineProps({
   characters: { type: Array, default: () => [] },
   settings: { type: Array, default: () => [] },
   outlineTree: { type: Array, default: () => [] },
+  chapters: { type: Array, default: () => [] },
   reports: { type: Object, default: () => ({ PLANNER: null, WRITER: null }) },
   counts: { type: Object, default: () => ({}) }
 })
-const emit = defineEmits(['cite', 'close'])
+const emit = defineEmits(['cite', 'close', 'open-chapter'])
 
 const tab = ref('info')
 const keyword = ref('')
@@ -24,8 +25,17 @@ const tabs = [
   { key: 'info', label: '资料' },
   { key: 'characters', label: '人物' },
   { key: 'settings', label: '设定' },
-  { key: 'outline', label: '蓝图' }
+  { key: 'outline', label: '蓝图' },
+  { key: 'chapters', label: '章节' }
 ]
+
+/** 点统计卡：直接跳到对应清单（这就是"从数字进到条目"） */
+function jumpTo(key) {
+  tab.value = key
+  keyword.value = ''
+}
+
+const STATUS_TEXT = { DRAFT: '草稿', WRITING: '写作中', COMPLETED: '已完成' }
 
 const filteredCharacters = computed(() => {
   const q = keyword.value.trim()
@@ -107,10 +117,18 @@ const reportRows = computed(() => [
       <!-- ========== 资料概览 ========== -->
       <template v-if="tab === 'info'">
         <div class="stat-grid">
-          <div class="stat"><b>{{ fmt(counts.characters) }}</b><span>人物</span></div>
-          <div class="stat"><b>{{ fmt(counts.settings) }}</b><span>设定</span></div>
-          <div class="stat"><b>{{ fmt(counts.outline) }}</b><span>蓝图节点</span></div>
-          <div class="stat"><b>{{ fmt(counts.chapters) }}</b><span>章节</span></div>
+          <button class="stat" title="查看人物档案" @click="jumpTo('characters')">
+            <b>{{ fmt(counts.characters) }}</b><span>人物</span>
+          </button>
+          <button class="stat" title="查看世界观设定" @click="jumpTo('settings')">
+            <b>{{ fmt(counts.settings) }}</b><span>设定</span>
+          </button>
+          <button class="stat" title="查看剧情蓝图" @click="jumpTo('outline')">
+            <b>{{ fmt(counts.outline) }}</b><span>蓝图节点</span>
+          </button>
+          <button class="stat" title="查看章节" @click="jumpTo('chapters')">
+            <b>{{ fmt(counts.chapters) }}</b><span>章节</span>
+          </button>
         </div>
 
         <h3 class="side-title">上下文</h3>
@@ -163,6 +181,21 @@ const reportRows = computed(() => [
           <p class="entry-text">{{ citationPreview(item.content, 100) }}</p>
         </div>
         <p v-if="!filteredSettings.length" class="side-note">还没有世界观设定。</p>
+      </template>
+
+      <!-- ========== 章节 ========== -->
+      <template v-else-if="tab === 'chapters'">
+        <div v-for="(item, index) in chapters" :key="item.id" class="chapter-row" @click="emit('open-chapter', item)">
+          <span class="chapter-no">{{ String(index + 1).padStart(2, '0') }}</span>
+          <span class="entry-title">{{ item.title }}</span>
+          <span class="chapter-status" :class="{ done: item.status === 'COMPLETED' }">
+            {{ STATUS_TEXT[item.status] || item.status }}
+          </span>
+          <Icon name="arrowRight" :size="12" class="chapter-arrow" />
+        </div>
+        <p v-if="!chapters.length" class="side-note">
+          还没有章节。在写作模式里新建一章，写完点「标记完成」就会进入成书。
+        </p>
       </template>
 
       <!-- ========== 蓝图 ========== -->
@@ -226,13 +259,45 @@ const reportRows = computed(() => [
 
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
 .stat {
+  display: block;
+  width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--v3-hairline);
   border-radius: var(--v3-r-sm);
   background: var(--v3-surface-1);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--v3-dur-2), background var(--v3-dur-2), transform var(--v3-dur-2) var(--v3-ease-spring);
 }
+.stat:hover {
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-surface-2);
+  transform: translateY(-1px);
+}
+.stat:active { transform: translateY(0) scale(0.995); }
 .stat b { display: block; font-family: var(--v3-font-serif); font-size: 22px; font-weight: 600; color: var(--v3-text); }
 .stat span { font-size: 10.5px; letter-spacing: 0.16em; color: var(--v3-text-faint); }
+
+.chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--v3-r-xs);
+  cursor: pointer;
+  transition: background var(--v3-dur-2), border-color var(--v3-dur-2);
+}
+.chapter-row:hover { background: var(--v3-surface-1); border-color: var(--v3-hairline); }
+.chapter-no { flex-shrink: 0; width: 20px; font-family: var(--v3-font-mono); font-size: 10px; color: var(--v3-text-faint); }
+.chapter-row .entry-title { flex: 1; min-width: 0; }
+.chapter-status { flex-shrink: 0; font-size: 9.5px; letter-spacing: 0.08em; color: var(--v3-text-faint); }
+.chapter-status.done { color: var(--v3-jade); }
+.chapter-arrow { flex-shrink: 0; opacity: 0; transform: translateX(-3px); transition: opacity var(--v3-dur-2), transform var(--v3-dur-2); color: var(--v3-gold); }
+.chapter-row:hover .chapter-arrow { opacity: 1; transform: translateX(0); }
 
 .side-title { margin: 18px 0 10px; font-family: var(--v3-font-serif); font-size: 13px; letter-spacing: 0.12em; color: var(--v3-text-soft); }
 .report { margin-bottom: 14px; }
