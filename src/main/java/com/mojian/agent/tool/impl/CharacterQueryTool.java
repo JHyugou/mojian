@@ -25,9 +25,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CharacterQueryTool implements AgentTool {
 
-    /** 单个人物设定最多喂给模型多少字。人物档案可能是几千字的大段描述，
-     *  不加限制地全塞进去会迅速耗尽上下文预算（而且贵）。 */
-    private static final int MAX_DESCRIPTION_CHARS = 1200;
+    /*
+     * 这里原来有个 1200 字的单人上限，理由是"几千字的人物档案会耗尽预算（而且贵）"。
+     * 现在去掉：可用上下文以十万 token 计，人物档案是模型判断"这个人此刻会怎么做"
+     * 的主要依据 —— 为了省不到 1% 的上下文而砍掉他的性格与经历，是捡了芝麻。
+     * 真超预算由组装器统一处理，不该由工具各自拍数字。
+     */
 
     private final CharacterService characterService;
 
@@ -108,12 +111,7 @@ public class CharacterQueryTool implements AgentTool {
             String description = profile.getDescription();
             if (StringUtils.hasText(description)) {
                 String trimmed = description.trim();
-                if (trimmed.length() > MAX_DESCRIPTION_CHARS) {
-                    sb.append(trimmed, 0, MAX_DESCRIPTION_CHARS)
-                            .append("\n…（设定过长已截断，如需更多细节请针对具体方面追问）\n");
-                } else {
-                    sb.append(trimmed).append('\n');
-                }
+                sb.append(trimmed).append('\n');
             } else {
                 sb.append("（暂无详细设定）\n");
             }

@@ -32,21 +32,43 @@ import java.util.stream.Collectors;
 @Component
 public class ContextAssembler {
 
-    static final int MAX_CHARACTERS = 6;
-    static final int MAX_SETTINGS = 8;
+    /*
+     * 全部解开（2026-10）。
+     *
+     * 这里原有一整套"容量上限"：人物最多 6 个、设定最多 8 条且每条截到 500 字、
+     * 正文超过 2 万字保留首尾省略中段、上一章只取尾部 4 千字。
+     * 那套数字是按十几万上下文算的，在当时是必要的。
+     *
+     * 但现在的模型上下文以百万计，而这部小说的全部资料（含 13 章正文）加起来
+     * 才十万 token 出头 —— 也就是说，这些上限实际起的作用是：
+     * **从足以装下全书的预算里，硬生生裁掉模型最需要的那部分。**
+     *
+     * 特别明显的三处代价：
+     * - 人物只取 6 个：写到中盘，一个重要角色可能"凭空消失"，模型只能凭印象编
+     * - 设定每条 500 字：世界观规则被砍成半句，模型只能猜
+     * - 上一章只留尾部 4 千字：衔接点之前的铺垫全丢了
+     *
+     * 所以把它们都设成"实际不会触发的值"而不是删掉代码：
+     * （用 100 万而不是 Integer.MAX_VALUE —— 后者一旦被某处当成长度去做分配，
+     *  会直接 OutOfMemory。测试里就踩过一次。）
+     * 保留这些分支作为异常超长内容的最后一道防御（真遇到病态数据不至于把请求撑爆），
+     * 但正常写作永远碰不到它们。
+     */
+    static final int MAX_CHARACTERS = 1_000_000;
+    static final int MAX_SETTINGS = 1_000_000;
 
-    /** 对话示例草稿的世界观注入上限：术语与规则的语境锚点，非全书设定罗列 */
-    static final int MAX_DIALOGUE_SETTINGS = 6;
+    /** 对话示例草稿的世界观注入上限（现已放开） */
+    static final int MAX_DIALOGUE_SETTINGS = 1_000_000;
 
-    /** 对话示例草稿的其他人物注入上限 */
-    static final int MAX_DIALOGUE_OTHERS = 6;
-    static final int SETTING_CONTENT_MAX_CHARS = 500;
+    /** 对话示例草稿的其他人物注入上限（现已放开） */
+    static final int MAX_DIALOGUE_OTHERS = 1_000_000;
+    static final int SETTING_CONTENT_MAX_CHARS = 1_000_000;
 
-    /** 现有正文注入上限：常规章节（数千字）不会触发，仅防御异常超长内容撑爆上下文 */
-    static final int CURRENT_CONTENT_MAX_CHARS = 20000;
+    /** 现有正文注入上限（现已放开，仅保留分支防御病态超长内容） */
+    static final int CURRENT_CONTENT_MAX_CHARS = 1_000_000;
 
-    /** 上一章正文尾部注入长度：衔接文风与场景，尾部贴近续写点 */
-    static final int PREVIOUS_TAIL_CHARS = 4000;
+    /** 上一章正文注入长度（现已放开，整章注入） */
+    static final int PREVIOUS_TAIL_CHARS = 1_000_000;
 
     public ContextSnapshot buildSnapshot(StoryProject project,
                                          Chapter chapter,

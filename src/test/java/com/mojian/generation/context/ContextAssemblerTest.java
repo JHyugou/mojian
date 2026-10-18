@@ -82,15 +82,16 @@ class ContextAssemblerTest {
 
         assertTrue(assembler.selectSettings(List.of(disabled), "任意", 1).isEmpty());
     }
-
+    /** 设定不再设上限（原来只取 8 条、每条还截 500 字）—— 世界观规则不该被砍 */
     @Test
-    void settingCapacityCappedAtEight() {
+    void allSettingsSelected() {
         List<SettingEntry> many = new java.util.ArrayList<>();
-        for (int i = 0; i < 15; i++) {
+        for (int i = 0; i < 40; i++) {
             many.add(setting("设定" + i, "内容", null, 0));
         }
 
-        assertEquals(ContextAssembler.MAX_SETTINGS, assembler.selectSettings(many, "", 1).size());
+        assertEquals(40, assembler.selectSettings(many, "", 1).size(),
+                "全部启用且适用的设定都应进入上下文");
     }
 
     // ==================== 人物筛选 ====================
@@ -114,15 +115,21 @@ class ContextAssemblerTest {
 
         assertEquals("主角", selected.get(0).getName(), "蓝图引用的人物应排在普通人物之前");
     }
-
+    /**
+     * 人物不再设上限（原来只取 6 个）。
+     *
+     * <p>上限放开之后，写到中盘时一个重要角色不会因为"排到第 7 个"而凭空消失 ——
+     * 那种情况下模型只能凭印象编他的言行。
+     */
     @Test
-    void characterCapacityCapped() {
+    void allCharactersSelected() {
         List<CharacterProfile> many = new java.util.ArrayList<>();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 30; i++) {
             many.add(character("人物" + i));
         }
 
-        assertEquals(ContextAssembler.MAX_CHARACTERS, assembler.selectCharacters(many, List.of()).size());
+        assertEquals(30, assembler.selectCharacters(many, List.of()).size(),
+                "全部启用的人物都应进入上下文，不再截到 6 个");
     }
 
     // ==================== 记忆选取 ====================
@@ -175,13 +182,16 @@ class ContextAssemblerTest {
         assertEquals("雪落长街，他背着剑走进客栈。", snapshot.getCurrentContent(),
                 "现有正文必须进入上下文快照（续写/改写/记忆提炼的语境基础）");
     }
-
+    /**
+     * 上一章整章注入（原来只取尾部 4000 字）。
+     *
+     * <p>只留尾部的话，衔接点之前的铺垫全丢了 —— 而续写最需要的恰恰是"前面发生过什么"。
+     */
     @Test
-    void previousChapterTailTruncatedToTail() {
+    void previousChapterInjectedWhole() {
         String longContent = "前".repeat(5000);
-        String tail = assembler.previousChapterTail(longContent);
-        assertEquals(ContextAssembler.PREVIOUS_TAIL_CHARS, tail.length(), "取末尾 4000 字");
-        assertEquals("前".repeat(4000), tail, "截取的是尾部");
+        assertEquals(longContent, assembler.previousChapterTail(longContent),
+                "上一章应整章注入，不再只取尾部");
 
         assertNull(assembler.previousChapterTail(null));
         assertNull(assembler.previousChapterTail("  "));
@@ -204,11 +214,18 @@ class ContextAssemblerTest {
         assertEquals("上一章结尾正文", snapshot.getPreviousContentTail(),
                 "上一章正文尾部应进入快照以衔接文风");
     }
-
+    /**
+     * 正文：常规长度原样注入，只有病态超长才压缩并保留首尾。
+     *
+     * <p>原来这条验的是"超过 2 万字就保留首尾、省略中段"。上限放开后，
+     * 五万字这种常规章节不该再被动过。
+     */
     @Test
-    void currentContentOverLimitCondensedKeepingHeadAndTail() {
-        String longContent = "江" + "水".repeat(ContextAssembler.CURRENT_CONTENT_MAX_CHARS) + "入海";
+    void currentContentKeptIntactUnlessPathologicallyLong() {
+        String normal = "江" + "水".repeat(25_000) + "入海";
+        assertEquals(normal, assembler.condenseContent(normal), "常规章节应原样注入");
 
+        String longContent = "江" + "水".repeat(1_100_000) + "入海";
         String condensed = assembler.condenseContent(longContent);
 
         assertTrue(condensed.length() <= ContextAssembler.CURRENT_CONTENT_MAX_CHARS,

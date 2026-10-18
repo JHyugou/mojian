@@ -21,8 +21,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class QuerySettingTool implements AgentTool {
 
-    /** 单条设定回给模型的字数上限：这个工具是"定位 + 确认"，不是"通读全库" */
-    private static final int MAX_CHARS = 1200;
+    /*
+     * 这里原来有 1200 字的单条上限。已去掉 —— 设定是写作时"这个世界怎么运转"的唯一依据，
+     * 砍掉后半段等于让模型只看半条规则。
+     */
 
     private final SettingService settingService;
 
@@ -88,8 +90,7 @@ public class QuerySettingTool implements AgentTool {
             }
             if (StringUtils.hasText(entry.getContent())) {
                 String content = entry.getContent().trim();
-                sb.append(content.length() > MAX_CHARS
-                        ? content.substring(0, MAX_CHARS) + "……" : content).append('\n');
+                sb.append(content).append('\n');
             }
             sb.append('\n');
         }

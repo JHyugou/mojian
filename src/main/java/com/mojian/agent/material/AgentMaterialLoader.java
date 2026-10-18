@@ -168,7 +168,7 @@ public class AgentMaterialLoader {
                     character.getDescription());
         }
         return AgentContextSection.optional("人物", "人物档案", sb.toString().trim(),
-                PRIORITY_CHARACTER, ContextSectionPolicy.DROP_IF_NOT_FIT);
+                PRIORITY_CHARACTER, ContextSectionPolicy.TRUNCATE_TO_FIT);
     }
 
     // ==================== 设定 ====================
@@ -196,7 +196,7 @@ public class AgentMaterialLoader {
                     setting.getContent());
         }
         return AgentContextSection.optional("设定", "世界观设定", sb.toString().trim(),
-                PRIORITY_SETTING, ContextSectionPolicy.DROP_IF_NOT_FIT);
+                PRIORITY_SETTING, ContextSectionPolicy.TRUNCATE_TO_FIT);
     }
 
     // ==================== 前情摘要 ====================
@@ -232,7 +232,7 @@ public class AgentMaterialLoader {
             return null;
         }
         return AgentContextSection.optional("摘要", "前情摘要", sb.toString().trim(),
-                PRIORITY_MEMORY, ContextSectionPolicy.DROP_IF_NOT_FIT);
+                PRIORITY_MEMORY, ContextSectionPolicy.TRUNCATE_TO_FIT);
     }
 
     // ==================== 章节正文 ====================
