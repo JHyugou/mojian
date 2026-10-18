@@ -129,6 +129,7 @@ export function setWritingRequirement(chapterId, requirement) {
  *   status / progress / reasoning / tool-call / tool-result / result / task-error / end
  *   delta   —— 模型<b>说</b>的话（对话流里的回答）
  *   content —— 模型<b>写</b>的正文增量。正文装在工具参数里，所以单独一条通道
+ *   *-snapshot —— 订阅时服务端回放的"当前全文"（重连时用，前端要替换而不是追加）
  *
  * 返回 EventSource，调用方负责 close()。
  */
@@ -137,8 +138,11 @@ export function subscribeWritingTask(taskId, handlers) {
   source.addEventListener('status', (e) => handlers.onStatus?.(e.data))
   source.addEventListener('progress', (e) => handlers.onProgress?.(e.data))
   source.addEventListener('delta', (e) => handlers.onDelta?.(e.data))
+  source.addEventListener('delta-snapshot', (e) => handlers.onDeltaSnapshot?.(e.data))
   source.addEventListener('content', (e) => handlers.onContent?.(e.data))
+  source.addEventListener('content-snapshot', (e) => handlers.onContentSnapshot?.(e.data))
   source.addEventListener('reasoning', (e) => handlers.onReasoning?.(e.data))
+  source.addEventListener('reasoning-snapshot', (e) => handlers.onReasoningSnapshot?.(e.data))
   source.addEventListener('tool-call', (e) => handlers.onToolCall?.(e.data))
   source.addEventListener('tool-result', (e) => handlers.onToolResult?.(e.data))
   source.addEventListener('result', (e) => handlers.onResult?.(e.data))
@@ -147,6 +151,12 @@ export function subscribeWritingTask(taskId, handlers) {
     handlers.onEnd?.(e.data)
     source.close()
   })
+  // 连接异常：EventSource 会自动重连，真正关闭时才让界面进入失败态
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) {
+      handlers.onError?.('事件流连接已断开，请刷新后重试')
+    }
+  }
   return source
 }
 

@@ -32,3 +32,7 @@ web/patch_*.py
 # ==== 自用文档（不入库） ====
 *.md
 docs/
+
+# ==== 本机安全备份 / 视觉基线（不入库） ====
+.local-backup/
+.local-screens/

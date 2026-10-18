@@ -80,21 +80,51 @@ public class ShareService {
 
     /** 整本小说全量导出：人物（含演变节点）+ 世界观设定 + 蓝图树 + 全部章节与记忆 */
     public Map<String, Object> exportProject(Long projectId) {
+        return exportProject(projectId, null);
+    }
+
+    /**
+     * 按勾选片段导出项目。
+     *
+     * <p>前端从第一版起就带着 {@code sections} 参数（"只导人物/设定/蓝图/章节"），
+     * 但后端一直没接 —— 勾选是假的，永远全量导出。这里补上：
+     * 传空/不传 = 全量（兼容旧调用），传了就按白名单过滤。
+     *
+     * <p>顺带把之前漏掉的项目级字段 {@code style} / {@code writingRules} 补进导出，
+     * 否则导入回来的书文风是空的（这是文档里记录过的已知缺陷）。
+     */
+    public Map<String, Object> exportProject(Long projectId, List<String> sections) {
         StoryProject project = projectService.requireById(projectId);
+
+        List<String> all = List.of("characters", "settings", "outline", "chapters");
+        List<String> wanted = (sections == null || sections.isEmpty())
+                ? all
+                : all.stream().filter(sections::contains).toList();
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("format", FMT_PROJECT);
         payload.put("version", 1);
         payload.put("exportedAt", LocalDateTime.now().toString());
-        payload.put("sections", List.of("characters", "settings", "outline", "chapters"));
-        payload.put("project", new LinkedHashMap<>(Map.of(
-                "name", project.getName(),
-                "genre", Objects.toString(project.getGenre(), ""),
-                "intro", Objects.toString(project.getIntro(), ""))));
-        payload.put("characters", exportCharacters(projectId, null));
-        payload.put("settings", exportSettings(projectId, null));
-        payload.put("outline", exportOutline(projectId));
-        payload.put("chapters", exportChapters(projectId));
+        payload.put("sections", wanted);
+        Map<String, Object> projectPayload = new LinkedHashMap<>();
+        projectPayload.put("name", project.getName());
+        projectPayload.put("genre", Objects.toString(project.getGenre(), ""));
+        projectPayload.put("intro", Objects.toString(project.getIntro(), ""));
+        projectPayload.put("style", Objects.toString(project.getStyle(), ""));
+        projectPayload.put("writingRules", Objects.toString(project.getWritingRules(), ""));
+        payload.put("project", projectPayload);
+        if (wanted.contains("characters")) {
+            payload.put("characters", exportCharacters(projectId, null));
+        }
+        if (wanted.contains("settings")) {
+            payload.put("settings", exportSettings(projectId, null));
+        }
+        if (wanted.contains("outline")) {
+            payload.put("outline", exportOutline(projectId));
+        }
+        if (wanted.contains("chapters")) {
+            payload.put("chapters", exportChapters(projectId));
+        }
         return payload;
     }
 
@@ -113,6 +143,8 @@ public class ShareService {
         projectReq.setName(name);
         projectReq.setGenre(text(project, "genre"));
         projectReq.setIntro(text(project, "intro"));
+        projectReq.setStyle(text(project, "style"));
+        projectReq.setWritingRules(text(project, "writingRules"));
         Long projectId = projectService.create(projectReq).getId();
 
         Map<String, Long> refMap = importOutlineData(projectId, outlineRoots);

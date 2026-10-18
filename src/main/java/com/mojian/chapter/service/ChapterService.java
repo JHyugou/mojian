@@ -123,11 +123,34 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
      */
     @Transactional(rollbackFor = Exception.class)
     public Chapter update(Long chapterId, ChapterSaveRequest request) {
+        return update(chapterId, request, "MANUAL");
+    }
+
+    /**
+     * 保存章节并指定版本来源。
+     *
+     * <p>{@code source} 是版本列表里"这版是谁写的"的唯一依据：旧实现把 AI 写的正文
+     * 也记成 MANUAL，作者在版本历史里根本分不清哪些是模型生成的。
+     *
+     * <p>另外两个防丢字段的处理：{@code status} 与 {@code content} 在请求里缺省时
+     * 保持原值。这个接口是"全量属性覆盖"语义，直接 BeanUtils 拷贝 null 会把
+     * COMPLETED 降成 DRAFT、把正文清空 —— 都是真实的丢数据路径。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Chapter update(Long chapterId, ChapterSaveRequest request, String versionSource) {
         Chapter chapter = requireById(chapterId);
         if (request.getOutlineNodeId() != null) {
             requireOutlineNodeInProject(chapter.getProjectId(), request.getOutlineNodeId());
         }
+        String previousStatus = chapter.getStatus();
+        String previousContent = chapter.getContent();
         BeanUtils.copyProperties(request, chapter);
+        if (request.getStatus() == null && StringUtils.hasText(previousStatus)) {
+            chapter.setStatus(previousStatus);
+        }
+        if (request.getContent() == null && previousContent != null) {
+            chapter.setContent(previousContent);
+        }
         if (!StringUtils.hasText(chapter.getStatus())) {
             chapter.setStatus("DRAFT");
         }
@@ -139,7 +162,7 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
             version.setChapterId(chapterId);
             version.setVersionNo(versionNo);
             version.setContent(chapter.getContent());
-            version.setSource("MANUAL");
+            version.setSource(StringUtils.hasText(versionSource) ? versionSource : "MANUAL");
             version.setRemark(request.getRemark());
             chapterVersionMapper.insert(version);
             chapter.setCurrentVersionNo(versionNo);

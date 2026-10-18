@@ -221,8 +221,8 @@
           class="mj-textarea"
           rows="2"
           :placeholder="citations.length
-            ? '说说这段要怎么改，比如：把这里改成白天，并加上他手上的旧伤（Enter 发送）'
-            : '说说你的想法…（Enter 发送，Shift+Enter 换行）'"
+            ? '说说这段要怎么改，比如：把这里改成白天，并加上他手上的旧伤（' + sendHint() + '）'
+            : '说说你的想法…（' + sendHint() + '）'"
           @keydown="onKeydown"
           @paste="onPaste"
         ></textarea>
@@ -350,6 +350,7 @@ import ModelPicker from './ModelPicker.vue'
 import ThinkingBlock from './ThinkingBlock.vue'
 import { useLibraryStore } from '../../stores/library'
 import { useSettingsStore, SEND_KEYS } from '../../stores/settings'
+import { useComposerSend } from '../../composables/useComposerSend'
 import { useMessageStore } from '../../stores/message'
 import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
@@ -369,6 +370,8 @@ const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-ch
 const library = useLibraryStore()
 const settings = useSettingsStore()
 const message = useMessageStore()
+// 发送键判定统一走 composable：Enter 判定 + 中文输入法组词 + 用户设置，一处定义两处共用
+const { onKeydown, sendHint } = useComposerSend(() => send())
 
 /** 采纳模式：手动（默认）/ 自动 */
 const autoApprove = ref(localStorage.getItem('mojian.autoApprove') === '1')
@@ -459,13 +462,7 @@ function removeAttachment(index) {
   attachments.value = next
 }
 
-/** 按发送键设置判断这次按键该不该发送 */
-function onKeydown(event) {
-  if (event.isComposing) return // 中文输入法正在组词，不要抢 Enter
-  if (!settings.shouldSendOn(event)) return
-  event.preventDefault()
-  send()
-}
+/** 按发送键设置判断这次按键该不该发送 —— 逻辑见 useComposerSend（两个面板共用） */
 
 /**
  * 导出这段对话为 Markdown。
@@ -644,6 +641,16 @@ async function loadConversationById(id) {
   try {
     const list = (await listConversations(props.projectId, 'PLANNER')) || []
     const target = list.find((c) => String(c.id) === String(id))
+    /*
+     * 目标会话不在这本书的策划会话里：可能是写作会话，或者是别的项目的。
+     * 不能照常加载 —— 否则会把写作消息当策划历史发给策划 Agent。
+     * 退回"新对话"，并明确告诉用户发生了什么。
+     */
+    if (!target) {
+      newConversation()
+      error.value = '这段会话不属于当前项目的策划对话，已为你新开一段。'
+      return
+    }
     conversationId.value = id
     conversationTitle.value = target?.title || '对话'
     const history = (await getConversationMessages(id)) || []

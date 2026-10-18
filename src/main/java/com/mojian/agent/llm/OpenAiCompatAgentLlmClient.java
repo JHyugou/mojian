@@ -162,12 +162,15 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
      *       因为一帧坏掉就丢弃已经生成的几百字，代价太大</li>
      * </ol>
      */
-    private AgentLlmResponse parseStream(BufferedReader reader, LlmStreamListener listener,
-                                         Map<String, String> contentFields) throws IOException {
+    /** 包级可见：只为单元测试直接喂 SSE 文本，生产调用一律走 {@link #chat} */
+    AgentLlmResponse parseStream(BufferedReader reader, LlmStreamListener listener,
+                                 Map<String, String> contentFields) throws IOException {
         StringBuilder content = new StringBuilder();
         Map<Integer, ToolCallBuilder> callBuilders = new LinkedHashMap<>();
         TokenUsage usage = TokenUsage.NONE;
         boolean toolCallNotified = false;
+        String finishReason = "";
+        boolean sawSseFrame = false;
 
         String line;
         while ((line = reader.readLine()) != null) {
@@ -205,6 +208,19 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
             } catch (Exception e) {
                 continue; // 脏帧跳过，不拖垮整轮
             }
+            sawSseFrame = true;
+
+            // 有些网关会先发一帧 {"error":{...}} 再关流。之前这种帧被静默忽略，
+            // 于是整轮被当成"模型给了空回答"正常结束 —— 用户只看到一句莫名其妙的回复。
+            if (node.has("error") && !node.path("error").isNull()) {
+                throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                        "模型服务返回错误：" + shorten(node.path("error").toString()));
+            }
+
+            String reason = node.path("choices").path(0).path("finish_reason").asText("");
+            if (!reason.isEmpty()) {
+                finishReason = reason;
+            }
 
             JsonNode usageNode = node.path("usage");
             if (!usageNode.isMissingNode() && !usageNode.isNull()) {
@@ -212,7 +228,7 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
             }
 
             JsonNode delta = node.path("choices").path(0).path("delta");
-            String reasoning = delta.path("reasoning_content").asText("");
+            String reasoning = reasoningDelta(delta);
             if (!reasoning.isEmpty()) {
                 listener.onReasoning(reasoning);
             }
@@ -256,6 +272,22 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
             }
         }
 
+        // 自检：一个 SSE 帧都没解析出来，说明服务方返回的不是流式协议
+        // （例如网关把响应缓冲成一整段 JSON）。这时静默返回空响应会让 Agent
+        // 误以为"模型说完了"，必须报错让用户看到真实原因。
+        if (!sawSseFrame) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "模型返回的不是流式响应（可能是网关不支持 stream 参数），请检查接入地址或更换模型");
+        }
+        if ("length".equals(finishReason) && content.isEmpty() && callBuilders.isEmpty()) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "模型输出被长度上限截断，未得到有效内容；请缩短上下文或更换输出上限更大的模型");
+        }
+        if (content.isEmpty() && callBuilders.isEmpty()) {
+            throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                    "模型返回了空响应，请重试；若持续出现，请检查模型名称与接入地址");
+        }
+
         List<AgentToolCall> toolCalls = callBuilders.values().stream()
                 .map(b -> new AgentToolCall(b.id, b.name,
                         b.arguments.isEmpty() ? "{}" : b.arguments.toString()))
@@ -277,6 +309,28 @@ public class OpenAiCompatAgentLlmClient implements AgentLlmClient {
         }
 
         return new AgentLlmResponse(content.isEmpty() ? null : content.toString(), toolCalls, usage);
+    }
+
+    /**
+     * 从流式分片里取思考过程。
+     *
+     * <p><b>为什么不能只认一个字段</b>：OpenAI 兼容生态里这个字段没有统一标准 ——
+     * DeepSeek 系用 {@code reasoning_content}，OpenRouter 等网关用 {@code reasoning}，
+     * 还有的会把思考塞进 {@code reasoning_details}。之前只解析第一种，
+     * 换个服务商就表现为"设置里开了思维链，界面上却什么都没有"。
+     * 这里按常见顺序兼容，取不到就当没有（不影响主流程）。
+     */
+    private static String reasoningDelta(JsonNode delta) {
+        for (String field : new String[]{"reasoning_content", "reasoning"}) {
+            JsonNode node = delta.path(field);
+            if (!node.isMissingNode() && !node.isNull() && node.isTextual()) {
+                String text = node.asText("");
+                if (!text.isEmpty()) {
+                    return text;
+                }
+            }
+        }
+        return "";
     }
 
     /** 流式分片里的一个工具调用：id 和名字先到，arguments 一片片追加 */

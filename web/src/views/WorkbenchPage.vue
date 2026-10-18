@@ -44,7 +44,7 @@
         <Transition name="mj-swap" mode="out-in">
           <PlannerPanel
             v-if="mode === 'planner'"
-            key="planner"
+            :key="'planner-' + projectId"
             :project-id="projectId"
             :conversation-id="route.query.conv"
             :fresh-token="route.query.fresh"
@@ -55,7 +55,7 @@
           />
           <WriterPanel
             v-else
-            key="writer"
+            :key="'writer-' + projectId"
             :project-id="projectId"
             :chapter="activeChapter"
             :chapters="chapters"
@@ -201,6 +201,19 @@ const modes = [
 /** 打开哪一段对话由 URL 决定（左栏工作区树点进来的），所以模式也从 URL 读初始值 */
 const mode = ref(route.query.mode === 'writer' ? 'writer' : 'planner')
 
+/*
+ * URL 里的 mode 是唯一真相：从工作区树点 WRITER 会话会带 mode=writer 进来。
+ * 之前只在初始化时读一次，于是"当前是策划模式时点写作会话"不会切过去，
+ * 策划面板会拿写作会话去加载/发送。这里跟着路由同步。
+ */
+watch(
+  () => route.query.mode,
+  (value) => {
+    const next = value === 'writer' ? 'writer' : 'planner'
+    if (mode.value !== next) mode.value = next
+  }
+)
+
 /**
  * 新开的对话落库后，把 URL 上的会话换成它。
  *
@@ -234,8 +247,11 @@ const rightTabs = [
 const citations = ref([])
 
 function addCitation(citation) {
-  // 同一条不要重复加，否则输入框上会挂一排一样的引用
-  if (citations.value.some((c) => c.nodeId === citation.nodeId && c.text === citation.text)) {
+  // 同一条不要重复加，否则输入框上会挂一排一样的引用。
+  // 注意不同来源字段不同：蓝图给 nodeId，资源浏览器给 targetId —— 两个都要认，
+  // 否则跨节点同文本会被误去重。
+  const key = citation.targetId ?? citation.nodeId
+  if (citations.value.some((c) => (c.targetId ?? c.nodeId) === key && c.text === citation.text)) {
     return
   }
   citations.value = [...citations.value, citation]
@@ -373,9 +389,13 @@ function countOutline(nodes) {
   return nodes.reduce((sum, n) => sum + 1 + countOutline(n.children), 0)
 }
 
+/** 取数序号：快速切项目时，旧请求晚到不允许覆盖新项目的状态 */
+let loadSeq = 0
+
 /** 把当前项目的所有资料取一遍。换项目时也走它 */
 async function loadAll() {
   if (!projectId.value) return
+  const seq = ++loadSeq
 
   // 各块互不依赖，一起发；某一块失败不该让整页空白。
   // 结果变量刻意不叫 characters/settings —— 那会和上面的同名单例 ref 撞名
@@ -385,11 +405,23 @@ async function loadAll() {
     listSettings(projectId.value),
     getOutlineTree(projectId.value)
   ])
+  if (seq !== loadSeq) return // 已经切到别的项目了，这批结果作废
 
   if (chapterResult.status === 'fulfilled') {
-    chapters.value = chapterResult.value || []
-    // 默认落在最后一章：作者最可能要写的就是"下一章"
-    activeChapter.value = chapters.value[chapters.value.length - 1] || null
+    const next = chapterResult.value || []
+    /*
+     * 保留当前正在看的章节，而不是每次都跳回最后一章。
+     *
+     * 这个函数会被 library.version 触发（采纳一条草稿、资料变化都会触发）。
+     * 之前每次都把 activeChapter 设成最后一章 —— 写第 5 章时采纳一条人物草稿，
+     * 界面直接跳走。只有"当前章不存在了"才回退到最后一章。
+     */
+    const currentId = activeChapter.value?.id
+    const kept = currentId
+      ? next.find((c) => String(c.id) === String(currentId))
+      : null
+    chapters.value = next
+    activeChapter.value = kept || next[next.length - 1] || null
   }
   if (characterResult.status === 'fulfilled') {
     characters.value = characterResult.value || []
@@ -413,9 +445,13 @@ async function loadAll() {
       getContextReport(projectId.value, 'PLANNER'),
       getContextReport(projectId.value, 'WRITER')
     ])
+    if (seq !== loadSeq) return
     reports.value = {
       PLANNER: plannerReport.status === 'fulfilled' ? plannerReport.value : null,
       WRITER: writerReport.status === 'fulfilled' ? writerReport.value : null
+    }
+    if (plannerReport.status === 'rejected' || writerReport.status === 'rejected') {
+      console.warn('读取上下文用量失败', plannerReport.reason || writerReport.reason)
     }
   } catch (e) {
     console.warn('读取上下文用量失败', e)
@@ -424,9 +460,12 @@ async function loadAll() {
 
 onMounted(loadAll)
 
-// 左栏换项目（或换会话）后要重取这本书的资料。
-// 面板本身用 :key 绑项目 id，换书会重新挂载，所以它们的状态不用在这里清。
-watch(projectId, () => loadAll())
+// 左栏换项目后要重取这本书的资料。面板按 projectId 重新挂载，
+// 所以会话/正文的旧状态不会被带过去；这里只清理跨面板的引用条。
+watch(projectId, () => {
+  citations.value = []
+  loadAll()
+})
 
 /*
  * 右栏的统计与条目要跟着资料变化走。

@@ -94,7 +94,9 @@ defineExpose({ reset })
 
     <div class="import-actions">
       <button class="btn-cancel" type="button" @click="emit('close')">取消</button>
-      <button class="btn-import" type="button" @click="confirm">导入</button>
+      <button class="btn-import" type="button" :disabled="loading" @click="confirm">
+        {{ loading ? '导入中…' : '导入' }}
+      </button>
     </div>
   </AppModal>
 </template>

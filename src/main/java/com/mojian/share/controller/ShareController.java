@@ -21,10 +21,12 @@ public class ShareController {
 
     // ==================== 项目级 ====================
 
-    /** 整本小说全量导出（人物含演变节点 + 设定 + 蓝图树 + 全部章节与记忆） */
+    /** 整本小说导出（可勾选片段：characters/settings/outline/chapters；不传=全量） */
     @GetMapping("/projects/{projectId}/export")
-    public ApiResponse<Map<String, Object>> exportProject(@PathVariable Long projectId) {
-        return ApiResponse.ok(shareService.exportProject(projectId));
+    public ApiResponse<Map<String, Object>> exportProject(
+            @PathVariable Long projectId,
+            @RequestParam(required = false) List<String> sections) {
+        return ApiResponse.ok(shareService.exportProject(projectId, sections));
     }
 
     /** 导入整本项目：创建全新项目承载 */

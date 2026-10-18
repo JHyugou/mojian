@@ -12,6 +12,8 @@ import com.mojian.agent.dto.PlannerChatResponse;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.llm.AgentMessage;
+import com.mojian.common.api.ErrorCode;
+import com.mojian.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -55,6 +57,7 @@ public class PlannerService {
         AgentConversation conversation = conversationId == null
                 ? conversationService.create(projectId, AgentRole.PLANNER, userMessage)
                 : conversationService.require(conversationId);
+        requirePlannerConversation(conversation, projectId);
 
         // 2. 历史（必须在落本轮消息之前读）
         List<AgentMessage> history = conversationService.loadMessages(conversation.getId());
@@ -106,6 +109,13 @@ public class PlannerService {
         try {
             result = agentLoopService.run(context, systemPrompt, history, userMessage,
                     maxSteps(), listener);
+        } catch (RuntimeException e) {
+            // 失败也要在会话里留一条回答：用户消息已经落库了，
+            // 只留"用户说了话、没人应"的孤立消息，下次会被当历史带上，模型只会困惑。
+            // （写作链路早就有这个兜底，策划这边之前漏了。）
+            conversationService.append(conversation.getId(), 0, AgentMessage.assistant(
+                    "这次没能完成：" + safeMessage(e) + "\n\n你的输入已经保留，可以直接再试一次。", null));
+            throw e;
         } finally {
             runRegistry.end(runId);
         }
@@ -153,5 +163,32 @@ public class PlannerService {
     private int maxSteps() {
         Integer configured = profileService.require(AgentRole.PLANNER).getMaxSteps();
         return configured == null ? 10 : configured;
+    }
+
+    /**
+     * 会话归属校验。
+     *
+     * <p>前端曾经出现过"切项目/切模式后把策划消息发进写作会话"的串线，
+     * 而服务端之前完全信任传上来的 conversationId。校验两层：
+     * 角色必须是 PLANNER，项目必须与请求里的 projectId 一致。
+     * 这是数据正确性的最后一道防线 —— 前端状态可以出 bug，服务端不该跟着错。
+     */
+    private void requirePlannerConversation(AgentConversation conversation, Long projectId) {
+        if (!AgentRole.PLANNER.equals(conversation.getAgentRole())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID,
+                    "这段会话不是策划会话，不能在里面继续策划对话");
+        }
+        if (projectId != null && conversation.getProjectId() != null
+                && !conversation.getProjectId().equals(projectId)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID,
+                    "这段会话不属于当前项目，请回到它所属的项目继续");
+        }
+    }
+
+    private String safeMessage(RuntimeException e) {
+        if (e.getMessage() == null || e.getMessage().isBlank()) {
+            return "服务暂时不可用";
+        }
+        return e.getMessage().length() > 300 ? e.getMessage().substring(0, 300) + "…" : e.getMessage();
     }
 }

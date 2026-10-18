@@ -84,17 +84,24 @@ public class SaveChapterDraftTool implements AgentTool {
 
         Chapter existing = chapterService.requireById(chapterId);
         boolean overwrite = StringUtils.hasText(existing.getContent());
+        // 首次写入的章节从 DRAFT 推进到 WRITING：成书排除 DRAFT，
+        // 不推进的话「AI 写完了一章，成书里却没有」—— 界面和阅读页会互相打架。
+        String status = StringUtils.hasText(existing.getStatus()) ? existing.getStatus() : "DRAFT";
+        if ("DRAFT".equals(status)) {
+            status = "WRITING";
+        }
 
         ChapterSaveRequest request = new ChapterSaveRequest();
         // 全量回填：update() 是属性全量覆盖，漏掉哪个字段哪个字段就被清空
         request.setTitle(existing.getTitle());
         request.setOutlineNodeId(existing.getOutlineNodeId());
-        request.setStatus(StringUtils.hasText(existing.getStatus()) ? existing.getStatus() : "DRAFT");
+        request.setStatus(status);
         request.setContent(content);
         request.setCreateVersion(true);
         request.setRemark(trimNote(arguments.get("note")));
 
-        Chapter saved = chapterService.update(chapterId, request);
+        // 版本来源必须是 AI，而不是默认的 MANUAL —— 作者在版本历史里要能分辨谁写的。
+        Chapter saved = chapterService.update(chapterId, request, "AI");
         log.info("写作 Agent 保存第 {} 章正文，{} 字（覆盖已有内容={}）",
                 saved.getId(), content.length(), overwrite);
 

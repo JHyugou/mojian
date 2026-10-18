@@ -3,9 +3,13 @@ package com.mojian.agent.llm;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.common.exception.BusinessException;
+import com.mojian.generation.llm.LlmProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedReader;
+import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -175,5 +179,86 @@ class OpenAiCompatAgentLlmClientTest {
         assertThatThrownBy(() -> OpenAiCompatAgentLlmClient.parseResponse("这根本不是 JSON"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("格式异常");
+    }
+
+    // ==================== 流式解析：reasoning 字段兼容 ====================
+
+    /** 用假的 SSE 文本直接喂 parseStream，不联网、不花钱 */
+    private AgentLlmResponse parseSse(String sse, List<String> reasoningSink) throws Exception {
+        OpenAiCompatAgentLlmClient client = new OpenAiCompatAgentLlmClient(new LlmProperties(), null);
+        LlmStreamListener listener = new LlmStreamListener() {
+            @Override
+            public void onReasoning(String delta) {
+                if (reasoningSink != null) reasoningSink.add(delta);
+            }
+        };
+        return client.parseStream(new BufferedReader(new StringReader(sse)), listener, Map.of());
+    }
+
+    private static String sseLine(String json) {
+        return "data: " + json + "\n";
+    }
+
+    @Test
+    @DisplayName("DeepSeek 系 reasoning_content：思考过程要回调给界面")
+    void 解析思考过程_reasoning_content() throws Exception {
+        List<String> reasoning = new ArrayList<>();
+        String sse = sseLine("{\"choices\":[{\"delta\":{\"reasoning_content\":\"先想\"}}]}")
+                + sseLine("{\"choices\":[{\"delta\":{\"reasoning_content\":\"再看\"}}]}")
+                + sseLine("{\"choices\":[{\"delta\":{\"content\":\"答案\"}}]}")
+                + sseLine("[DONE]");
+
+        AgentLlmResponse response = parseSse(sse, reasoning);
+
+        assertThat(reasoning).containsExactly("先想", "再看");
+        assertThat(response.content()).isEqualTo("答案");
+    }
+
+    @Test
+    @DisplayName("OpenRouter 等网关用 reasoning 字段：也要认（设置里开了思维链才有东西显示）")
+    void 解析思考过程_reasoning别名() throws Exception {
+        List<String> reasoning = new ArrayList<>();
+        String sse = sseLine("{\"choices\":[{\"delta\":{\"reasoning\":\"它在想\"}}]}")
+                + sseLine("{\"choices\":[{\"delta\":{\"content\":\"好\"}}]}");
+
+        AgentLlmResponse response = parseSse(sse, reasoning);
+
+        assertThat(reasoning).containsExactly("它在想");
+        assertThat(response.content()).isEqualTo("好");
+    }
+
+    @Test
+    @DisplayName("流式工具调用分片按 index 归并，参数拼完整")
+    void 解析流式工具调用() throws Exception {
+        String sse = sseLine("{\"choices\":[{\"delta\":{\"tool_calls\":["
+                + "{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"save_chapter_draft\",\"arguments\":\"{\\\"content\\\":\\\"第一\"}}]}}]}")
+                + sseLine("{\"choices\":[{\"delta\":{\"tool_calls\":["
+                + "{\"index\":0,\"function\":{\"arguments\":\"段\\\"}\"}}]}}]}")
+                + sseLine("{\"choices\":[{\"finish_reason\":\"tool_calls\"}]}");
+
+        AgentLlmResponse response = parseSse(sse, null);
+
+        assertThat(response.wantsTools()).isTrue();
+        assertThat(response.toolCalls()).hasSize(1);
+        assertThat(response.toolCalls().get(0).name()).isEqualTo("save_chapter_draft");
+        assertThat(response.toolCalls().get(0).arguments()).contains("第一段");
+    }
+
+    @Test
+    @DisplayName("服务端发 error 帧：明确报错，而不是当成空回答正常结束")
+    void 流式错误帧() {
+        String sse = sseLine("{\"error\":{\"message\":\"quota exceeded\"}}");
+
+        assertThatThrownBy(() -> parseSse(sse, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("quota exceeded");
+    }
+
+    @Test
+    @DisplayName("返回的不是 SSE（网关缓冲成 JSON）：明确报错，而不是静默空响应")
+    void 非流式响应误入流式通道() {
+        assertThatThrownBy(() -> parseSse("{\"choices\":[{\"message\":{\"content\":\"hi\"}}]}", null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不是流式响应");
     }
 }

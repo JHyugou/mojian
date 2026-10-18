@@ -30,6 +30,9 @@ public class TaskEventBroker {
     private final Map<Long, StringBuilder> contentBufferByTask = new ConcurrentHashMap<>();
     private final Map<Long, StringBuilder> reasoningBufferByTask = new ConcurrentHashMap<>();
     private final Map<Long, String> statusByTask = new ConcurrentHashMap<>();
+    /** 终结任务的状态保留到这个时间点（毫秒），之后清掉，避免长跑进程里无限增长 */
+    private final Map<Long, Long> statusExpireAt = new ConcurrentHashMap<>();
+    private static final long FINAL_STATUS_TTL_MILLIS = 30 * 60 * 1000L;
 
     public synchronized SseEmitter subscribe(Long taskId) {
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MILLIS);
@@ -40,20 +43,22 @@ public class TaskEventBroker {
         emitter.onTimeout(cleanup);
         emitter.onError(e -> cleanup.run());
 
-        // 立即回放：当前状态 + 已缓冲片段，断线重连不丢内容
+        // 立即回放：当前状态 + 已缓冲片段，断线重连不丢内容。
+        // 注意事件名带 -snapshot：前端据此"替换"而不是"追加"，
+        // 否则重连时同一个片段的广播会再追加一遍（正文会整章重复）。
         String status = statusByTask.getOrDefault(taskId, "CREATED");
         send(emitter, taskId, "status", status);
         String bufferedReasoning = reasoningBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
         if (!bufferedReasoning.isEmpty()) {
-            send(emitter, taskId, "reasoning", bufferedReasoning);
+            send(emitter, taskId, "reasoning-snapshot", bufferedReasoning);
         }
         String buffered = deltaBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
         if (!buffered.isEmpty()) {
-            send(emitter, taskId, "delta", buffered);
+            send(emitter, taskId, "delta-snapshot", buffered);
         }
         String bufferedContent = contentBufferByTask.getOrDefault(taskId, new StringBuilder()).toString();
         if (!bufferedContent.isEmpty()) {
-            send(emitter, taskId, "content", bufferedContent);
+            send(emitter, taskId, "content-snapshot", bufferedContent);
         }
         if (isFinalStatus(status)) {
             send(emitter, taskId, "end", status);
@@ -111,7 +116,14 @@ public class TaskEventBroker {
     /** 任务终结（成功/失败）后调用：通知并清理正文缓冲，保留最终状态供晚到订阅者 */
     public void finish(Long taskId, String finalStatus, String errorMessage) {
         synchronized (this) {
+            // 幂等：取消接口与任务线程可能先后各调一次。
+            // 重复 finish 会让前端收到两个 end，状态栏闪两下，日志也难对。
+            String previous = statusByTask.get(taskId);
+            if (isFinalStatus(previous)) {
+                return;
+            }
             statusByTask.put(taskId, finalStatus);
+            statusExpireAt.put(taskId, System.currentTimeMillis() + FINAL_STATUS_TTL_MILLIS);
         }
         broadcast(taskId, "status", finalStatus);
         if (errorMessage != null) {
@@ -137,7 +149,7 @@ public class TaskEventBroker {
         return "SUCCEEDED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status);
     }
 
-    /** 心跳：15 秒一帧注释，保持连接、探测死连接 */
+    /** 心跳：15 秒一帧注释，保持连接、探测死连接；顺带清掉过期任务状态 */
     @Scheduled(fixedRate = 15000)
     public void heartbeat() {
         emittersByTask.forEach((taskId, list) -> {
@@ -147,6 +159,13 @@ public class TaskEventBroker {
                 } catch (IOException | IllegalStateException e) {
                     list.remove(emitter);
                 }
+            }
+        });
+        long now = System.currentTimeMillis();
+        statusExpireAt.forEach((taskId, expireAt) -> {
+            if (expireAt < now && !emittersByTask.containsKey(taskId)) {
+                statusByTask.remove(taskId);
+                statusExpireAt.remove(taskId);
             }
         });
     }

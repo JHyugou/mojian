@@ -103,14 +103,24 @@
         <!-- 正在说话：回答逐字出现在对话流里，和右边的正文是两条通道 -->
         <div v-if="running && streamingAnswer" class="wr-msg is-assistant mj-fade">
           <div class="wr-msg-tag">写作 Agent</div>
+          <ThinkingBlock
+            v-if="streamingReasoning"
+            :text="streamingReasoning"
+            :mode="settings.thinkingMode"
+          />
           <div class="wr-bubble mj-caret">
             <MarkdownText :text="streamingAnswer" />
           </div>
         </div>
 
-        <!-- 还没开口：显示它在干什么 -->
+        <!-- 还没开口：显示它在干什么（推理模型会先给思考过程） -->
         <div v-else-if="running" class="wr-msg is-assistant mj-fade">
           <div class="wr-msg-tag">写作 Agent</div>
+          <ThinkingBlock
+            v-if="streamingReasoning"
+            :text="streamingReasoning"
+            :mode="settings.thinkingMode"
+          />
           <div class="wr-bubble wr-thinking">
             <span class="mj-dots"><i></i><i></i><i></i></span>
             <span class="mj-muted">{{ phase }}</span>
@@ -138,7 +148,7 @@
             class="mj-textarea"
             rows="2"
             :placeholder="advicePlaceholder"
-            @keydown.enter.exact.prevent="start"
+            @keydown="onComposerKeydown"
           ></textarea>
           <div class="wr-input-side">
             <!-- 跑着的时候这个按钮就是"停下" —— 它比"开始写"更有用 -->
@@ -233,10 +243,13 @@ import {
   subscribeWritingTask
 } from '../../api/agent'
 import { buildCitedMessage, citationPreview, segmentIndexOf } from '../../utils/citation'
+import { useSettingsStore } from '../../stores/settings'
+import { useComposerSend } from '../../composables/useComposerSend'
 import ModelPicker from './ModelPicker.vue'
 import Resizer from './Resizer.vue'
 import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
+import ThinkingBlock from './ThinkingBlock.vue'
 import VersionPanel from '../VersionPanel.vue'
 import MemoryPanel from '../MemoryPanel.vue'
 
@@ -250,6 +263,9 @@ const props = defineProps({
 
 const emit = defineEmits(['select-chapter', 'create-chapter'])
 
+const settings = useSettingsStore()
+const { onKeydown: onComposerKeydown, sendHint } = useComposerSend(() => start())
+
 const full = ref(null)
 const text = ref('')
 const requirement = ref('')
@@ -262,6 +278,16 @@ const citations = ref([])
 const menu = ref(null)
 /** 正在流式输出的回答（它说的话）。结束后会被落库的完整版本替换 */
 const streamingAnswer = ref('')
+/** 正在流式输出的思考过程（推理模型才有）。写作时它和正文是两个通道 */
+const streamingReasoning = ref('')
+/**
+ * 运行序号。
+ *
+ * <p>发起写作是"先请求拿 taskId、再订阅事件流"两段。用户完全可能在这两段之间
+ * 点了停止或切了章节 —— 之后订阅仍会建立，于是界面重新变成"写作中"。
+ * 每次 start 自增这个序号，回调里对不上就说明这次运行已经作废。
+ */
+let runSeq = 0
 
 const running = ref(false)
 const statusText = ref('')
@@ -298,9 +324,9 @@ const primaryLabel = computed(() => {
 })
 
 const advicePlaceholder = computed(() => {
-  if (citations.value.length) return '说说引用的这段要怎么改（Enter 提交，Shift+Enter 换行）'
-  if (text.value) return '对现有稿的意见，比如：把开头改得更陡一些（Enter 提交）'
-  return '想交代什么就写在这里，留空则按蓝图与写作要求写（Enter 提交）'
+  if (citations.value.length) return `说说引用的这段要怎么改（${sendHint()}）`
+  if (text.value) return `对现有稿的意见，比如：把开头改得更陡一些（${sendHint()}）`
+  return `想交代什么就写在这里，留空则按蓝图与写作要求写（${sendHint()}）`
 })
 
 // ==================== 数据加载 ====================
@@ -308,6 +334,9 @@ const advicePlaceholder = computed(() => {
 watch(
   () => props.chapter?.id,
   async (id) => {
+    // 切章 = 放弃这一章正在跑的任务。只关前端事件流是不够的：
+    // 后端线程还在生成、钱还在花，而且它最终会写进"另一章"。
+    await abortRunningTask()
     closeStream()
     running.value = false
     progress.value = []
@@ -319,6 +348,8 @@ watch(
     full.value = null
     text.value = ''
     requirement.value = ''
+    streamingAnswer.value = ''
+    streamingReasoning.value = ''
     if (!id) return
     try {
       await loadChapter(id)
@@ -522,6 +553,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocumentPointerDown, true)
   document.removeEventListener('scroll', closeMenu, true)
   document.removeEventListener('keydown', onKeydown)
+  // 离开工作台也不能让后端继续写、继续计费；事件流也必须关掉，否则泄漏
+  abortRunningTask()
+  closeStream()
 })
 
 // ==================== 发起写作 ====================
@@ -530,6 +564,28 @@ function closeStream() {
   if (source) {
     source.close()
     source = null
+  }
+}
+
+/**
+ * 放弃当前正在跑的任务。
+ *
+ * <p>三件事的顺序有讲究：先把运行序号作废（还在路上的回调从此都失效），
+ * 再通知后端停止（否则它会继续写、继续花钱），最后关掉事件流。
+ * 只关 EventSource 是"我看不见了"，不是"它停了"。
+ */
+async function abortRunningTask() {
+  runSeq += 1
+  const taskId = currentTaskId.value
+  currentTaskId.value = null
+  closeStream()
+  if (taskId) {
+    try {
+      await cancelWritingTask(taskId)
+    } catch (e) {
+      // 可能刚好自己跑完了，取消失败不算问题
+      console.warn('终止任务失败（可能已结束）', e)
+    }
   }
 }
 
@@ -543,6 +599,9 @@ async function start() {
       : '请按本章蓝图与写作要求写这一章的正文。')
   const revising = Boolean(text.value)
 
+  // 本次运行的序号：停止、切章、重新开始都会让它变，回调据此判断是否已作废
+  const seq = ++runSeq
+
   messages.value = [...messages.value, { role: 'user', text: outgoing }]
   advice.value = ''
   citations.value = []
@@ -550,6 +609,7 @@ async function start() {
   error.value = ''
   progress.value = []
   streamingAnswer.value = ''
+  streamingReasoning.value = ''
   phase.value = '正在准备材料…'
   statusText.value = '写作中'
   scrollStreamToBottom()
@@ -565,13 +625,22 @@ async function start() {
   }
 
   const timer = setTimeout(() => { phase.value = '正在写正文…' }, 8000)
-  let failed = false
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing)
+    // "拿 taskId → 订阅"之间用户可能已点停止或切章：这时刚建好的任务要立刻取消
+    if (seq !== runSeq) {
+      try {
+        await cancelWritingTask(taskId)
+      } catch (e) {
+        console.warn('作废任务取消失败', e)
+      }
+      return
+    }
     currentTaskId.value = taskId
     source = subscribeWritingTask(taskId, {
       onStatus: (s) => {
+        if (seq !== runSeq) return
         statusText.value =
           s === 'RUNNING' ? '写作中'
             : s === 'SUCCEEDED' ? '已完成'
@@ -579,10 +648,12 @@ async function start() {
                 : s === 'FAILED' ? '失败' : s
       },
       onProgress: (p) => {
+        if (seq !== runSeq) return
         progress.value = [...progress.value.slice(-3), p]
       },
+      // 逐字增量（首次连接与重连时，服务端会先发一份快照，见下面三个 Snapshot 回调）
       onContent: (delta) => {
-        // 正文：逐字出现在右边。它装在工具参数里，走的是单独的 content 通道
+        if (seq !== runSeq) return
         if (pendingReplace) {
           text.value = ''
           pendingReplace = false
@@ -590,18 +661,43 @@ async function start() {
         text.value += delta
         scrollBodyToBottom()
       },
+      onContentSnapshot: (snapshot) => {
+        // 重连时服务端重放的是"已经写好的全文"。这里必须替换而不是追加，
+        // 否则断线一次，正文就会整章重复一遍。
+        if (seq !== runSeq) return
+        pendingReplace = false
+        text.value = snapshot
+        scrollBodyToBottom()
+      },
       onDelta: (delta) => {
         // 回答：逐字出现在左边对话流。和正文是两回事 ——
         // 混在一条通道里的话，它说的"改好了…"会被拼到正文后面去
+        if (seq !== runSeq) return
         streamingAnswer.value += delta
         scrollStreamToBottom()
       },
+      onDeltaSnapshot: (snapshot) => {
+        if (seq !== runSeq) return
+        streamingAnswer.value = snapshot
+        scrollStreamToBottom()
+      },
+      onReasoning: (delta) => {
+        if (seq !== runSeq) return
+        streamingReasoning.value += delta
+        scrollStreamToBottom()
+      },
+      onReasoningSnapshot: (snapshot) => {
+        if (seq !== runSeq) return
+        streamingReasoning.value = snapshot
+        scrollStreamToBottom()
+      },
       onError: (message) => {
+        if (seq !== runSeq) return
         // 立刻显示，不等 onEnd —— 失败的当下就该看见原因
-        failed = true
         pushFailure(message)
       },
       onEnd: async () => {
+        if (seq !== runSeq) return
         running.value = false
         source = null
         currentTaskId.value = null
@@ -611,10 +707,12 @@ async function start() {
         // 保证"当场看到的"和"刷新后看到的"完全一致
         await loadConversation()
         streamingAnswer.value = ''
+        streamingReasoning.value = ''
       }
     })
   } catch (e) {
     // 任务都没起来（比如后端没响应）：同样要在对话里说一声
+    if (seq !== runSeq) return
     running.value = false
     currentTaskId.value = null
     clearTimeout(timer)
@@ -629,9 +727,14 @@ async function start() {
  *   1. 关掉前端的 EventSource —— 界面上立刻停住
  *   2. 调后端接口 —— <b>否则后端线程还在跑、模型还在生成、钱还在花</b>
  * 只做第一件，用户按了"停下"账单照样涨。
+ *
+ * <p>停下之后要"把话说实"：模型边写边推的字还没落库，刷新页面就没了。
+ * 所以这里重载服务端已保存的正文，并明确告诉作者"未保存的生成内容不会保留"，
+ * 而不是让他以为右边那半章已经在书里了。
  */
 async function stop() {
   const taskId = currentTaskId.value
+  runSeq += 1
   closeStream()
   running.value = false
   currentTaskId.value = null
@@ -647,10 +750,18 @@ async function stop() {
     }
   }
 
+  try {
+    await reload()
+  } catch (e) {
+    console.warn('停止后刷新正文失败', e)
+  }
+  streamingAnswer.value = ''
+  streamingReasoning.value = ''
+
   // 在对话里留一条说明，否则界面看起来像"写了一半就没了"
   messages.value = [...messages.value, {
     role: 'assistant',
-    text: '（已按你的要求停下。已经写出的部分保留在右边，可继续改。）',
+    text: '（已按你的要求停下。正文已刷新为上次保存的版本；本次未保存的生成内容不会保留。）',
     failed: false
   }]
   scrollStreamToBottom()
@@ -663,6 +774,20 @@ async function stop() {
 /* ==================================================================== */
 
 /* ==================== 左：交互区 ==================== */
+
+/*
+ * 根容器：左交互区 + 右正文区并排。
+ *
+ * 这一条曾经在 v2 视觉重做时被误删，后果是整个写作页退化成上下堆叠、
+ * 内部滚动全失效 —— 而构建不会报错、冒烟测试也看不出来。
+ * 新 UI 会重写这块，但在那之前先把它修回来，保证现在可用。
+ */
+.wr {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
 
 .wr-chat {
   display: flex;

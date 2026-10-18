@@ -37,6 +37,35 @@ const exporting = ref(false)
 // 导入项目
 const showImport = ref(false)
 const importing = ref(false)
+const importDialog = ref(null)
+
+/**
+ * 导入整本项目。
+ *
+ * <p>之前模板上绑了 {@code @confirm="confirmImport"}，但脚本里没有这个函数 ——
+ * 点了"导入"什么都不会发生，弹窗也不关。这里把闭环补上：
+ * 调接口 → 提示结果 → 关弹窗 → 刷新列表。
+ */
+async function confirmImport(payload) {
+  if (importing.value) return
+  importing.value = true
+  try {
+    const result = await importProject(payload)
+    const counts = result?.counts || {}
+    message.success(
+      `已导入「${result?.projectName || '未命名项目'}」：` +
+      `人物 ${counts.characters ?? 0} / 设定 ${counts.settings ?? 0} / ` +
+      `蓝图节点 ${counts.outline ?? 0} / 章节 ${counts.chapters ?? 0}`
+    )
+    showImport.value = false
+    importDialog.value?.reset()
+    await load()
+  } catch (e) {
+    message.error(e.message || '导入失败')
+  } finally {
+    importing.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -270,6 +299,7 @@ function fmtTime(value) {
     </AppModal>
 
     <JsonImportDialog
+      ref="importDialog"
       :visible="showImport"
       title="导入项目"
       expected-format="mojian-project/v1"

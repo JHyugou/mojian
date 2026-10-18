@@ -77,13 +77,23 @@ export const useSettingsStore = defineStore('settings', {
       this.applyTheme()
     },
 
-    /** 当前发送键对应的「发送」判定：返回 true 表示这次按键应该发送 */
+    /**
+     * 当前发送键对应的「发送」判定：返回 true 表示这次按键应该发送。
+     *
+     * <p><b>必须先确认这次按的是 Enter</b>。之前只看修饰键，
+     * 于是在"Shift+Enter 发送"模式下按一下 Shift 键本身就被判成发送——
+     * 用户看到的正是"点一下 shift 就发出去了"。输入框把每个 keydown 都交给这里，
+     * 所以第一行必须是 key 判定，而不是修饰键推断。
+     */
     shouldSendOn(event) {
+      if (!event || event.key !== 'Enter') return false
+      if (event.isComposing || event.keyCode === 229) return false
+      if (event.ctrlKey || event.altKey || event.metaKey) return false
       if (this.sendKey === 'shift-enter') {
-        return event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+        return event.shiftKey
       }
       // 默认 Enter 发送：带任何修饰键都不算发送（Shift 是换行）
-      return !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
-    }
+      return !event.shiftKey
+    },
   }
 })

@@ -72,9 +72,6 @@ public class WriterService {
     /** 被主动终止的任务 id。用来把"用户停的"和"自己失败的"区分开 */
     private final Set<Long> cancelledTasks = ConcurrentHashMap.newKeySet();
 
-    /** 保存动作的痕迹 —— 用来判断这一轮到底有没有产出正文 */
-    private static final String SAVE_TOOL = "save_chapter_draft";
-
     private final AgentLoopService agentLoopService;
     private final AgentContextService agentContextService;
     private final ConversationService conversationService;
@@ -246,6 +243,9 @@ public class WriterService {
     private WriterResult execute(Long chapterId, String instruction, AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
+        // 保存成功的判定基准：版本号只在真正写入正文时递增。
+        // 之前用"trace 里出现过 save_chapter_draft"判断，工具失败也会记 trace → 假阳性。
+        int versionBefore = chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo();
 
         // 1. 写作会话：整本书一个，跨章存续。
         //    这样副 Agent 才记得住你上一章说过的偏好与约束，而不是每章从零开始。
@@ -287,10 +287,10 @@ public class WriterService {
         conversationService.append(conversation.getId(), result.steps(),
                 AgentMessage.assistant(result.answer(), null));
 
-        // 7. 判定是否真的写进了正文（工具的副作用在库里，这里重新读一次确认）
+        // 7. 判定是否真的写进了正文：以版本号是否前进为准（工具的副作用在库里）
         Chapter updated = chapterService.requireById(chapterId);
-        boolean saved = StringUtils.hasText(updated.getContent())
-                && result.trace().stream().anyMatch(step -> SAVE_TOOL.equals(step.toolName()));
+        int versionAfter = updated.getCurrentVersionNo() == null ? 0 : updated.getCurrentVersionNo();
+        boolean saved = versionAfter > versionBefore;
 
         // 8. 记账。被终止的运行也要记：钱已经花出去了，不能因为"没写完"就不算
         usageService.record(context, result.usage());
