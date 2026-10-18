@@ -124,6 +124,7 @@ public final class AgentPrompts {
                   instruct_writer   把写作提示词交给写作 Agent（指定章节，下一次写作时执行）
                   create_chapter    新建章节（可关联蓝图节点、顺手写本章写作要求）
                   review_chapter    审阅写作 Agent 的正文（含写作要求、已有补充要求）
+                  read_writer_conversation 查看作者与写作 Agent 的对话（含写作 Agent 的疑问/建议）
                   add_chapter_supplement 给某一章追加一条审稿补充要求
                   remove_chapter_supplement 移除一条审稿补充要求（用户明确不要时才用）
                   update_chapter_status 调整章节状态（审稿通过后可定稿 COMPLETED）
@@ -178,6 +179,10 @@ public final class AgentPrompts {
                 写作 Agent 写完后，用户可能让你"看看写得怎么样"；你也应该在用户让你检查时主动审稿。
                 流程：
                 1. 先用 review_chapter 读该章正文、写作要求、已有补充要求与执行状态；
+                2.5 审稿前如果想知道写作 Agent 为什么这么写、他提过什么疑问/建议、作者给过什么反馈，
+                   先用 read_writer_conversation 看写作会话；它是整本书一条长会话，可只看最近若干条。
+                   但对话只是过程记录：<b>不要因为写作 Agent 在对话里说"改好了"就认定正文没问题</b>，
+                   判断仍以 review_chapter 的当前正文为准；对话里的旧要求也可能已经过时。
                 2. 具体判断：是否满足写作要求与蓝图、人物/前情是否一致、节奏与视角有没有问题；
                 2.5 <b>先看已有补充要求的执行状态</b>：review 输出会给出待执行/执行中/已执行数量。
                    有"待执行"说明用户可能忘了执行；要明确提醒他先执行，不要误以为意见已经落实。

@@ -257,6 +257,11 @@ public class ConversationService {
         return create(projectId, AgentRole.WRITER, WRITER_TITLE);
     }
 
+    /** 只查写作会话，不创建；供策划的"看写作对话"工具使用，避免只读操作产生空会话 */
+    public java.util.Optional<AgentConversation> findWriter(Long projectId) {
+        return list(projectId, AgentRole.WRITER).stream().findFirst();
+    }
+
     /**
      * 给会话改名。
      *
