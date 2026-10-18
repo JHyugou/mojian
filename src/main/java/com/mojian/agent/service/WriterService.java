@@ -90,6 +90,7 @@ public class WriterService {
     private final AgentUsageService usageService;
     private final ChapterMemoryWorker memoryWorker;
     private final WriterInstructionService instructionService;
+    private final ChapterSupplementService supplementService;
     private final GenerationTaskMapper generationTaskMapper;
     private final AgentRunService runService;
     private final ExecutorService agentTaskExecutor;
@@ -379,6 +380,17 @@ public class WriterService {
         if (requirement != null) {
             required.add(requirement);
         }
+        // 策划审稿后的补充要求：与写作要求分开，每条独立注入（编号区分，不合并）
+        List<com.mojian.agent.entity.ChapterSupplement> supplements =
+                supplementService.pending(chapter.getId());
+        int supplementNo = 1;
+        for (com.mojian.agent.entity.ChapterSupplement supplement : supplements) {
+            StringBuilder text = new StringBuilder(supplement.getContent().trim());
+            if (StringUtils.hasText(supplement.getReason())) {
+                text.append("\n（策划提出这条要求的原因：").append(supplement.getReason().trim()).append("）");
+            }
+            required.add(AgentContextSection.required("本章补充要求 " + supplementNo++, text.toString()));
+        }
         if (revising) {
             // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
             required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
@@ -498,6 +510,8 @@ public class WriterService {
         if (saved) {
             // 指令已执行：标记 CONSUMED，下一章不会重复注入；失败/取消则保持 PENDING，重试仍带上
             instructionService.markConsumed(instructionService.pending(projectId, chapterId));
+            // 审稿补充要求同理：写入正文成功后归档为 APPLIED，保留历史供策划下次审稿查看
+            supplementService.markApplied(supplementService.pending(chapterId));
             memoryWorker.schedule(projectId, chapterId);
             log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
         }

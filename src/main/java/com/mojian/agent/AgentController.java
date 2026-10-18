@@ -14,11 +14,13 @@ import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.entity.ChapterDeleteRequest;
+import com.mojian.agent.entity.ChapterSupplement;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.AgentRunRegistry;
 import com.mojian.agent.service.AgentUsageService;
 import com.mojian.agent.service.ChapterDeleteRequestService;
+import com.mojian.agent.service.ChapterSupplementService;
 import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.ConversationRollbackService;
 import com.mojian.agent.service.DraftService;
@@ -80,6 +82,7 @@ public class AgentController {
     private final AgentRunRegistry runRegistry;
     private final WriterInstructionService writerInstructionService;
     private final ChapterDeleteRequestService chapterDeleteRequestService;
+    private final ChapterSupplementService chapterSupplementService;
     private final TaskEventBroker broker;
     private final com.mojian.generation.mapper.GenerationTaskMapper generationTaskMapper;
 
@@ -208,6 +211,14 @@ public class AgentController {
                     data.put("createdAt", item.getCreatedAt());
                     return data;
                 }).toList());
+    }
+
+    // ==================== 章节补充要求 ====================
+
+    /** 策划审稿后追加的补充要求（与 writingRequirement 分开，按条返回） */
+    @GetMapping("/writer/chapters/{chapterId}/supplements")
+    public ApiResponse<List<ChapterSupplement>> chapterSupplements(@PathVariable Long chapterId) {
+        return ApiResponse.ok(chapterSupplementService.listByChapter(chapterId));
     }
 
     // ==================== 章节删除申请 ====================

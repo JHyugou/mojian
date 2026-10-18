@@ -204,6 +204,25 @@ public class AgentSchemaInitializer {
             """;
 
     /**
+     * 章节补充要求：策划审稿后追加给写作 Agent 的修正意见，与 writingRequirement 分开。
+     */
+    private static final String CHAPTER_SUPPLEMENT_DDL = """
+            CREATE TABLE IF NOT EXISTS chapter_supplement (
+                id            BIGINT       NOT NULL,
+                project_id    BIGINT       NOT NULL,
+                chapter_id    BIGINT       NOT NULL,
+                content       TEXT         NOT NULL COMMENT '具体修改要求',
+                reason        VARCHAR(1000) DEFAULT NULL COMMENT '针对什么问题',
+                source        VARCHAR(20)  NOT NULL DEFAULT 'PLANNER',
+                status        VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / APPLIED',
+                created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_chapter_supplement_chapter (chapter_id, status, created_at)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '策划审稿后的补充要求'
+            """;
+
+    /**
      * 写作 Agent 的章节删除申请。
      *
      * <p>默认必须由作者确认；作者在设置里显式开启"自动批准删除"时才允许当场删除。
@@ -291,6 +310,7 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(WRITER_INSTRUCTION_DDL);
         jdbcTemplate.execute(AGENT_UNDO_LOG_DDL);
         jdbcTemplate.execute(CHAPTER_DELETE_REQUEST_DDL);
+        jdbcTemplate.execute(CHAPTER_SUPPLEMENT_DDL);
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段
