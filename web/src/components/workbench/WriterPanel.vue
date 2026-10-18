@@ -887,7 +887,14 @@ async function stop() {
 }
 
 /* 用户消息靠右 */
-.wr-msg.is-user { display: flex; flex-direction: column; align-items: flex-end; }
+.wr-msg.is-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: fit-content;
+  max-width: 82%;
+  margin-left: auto;
+}
 .wr-msg.is-user .wr-msg-tag { justify-content: flex-end; }
 .wr-msg.is-user .wr-msg-tag::before { order: 2; }
 

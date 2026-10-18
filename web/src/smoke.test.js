@@ -53,7 +53,8 @@ const PAGES = {
   '成书': () => import('./views/BookPage.vue'),
   '模型接入': () => import('./views/AiSettingsPage.vue'),
   '人物档案': () => import('./views/CharactersPage.vue'),
-  '故事设定库': () => import('./views/SettingsPage.vue'),
+  '故事设定库': () => import('./views/SettingLibraryPage.vue'),
+  '设置': () => import('./views/PreferencesPage.vue'),
   '剧情蓝图': () => import('./views/OutlinePage.vue')
 }
 

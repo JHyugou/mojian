@@ -5,6 +5,7 @@ import com.mojian.agent.AgentLoopService;
 import com.mojian.agent.AgentPrompts;
 import com.mojian.agent.AgentResult;
 import com.mojian.agent.AgentRole;
+import com.mojian.agent.AgentRunListener;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.dto.PlannerChatResponse;
@@ -70,7 +71,24 @@ public class PlannerService {
 
         // 5. 跑循环
         AgentContext context = AgentContext.ofConversation(projectId, AgentRole.PLANNER, conversation.getId());
-        AgentResult result = agentLoopService.run(context, systemPrompt, history, userMessage, maxSteps());
+
+        /*
+         * 收集思考过程。
+         *
+         * 策划走的是同步请求（一次返回完整结果），没有 SSE 可以把 reasoning 边生成边推，
+         * 所以这里用 StringBuilder 攒起来、随响应一起返回。
+         * 届不展示、怎么展示由界面设置决定 —— 后端只负责别把它丢了。
+         * （在这之前这里没传 listener，思考过程是被直接丢弃的。）
+         */
+        StringBuilder reasoning = new StringBuilder();
+        AgentRunListener reasoningCollector = new AgentRunListener() {
+            @Override
+            public void onReasoning(String delta) {
+                reasoning.append(delta);
+            }
+        };
+        AgentResult result = agentLoopService.run(context, systemPrompt, history, userMessage,
+                maxSteps(), reasoningCollector);
 
         // 6. 回答落库
         conversationService.append(conversation.getId(), result.steps(),
@@ -81,7 +99,8 @@ public class PlannerService {
 
         log.info("策划对话完成（会话 {}）：{} 步 / {} / {}", conversation.getId(),
                 result.steps(), result.status(), result.usage().describe());
-        return PlannerChatResponse.of(conversation.getId(), result, materials.report());
+        return PlannerChatResponse.of(conversation.getId(), result, materials.report(),
+                reasoning.isEmpty() ? null : reasoning.toString());
     }
 
     /**

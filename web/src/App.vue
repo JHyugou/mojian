@@ -23,7 +23,8 @@ watch(sideWidth, (value) => localStorage.setItem('mojian.sideWidth', String(valu
 const navItems = [
   { path: '/', label: '创作项目', num: '壹' },
   { path: '/book', label: '成书', num: '貳' },
-  { path: '/ai-settings', label: '模型接入', num: '叁' }
+  { path: '/ai-settings', label: '模型接入', num: '叁' },
+  { path: '/settings', label: '设置', num: '肆' }
 ]
 </script>
 

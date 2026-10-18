@@ -40,7 +40,9 @@ const PATHS = {
   // 全部采纳（双勾）
   checkAll: '<path d="M2 13l4 4L14 9"/><path d="M11 15l1.5 1.5L21 8"/>',
   // 单选已选中
-  check: '<path d="M4.5 12.5l5 5 10-11"/>'
+  check: '<path d="M4.5 12.5l5 5 10-11"/>',
+  // 回车键
+  enter: '<path d="M9 10l-5 5 5 5"/><path d="M4 15h11a4 4 0 0 0 4-4V5"/>'
 }
 </script>
 

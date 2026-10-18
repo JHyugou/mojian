@@ -28,6 +28,12 @@
       <div v-for="(msg, i) in messages" :key="i" class="pl-msg mj-rise" :class="['is-' + msg.role, { 'is-cancelled': msg.cancelled }]">
         <div class="pl-msg-tag">{{ msg.role === 'user' ? '你' : '策划 Agent' }}</div>
 
+        <ThinkingBlock
+          v-if="msg.role === 'assistant'"
+          :text="msg.reasoning"
+          :mode="settings.thinkingMode"
+        />
+
         <div class="pl-bubble">
           <MarkdownText :text="msg.text" />
         </div>
@@ -184,6 +190,15 @@
         </button>
       </div>
 
+      <!-- 附件：跟着这条消息一起发出去 -->
+      <div v-if="attachments.length" class="pl-atts">
+        <span v-for="(att, i) in attachments" :key="i" class="pl-att">
+          <img v-if="att.isImage && att.dataUrl" :src="att.dataUrl" class="pl-att-thumb" alt="" />
+          <span class="pl-att-name">{{ att.name }}</span>
+          <button class="pl-att-x" title="移除" @click="removeAttachment(i)">×</button>
+        </span>
+      </div>
+
       <div class="pl-input">
         <textarea
           v-model="draftMessage"
@@ -192,7 +207,8 @@
           :placeholder="citations.length
             ? '说说这段要怎么改，比如：把这里改成白天，并加上他手上的旧伤（Enter 发送）'
             : '说说你的想法…（Enter 发送，Shift+Enter 换行）'"
-          @keydown.enter.exact.prevent="send"
+          @keydown="onKeydown"
+          @paste="onPaste"
         ></textarea>
         <div class="pl-input-side">
           <!-- 跑着的时候，那个按钮就是"停下" —— 它比"发送"更有用 -->
@@ -210,44 +226,85 @@
           </button>
         </div>
       </div>
-
       <!--
-        采纳模式。照 DSH 的权限选择：手动 = 起草后逐条问你，自动 = 直接写入。
-        默认手动 —— 逐条审阅正是"人工确认"这套机制存在的意义，
-        自动模式是给"我已经信任它了，别再打断我"的场景准备的。
+        底部工具条。从左到右是四类东西：
+          ① 加号：附件与会话导出（低频但必要时找不到会很难受）
+          ② 采纳模式：我怎么审你
+          ③ 发送键：Enter 还是 Shift+Enter
+          ④ 模型选择：你用哪颗脑子
+        全放在输入框正下方 —— 这些都是一边写一边会想改的设置，
+        埋进设置页就是让人来回跳。
       -->
       <div class="pl-mode">
+        <!-- ① 加号 -->
+        <div class="pl-plus-wrap">
+          <button class="pl-plus" :class="{ open: plusOpen }" title="更多" @click.stop="plusOpen = !plusOpen">
+            <Icon name="plus" :size="15" />
+          </button>
+
+          <div v-if="plusOpen" class="pl-plus-menu mj-pop">
+            <button class="pl-mode-item" @click="pickFiles">
+              <span class="pl-mode-name">上传文件</span>
+              <span class="pl-mode-desc">文本类文件会读进附件，跟着这条消息一并发出去</span>
+            </button>
+            <button class="pl-mode-item" @click="exportLog">
+              <span class="pl-mode-name">导出会话日志</span>
+              <span class="pl-mode-desc">把这段对话存成 Markdown，方便归档或贴给别人看</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 隐藏的文件选择器 -->
+        <input
+          ref="fileInput"
+          type="file"
+          class="pl-hidden-input"
+          multiple
+          accept=".txt,.md,.json,.csv,.log,.yml,.yaml,.xml,.html,.css,.js,.ts,.java,.py"
+          @change="onFilesPicked"
+        />
+
+        <!-- ② 采纳模式 -->
         <button class="pl-mode-btn" @click="modeMenuOpen = !modeMenuOpen">
           <Icon name="shield" :size="13" />
           采纳模式：{{ autoApprove ? '自动' : '手动' }}
           <span class="pl-mode-caret">▾</span>
         </button>
 
-        <div v-if="modeMenuOpen" class="pl-mode-menu mj-fade">
-          <button
-            class="pl-mode-item"
-            :class="{ active: !autoApprove }"
-            @click="setAutoApprove(false)"
-          >
+        <div v-if="modeMenuOpen" class="pl-mode-menu mj-pop">
+          <button class="pl-mode-item" :class="{ active: !autoApprove }" @click="setAutoApprove(false)">
             <span class="pl-mode-name">手动采纳</span>
             <span class="pl-mode-desc">起草后逐条让你确认</span>
           </button>
-          <button
-            class="pl-mode-item"
-            :class="{ active: autoApprove }"
-            @click="setAutoApprove(true)"
-          >
+          <button class="pl-mode-item" :class="{ active: autoApprove }" @click="setAutoApprove(true)">
             <span class="pl-mode-name">自动采纳</span>
             <span class="pl-mode-desc">起草后直接写入你的书，不再询问</span>
           </button>
         </div>
 
+        <!-- ③ 发送键 -->
+        <button class="pl-mode-btn" @click="sendKeyMenuOpen = !sendKeyMenuOpen">
+          <Icon name="enter" :size="13" />
+          {{ sendKeyLabel }}
+          <span class="pl-mode-caret">▾</span>
+        </button>
+
+        <div v-if="sendKeyMenuOpen" class="pl-mode-menu mj-pop">
+          <button
+            v-for="mode in SEND_KEYS"
+            :key="mode.key"
+            class="pl-mode-item"
+            :class="{ active: settings.sendKey === mode.key }"
+            @click="settings.setSendKey(mode.key); sendKeyMenuOpen = false"
+          >
+            <span class="pl-mode-name">{{ mode.label }}</span>
+            <span class="pl-mode-desc">{{ mode.hint }}</span>
+          </button>
+        </div>
+
         <span v-if="autoNotice" class="pl-mode-notice mj-fade">{{ autoNotice }}</span>
 
-        <!--
-          模型选择放在右侧：左边是"我怎么审你"，右边是"你用哪颗脑子"。
-          两件都是设定一次长期生效的东西，所以常驻在输入框下方，而不是埋进设置页。
-        -->
+        <!-- ④ 模型 -->
         <div class="pl-mode-right">
           <ModelPicker role="PLANNER" />
         </div>
@@ -272,7 +329,10 @@ import {
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import ModelPicker from './ModelPicker.vue'
+import ThinkingBlock from './ThinkingBlock.vue'
 import { useLibraryStore } from '../../stores/library'
+import { useSettingsStore, SEND_KEYS } from '../../stores/settings'
+import { useMessageStore } from '../../stores/message'
 import Icon from '../Icon.vue'
 import MarkdownText from '../MarkdownText.vue'
 
@@ -289,6 +349,8 @@ const props = defineProps({
 const emit = defineEmits(['remove-citation', 'clear-citations', 'conversation-changed'])
 
 const library = useLibraryStore()
+const settings = useSettingsStore()
+const message = useMessageStore()
 
 /** 采纳模式：手动（默认）/ 自动 */
 const autoApprove = ref(localStorage.getItem('mojian.autoApprove') === '1')
@@ -297,6 +359,131 @@ const autoNotice = ref('')
 /** 正在跑的请求，用来中止 */
 const controller = ref(null)
 
+// ==================== 底部工具条状态 ====================
+
+const plusOpen = ref(false)
+const sendKeyMenuOpen = ref(false)
+const fileInput = ref(null)
+
+/**
+ * 附件。
+ *
+ * 文本类文件直接把内容读进来跟着消息发出去 —— 贴一段设定、一份人物表，
+ * 比让用户自己复制粘贴靠谱。
+ * 图片只记文件名与缩略图：当前接入的模型是纯文本的，看不到图；
+ * 但先把东西留在那里，将来换成多模态模型时这条链路就能直接用。
+ */
+const attachments = ref([])
+
+const sendKeyLabel = computed(() => {
+  const mode = SEND_KEYS.find((m) => m.key === settings.sendKey)
+  return mode ? mode.label.replace(' 发送', '') : 'Enter'
+})
+
+function pickFiles() {
+  plusOpen.value = false
+  fileInput.value?.click()
+}
+
+async function onFilesPicked(event) {
+  const files = Array.from(event.target.files || [])
+  for (const file of files) {
+    // 单个文件设个上限：一份几十兆的日志贴进上下文没有意义，只会把请求撑爆
+    if (file.size > 256 * 1024) {
+      message.error(`「${file.name}」超过 256KB，太大了一律会挤掉正文，先自己节选吧`)
+      continue
+    }
+    try {
+      const text = await file.text()
+      attachments.value = [...attachments.value, { name: file.name, text, isImage: false }]
+    } catch (e) {
+      message.error(`读不了「${file.name}」：${e.message}`)
+    }
+  }
+  // 清空，否则同一个文件连选两次不会触发 change
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+/**
+ * 粘贴。
+ *
+ * 图片粘贴是很多人的肌肉记忆（截图 → Ctrl+V），
+ * 而 textarea 默认会把图片当成"空内容"直接吞掉，什么都不发生 —— 那很让人困惑。
+ */
+async function onPaste(event) {
+  const items = Array.from(event.clipboardData?.items || [])
+  const imageItem = items.find((item) => item.type.startsWith('image/'))
+  if (!imageItem) return
+
+  event.preventDefault()
+  const file = imageItem.getAsFile()
+  if (!file) return
+
+  const dataUrl = await new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.readAsDataURL(file)
+  })
+
+  attachments.value = [...attachments.value, {
+    name: file.name || `粘贴的图片-${attachments.value.length + 1}.png`,
+    dataUrl,
+    isImage: true
+  }]
+  message.info('图片已添加为附件（当前模型是纯文本的，看不到图，但会记下文件名）')
+}
+
+function removeAttachment(index) {
+  const next = [...attachments.value]
+  next.splice(index, 1)
+  attachments.value = next
+}
+
+/** 按发送键设置判断这次按键该不该发送 */
+function onKeydown(event) {
+  if (event.isComposing) return // 中文输入法正在组词，不要抢 Enter
+  if (!settings.shouldSendOn(event)) return
+  event.preventDefault()
+  send()
+}
+
+/**
+ * 导出这段对话为 Markdown。
+ *
+ * 用 Blob + 临时链接下载，不经过后端 —— 会话数据本来就在前端手里，
+ * 为了一次导出再绕一趟服务端没有意义。
+ */
+function exportLog() {
+  plusOpen.value = false
+  if (!messages.value.length) {
+    message.error('这段对话还是空的，没什么可导出的')
+    return
+  }
+
+  const title = conversationTitle.value || '未命名对话'
+  const lines = [`# ${title}`, '', `导出时间：${new Date().toLocaleString('zh-CN')}`, '']
+  for (const msg of messages.value) {
+    lines.push(msg.role === 'user' ? '## 你' : '## 策划 Agent')
+    lines.push('')
+    if (msg.reasoning && settings.thinkingMode !== 'hidden') {
+      lines.push('> **思考过程**')
+      lines.push('>')
+      msg.reasoning.split('\n').forEach((line) => lines.push('> ' + line))
+      lines.push('')
+    }
+    lines.push(msg.text || '')
+    lines.push('')
+  }
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${title.replace(/[\\/:*?"<>|]/g, '_')}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+  message.success('已导出')
+}
 function setAutoApprove(value) {
   autoApprove.value = value
   localStorage.setItem('mojian.autoApprove', value ? '1' : '0')
@@ -505,7 +692,29 @@ function askFix(draft) {
  * 格式必须一致：模型是靠这段固定格式认出"哪部分是被引的原文"的。
  */
 function buildMessage() {
-  return buildCitedMessage(props.citations, draftMessage.value)
+  let text = buildCitedMessage(props.citations, draftMessage.value)
+
+  /*
+   * 附件拼在正文后面。
+   *
+   * 为什么不放前面：用户打的字是"要求"，附件是"材料" ——
+   * 先说要求再看材料，模型更容易抓住重点。反过来，几十行附件会把要求挤到很后面。
+   * 每份附件都套一层代码围栏，避免文件里自带的围栏把整段结构提前闭合。
+   */
+  for (const att of attachments.value) {
+    if (att.isImage) {
+      text += `\n\n[图片附件：${att.name}]\n（当前模型是纯文本的，看不到图片内容；` +
+        '如果这张图里有需要参考的信息，请用文字描述一下）'
+    } else if (att.text) {
+      text += `\n\n[附件：${att.name}]\n` + '```' + `\n${att.text}\n` + '```'
+    }
+  }
+  return text
+}
+
+/** 发送成功后清空附件；失败时保留，用户不用重新上传一遍 */
+function clearAttachments() {
+  attachments.value = []
 }
 
 function scrollToBottom() {
@@ -527,6 +736,7 @@ async function send() {
   messages.value.push({ role: 'user', text: outgoing })
   draftMessage.value = ''
   emit('clear-citations')
+  clearAttachments()
   sending.value = true
   error.value = ''
   phase.value = '正在读你的资料…'
@@ -551,6 +761,8 @@ async function send() {
     messages.value.push({
       role: 'assistant',
       text: data.answer,
+      // 思考过程：后端原样返回，显不显示、怎么显示交给 ThinkingBlock 按设置决定
+      reasoning: data.reasoning || '',
       trace: data.trace || [],
       steps: data.steps,
       usage: data.usage
@@ -789,7 +1001,21 @@ async function discardDraft(draft) {
 .pl-bubble:hover { border-color: var(--color-line); }
 
 /* 用户消息：整块棕雾。比"左侧一根竖线"柔和得多 */
-.pl-msg.is-user { margin-left: auto; }
+/*
+ * 用户消息靠右。
+ *
+ * 光有 margin-left:auto 是不够的 —— .pl-msg 是块级元素，
+ * 不约束宽度就会撑满到 max-width，里面的气泡跟着撑满，
+ * 于是右边空出一大块。必须给 fit-content。
+ */
+.pl-msg.is-user {
+  width: fit-content;
+  max-width: min(780px, 82%);
+  margin-left: auto;
+}
+
+/* 气泡本身按内容收窄，不要跟着父元素撑满 */
+.pl-bubble { width: fit-content; max-width: 100%; }
 .pl-msg.is-user .pl-msg-tag { justify-content: flex-end; }
 .pl-msg.is-user .pl-msg-tag::before { order: 2; }
 
@@ -1186,4 +1412,102 @@ async function discardDraft(draft) {
 .pl-mode-desc { font-size: 11px; color: var(--color-muted); }
 
 .pl-mode-notice { font-size: 11.5px; color: var(--color-brown); animation: mj-fade var(--dur) both; }
+
+/* ==================================================================== */
+/* 底部工具条：加号 / 附件 / 发送键                                     */
+/* ==================================================================== */
+
+.pl-plus-wrap { position: relative; display: flex; }
+
+/*
+ * 加号按钮。
+ * 圆形 + 略微放大：它是"更多操作"的通用入口，形状比其他按钮更自由一点，
+ * 反而更容易被认出来。
+ */
+.pl-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-paper-warm);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out),
+              transform var(--dur) var(--ease-spring);
+}
+.pl-plus:hover { background: var(--tint-strong); color: var(--color-brown-deep); transform: scale(1.08); }
+.pl-plus.open { background: var(--tint-strong); color: var(--color-brown-deep); transform: rotate(45deg); }
+
+/* 加号菜单：往上弹，锚在按钮左侧（它在最左边） */
+.pl-plus-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 90;
+  min-width: 268px;
+  padding: 8px;
+  border-radius: var(--radius-m);
+  background: var(--color-panel);
+  box-shadow: var(--shadow-float);
+  animation: mj-pop var(--dur) var(--ease-spring) both;
+}
+
+.pl-hidden-input { display: none; }
+
+/* ---------- 附件 ---------- */
+
+.pl-atts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 13px 16px 0;
+}
+
+.pl-att {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  padding: 5px 7px 5px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--tint);
+  animation: mj-pop var(--dur) var(--ease-spring) both;
+}
+
+.pl-att-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-xs);
+  object-fit: cover;
+  flex: none;
+}
+
+.pl-att-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--color-brown-deep);
+}
+
+.pl-att-x {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1;
+  transition: background var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.pl-att-x:hover { background: var(--tint-strong); color: var(--color-danger); }
+
 </style>
