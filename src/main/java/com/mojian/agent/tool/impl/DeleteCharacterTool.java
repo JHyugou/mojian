@@ -1,6 +1,7 @@
 package com.mojian.agent.tool.impl;
 
 import com.mojian.agent.AgentContext;
+import com.mojian.agent.service.AgentDeleteRequestService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.exception.BusinessException;
@@ -17,9 +18,8 @@ import java.util.Map;
 /**
  * 策划 Agent 删除人物卡。
  *
- * <p>删除是不可逆动作，工具本身不提供"待确认"状态 —— 确认责任在系统提示词：
- * 策划必须先向用户说明后果并得到明确同意，才能调用。
- * 这里再做一层硬校验：记录必须属于当前项目，理由必填。
+ * <p>删除是不可逆动作：工具只登记删除申请，作者在界面上确认后才真正删除。
+ * 这样即使模型误判，也不会直接动作者的人物档案。
  */
 @Slf4j
 @Component
@@ -27,6 +27,7 @@ import java.util.Map;
 public class DeleteCharacterTool implements AgentTool {
 
     private final CharacterService characterService;
+    private final AgentDeleteRequestService deleteRequestService;
 
     @Override
     public String name() {
@@ -35,8 +36,8 @@ public class DeleteCharacterTool implements AgentTool {
 
     @Override
     public String description() {
-        return "删除一张人物卡（人物卡及其版本节点一并删除，不可恢复）。"
-                + "必须先向用户说明将删除哪个人物、会连带删除什么，并得到用户明确同意后才能调用。"
+        return "申请人物的删除。此工具不会立即删除，只会生成一条待作者确认的删除申请；"
+                + "请先向用户说明将删除哪个人物、会连带删除什么。"
                 + "characterId 是人物记录 ID，先用 query_character 查到；reason 必填。";
     }
 
@@ -72,11 +73,12 @@ public class DeleteCharacterTool implements AgentTool {
         if (!projectId.equals(character.getProjectId())) {
             return "错误：人物 " + characterId + " 不属于当前项目，不能删除。";
         }
-        characterService.delete(characterId);
-        log.warn("策划 Agent 删除人物 {}「{}」：{}", characterId, character.getName(), reason);
-        return "已删除人物卡「" + character.getName() + "」（记录 ID " + characterId + "）。\n"
-                + "风险提示：人物卡与其版本节点已一并删除，不可恢复。\n"
-                + "请明确告诉作者你删除了谁、为什么；如果还需要这个人物，只能重新建档。";
+        characterService.requireById(characterId);
+        deleteRequestService.request(projectId, context.conversationId(),
+                "CHARACTER", characterId, character.getName(), reason);
+        log.warn("策划 Agent 申请删除人物 {}「{}」：{}", characterId, character.getName(), reason);
+        return "已提交删除人物卡「" + character.getName() + "」的申请，尚未删除。\n"
+                + "请让作者在待确认区点击确认；确认前它不会影响任何数据。";
     }
 
     private Long longOf(Object value) {

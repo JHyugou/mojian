@@ -90,11 +90,15 @@ public class ReviewChapterTool implements AgentTool {
         List<ChapterSupplement> supplements = supplementService.listByChapter(chapter.getId());
         long pending = supplements.stream().filter(s -> "PENDING".equals(s.getStatus())).count();
         long executing = supplements.stream().filter(s -> "EXECUTING".equals(s.getStatus())).count();
+        long submitted = supplements.stream().filter(s -> "SUBMITTED".equals(s.getStatus())).count();
         long applied = supplements.stream().filter(s -> "APPLIED".equals(s.getStatus())).count();
         sb.append("【已有补充要求】共 ").append(supplements.size()).append(" 条：待执行 ")
                 .append(pending).append("，执行中 ").append(executing)
-                .append("，已执行 ").append(applied).append("\n");
-        sb.append("（状态以这里为准：待执行 = 还没让写作 Agent 改；执行中 = 正在改；已执行 = 已写入正文）\n");
+                .append("，待核验 ").append(submitted)
+                .append("，已核验 ").append(applied).append("\n");
+        sb.append("（状态以这里为准：待执行 = 还没让写作 Agent 改；执行中 = 正在改；"
+                + "待核验 = 写作 Agent 已保存新版本但还没有人确认真的落实；已核验 = 作者/策划确认落实。"
+                + "不要因为写作 Agent 说改好了就把待核验当成已核验）\n");
         if (supplements.isEmpty()) {
             sb.append("（暂无）\n");
         } else {
@@ -135,7 +139,8 @@ public class ReviewChapterTool implements AgentTool {
         return switch (status) {
             case "PENDING" -> "待执行";
             case "EXECUTING" -> "执行中";
-            case "APPLIED" -> "已执行";
+            case "SUBMITTED" -> "待核验";
+            case "APPLIED" -> "已核验";
             default -> status;
         };
     }

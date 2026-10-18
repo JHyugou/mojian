@@ -1,5 +1,7 @@
 package com.mojian.agent;
 
+import com.mojian.agent.entity.AgentDeleteRequest;
+import com.mojian.agent.service.AgentDeleteRequestService;
 import com.mojian.agent.tool.impl.DeleteBlueprintTool;
 import com.mojian.agent.tool.impl.DeleteCharacterTool;
 import com.mojian.agent.tool.impl.DeleteSettingTool;
@@ -26,7 +28,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 策划 Agent 的删除工具：能删当前项目的人物/设定/蓝图，不能跨项目删。
+ * 策划删除工具：只生成待确认申请，作者确认后才真正删除；不能跨项目。
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -39,6 +41,8 @@ class DeletePlannerEntitiesToolTest {
     private DeleteSettingTool deleteSettingTool;
     @Autowired
     private DeleteBlueprintTool deleteBlueprintTool;
+    @Autowired
+    private AgentDeleteRequestService deleteRequestService;
     @Autowired
     private ProjectService projectService;
     @Autowired
@@ -78,8 +82,8 @@ class DeletePlannerEntitiesToolTest {
     }
 
     @Test
-    @DisplayName("策划可以删除当前项目的人物、设定、蓝图")
-    void 删除当前项目实体() {
+    @DisplayName("删除工具只申请，不直接删除；作者确认后才删除")
+    void 删除需要作者确认() {
         Long projectId = createProject("策划删除测试");
         CharacterProfile character = character(projectId, "待删人物");
         SettingEntry setting = setting(projectId, "待删设定");
@@ -88,22 +92,32 @@ class DeletePlannerEntitiesToolTest {
 
         assertThat(deleteCharacterTool.execute(context,
                 Map.of("characterId", character.getId(), "reason", "人物合并了")))
-                .contains("已删除人物卡");
+                .contains("已提交删除人物卡").contains("尚未删除");
         assertThat(deleteSettingTool.execute(context,
                 Map.of("settingId", setting.getId(), "reason", "设定作废")))
-                .contains("已删除设定");
+                .contains("已提交删除设定").contains("尚未删除");
         assertThat(deleteBlueprintTool.execute(context,
                 Map.of("nodeId", outline.getId(), "reason", "剧情重排")))
-                .contains("已删除蓝图节点");
+                .contains("已提交删除蓝图节点").contains("尚未删除");
 
+        // 申请阶段数据必须原样保留
+        assertThat(characterService.getById(character.getId())).isNotNull();
+        assertThat(settingService.getById(setting.getId())).isNotNull();
+        assertThat(outlineService.getById(outline.getId())).isNotNull();
+        assertThat(deleteRequestService.pending(projectId)).hasSize(3);
+
+        // 作者逐条确认后才真正删除
+        for (AgentDeleteRequest request : deleteRequestService.pending(projectId)) {
+            deleteRequestService.approve(request.getId());
+        }
         assertThat(characterService.getById(character.getId())).isNull();
         assertThat(settingService.getById(setting.getId())).isNull();
         assertThat(outlineService.getById(outline.getId())).isNull();
     }
 
     @Test
-    @DisplayName("不能跨项目删除；理由必填")
-    void 安全校验() {
+    @DisplayName("不能跨项目申请删除；理由必填；拒绝后数据保留")
+    void 安全校验与拒绝() {
         Long projectA = createProject("项目 A");
         Long projectB = createProject("项目 B");
         CharacterProfile other = character(projectB, "别家的人");
@@ -113,9 +127,18 @@ class DeletePlannerEntitiesToolTest {
                 Map.of("characterId", other.getId(), "reason", "手滑"));
         assertThat(cross).contains("不属于当前项目");
         assertThat(characterService.getById(other.getId())).isNotNull();
+        assertThat(deleteRequestService.pending(projectA)).isEmpty();
 
         String noReason = deleteSettingTool.execute(contextA,
                 Map.of("settingId", 1L));
         assertThat(noReason).contains("reason");
+
+        CharacterProfile local = character(projectA, "保留的人");
+        deleteCharacterTool.execute(contextA,
+                Map.of("characterId", local.getId(), "reason", "测试拒绝"));
+        AgentDeleteRequest request = deleteRequestService.pending(projectA).get(0);
+        deleteRequestService.reject(request.getId());
+        assertThat(characterService.getById(local.getId())).isNotNull();
+        assertThat(deleteRequestService.pending(projectA)).isEmpty();
     }
 }

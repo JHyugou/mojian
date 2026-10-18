@@ -11,11 +11,13 @@ import com.mojian.agent.dto.WritingRequirementRequest;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextBudget;
 import com.mojian.agent.entity.AgentConversation;
+import com.mojian.agent.entity.AgentDeleteRequest;
 import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.entity.ChapterDeleteRequest;
 import com.mojian.agent.entity.ChapterSupplement;
 import com.mojian.agent.service.AgentContextService;
+import com.mojian.agent.service.AgentDeleteRequestService;
 import com.mojian.agent.service.AgentProfileService;
 import com.mojian.agent.service.AgentRunRegistry;
 import com.mojian.agent.service.AgentUsageService;
@@ -80,6 +82,7 @@ public class AgentController {
     private final ChapterService chapterService;
     private final AgentUsageService usageService;
     private final AgentRunRegistry runRegistry;
+    private final AgentDeleteRequestService agentDeleteRequestService;
     private final WriterInstructionService writerInstructionService;
     private final ChapterDeleteRequestService chapterDeleteRequestService;
     private final ChapterSupplementService chapterSupplementService;
@@ -147,6 +150,26 @@ public class AgentController {
     public ApiResponse<AgentPlanOption> selectPlanOption(@PathVariable Long conversationId,
                                                           @PathVariable int optionIndex) {
         return ApiResponse.ok(conversationService.selectOption(conversationId, optionIndex));
+    }
+
+    // ==================== 策划删除申请 ====================
+
+    /** 待作者确认的策划删除申请（人物/设定/蓝图） */
+    @GetMapping("/planner/projects/{projectId}/delete-requests")
+    public ApiResponse<List<AgentDeleteRequest>> plannerDeleteRequests(@PathVariable Long projectId) {
+        return ApiResponse.ok(agentDeleteRequestService.pending(projectId));
+    }
+
+    /** 作者确认删除：真正执行删除 */
+    @PostMapping("/planner/delete-requests/{requestId}/approve")
+    public ApiResponse<AgentDeleteRequest> approvePlannerDelete(@PathVariable Long requestId) {
+        return ApiResponse.ok(agentDeleteRequestService.approve(requestId));
+    }
+
+    /** 作者拒绝删除：只关闭申请，不碰数据 */
+    @PostMapping("/planner/delete-requests/{requestId}/reject")
+    public ApiResponse<AgentDeleteRequest> rejectPlannerDelete(@PathVariable Long requestId) {
+        return ApiResponse.ok(agentDeleteRequestService.reject(requestId));
     }
 
     // ==================== 角色配置（设置页） ====================
@@ -226,6 +249,22 @@ public class AgentController {
     @GetMapping("/writer/chapters/{chapterId}/supplements")
     public ApiResponse<List<ChapterSupplement>> chapterSupplements(@PathVariable Long chapterId) {
         return ApiResponse.ok(chapterSupplementService.listByChapter(chapterId));
+    }
+
+    /** 作者/策划核验：写作已保存新版本，确认这条要求真的落实 */
+    @PostMapping("/writer/chapters/{chapterId}/supplements/{supplementId}/verify")
+    public ApiResponse<ChapterSupplement> verifyChapterSupplement(@PathVariable Long chapterId,
+                                                                  @PathVariable Long supplementId) {
+        chapterService.requireById(chapterId);
+        return ApiResponse.ok(chapterSupplementService.verify(chapterId, supplementId));
+    }
+
+    /** 核验不通过：退回待执行，下次写作会重新带上 */
+    @PostMapping("/writer/chapters/{chapterId}/supplements/{supplementId}/return")
+    public ApiResponse<ChapterSupplement> returnChapterSupplement(@PathVariable Long chapterId,
+                                                                  @PathVariable Long supplementId) {
+        chapterService.requireById(chapterId);
+        return ApiResponse.ok(chapterSupplementService.returnToPending(chapterId, supplementId));
     }
 
     // ==================== 章节删除申请 ====================

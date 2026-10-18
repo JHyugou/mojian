@@ -25,6 +25,33 @@ public interface ChapterSupplementMapper extends BaseMapper<ChapterSupplement> {
                 .orderByAsc(ChapterSupplement::getCreatedAt));
     }
 
+    default int markSubmitted(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
+                .in(ChapterSupplement::getId, ids)
+                .in(ChapterSupplement::getStatus, "PENDING", "EXECUTING")
+                .set(ChapterSupplement::getStatus, "SUBMITTED")
+                .set(ChapterSupplement::getExecutingTaskId, null));
+    }
+
+    default int markVerified(Long supplementId) {
+        return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
+                .eq(ChapterSupplement::getId, supplementId)
+                .eq(ChapterSupplement::getStatus, "SUBMITTED")
+                .set(ChapterSupplement::getStatus, "APPLIED")
+                .set(ChapterSupplement::getExecutingTaskId, null));
+    }
+
+    default int returnToPending(Long supplementId) {
+        return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
+                .eq(ChapterSupplement::getId, supplementId)
+                .eq(ChapterSupplement::getStatus, "SUBMITTED")
+                .set(ChapterSupplement::getStatus, "PENDING")
+                .set(ChapterSupplement::getExecutingTaskId, null));
+    }
+
     default int markApplied(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             return 0;

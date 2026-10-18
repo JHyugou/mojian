@@ -1,6 +1,7 @@
 package com.mojian.agent.tool.impl;
 
 import com.mojian.agent.AgentContext;
+import com.mojian.agent.service.AgentDeleteRequestService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.world.setting.entity.SettingEntry;
 import com.mojian.world.setting.service.SettingService;
@@ -15,8 +16,7 @@ import java.util.Map;
 /**
  * 策划 Agent 删除世界观设定。
  *
- * <p>删除不可逆；系统提示词要求策划先说明后果并得到用户明确同意。
- * 这里硬校验记录属于当前项目，理由必填。
+ * <p>删除不可逆：工具只登记删除申请，作者确认后才真正删除。
  */
 @Slf4j
 @Component
@@ -24,6 +24,7 @@ import java.util.Map;
 public class DeleteSettingTool implements AgentTool {
 
     private final SettingService settingService;
+    private final AgentDeleteRequestService deleteRequestService;
 
     @Override
     public String name() {
@@ -32,8 +33,8 @@ public class DeleteSettingTool implements AgentTool {
 
     @Override
     public String description() {
-        return "删除一条世界观设定（不可恢复）。"
-                + "必须先向用户说明将删除哪条设定、会影响哪些已有内容，并得到用户明确同意后才能调用。"
+        return "申请删除一条世界观设定。此工具不会立即删除，只会生成待作者确认的删除申请。"
+                + "请先向用户说明将删除哪条设定、会影响哪些已有内容。"
                 + "settingId 是设定记录 ID，先用 query_setting 查到；reason 必填。";
     }
 
@@ -69,11 +70,12 @@ public class DeleteSettingTool implements AgentTool {
         if (!projectId.equals(setting.getProjectId())) {
             return "错误：设定 " + settingId + " 不属于当前项目，不能删除。";
         }
-        settingService.delete(settingId);
-        log.warn("策划 Agent 删除设定 {}「{}」：{}", settingId, setting.getTitle(), reason);
-        return "已删除设定「" + setting.getTitle() + "」（记录 ID " + settingId + "）。\n"
-                + "风险提示：设定已从设定库移除，不可恢复；已写正文里的相关内容不会自动改写。\n"
-                + "请明确告诉作者你删除了哪条设定、为什么。";
+        settingService.requireById(settingId);
+        deleteRequestService.request(projectId, context.conversationId(),
+                "SETTING", settingId, setting.getTitle(), reason);
+        log.warn("策划 Agent 申请删除设定 {}「{}」：{}", settingId, setting.getTitle(), reason);
+        return "已提交删除设定「" + setting.getTitle() + "」的申请，尚未删除。\n"
+                + "请让作者在待确认区点击确认；确认前它不会影响任何数据。";
     }
 
     private Long longOf(Object value) {

@@ -19,7 +19,8 @@ import {
 import {
   approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
   getChapterDeleteRequests, getChapterSupplements, getWriterConversation, getWriterInstructions,
-  rejectChapterDeleteRequest, setWritingRequirement, startWritingTask, subscribeWritingTask
+  rejectChapterDeleteRequest, returnChapterSupplement, setWritingRequirement, startWritingTask,
+  subscribeWritingTask, verifyChapterSupplement
 } from '../../api/agent'
 
 /**
@@ -82,6 +83,8 @@ const requirementDraft = ref('')
 /** 策划审稿后追加的补充要求（与写作要求分开） */
 const supplements = ref([])
 const showSupplements = ref(false)
+/** SUBMITTED 状态的补充要求正在核验/打回 */
+const supplementBusyId = ref(null)
 const chapterMenuOpen = ref(false)
 const newChapterTitle = ref('')
 const showBlueprintPicker = ref(false)
@@ -370,7 +373,35 @@ async function loadSupplements() {
 }
 
 const pendingSupplementCount = computed(() =>
-  supplements.value.filter((item) => item.status === 'PENDING').length)
+  supplements.value.filter((item) => item.status === 'PENDING' || item.status === 'SUBMITTED').length)
+
+async function verifySupplement(item) {
+  if (supplementBusyId.value || !props.chapter?.id) return
+  supplementBusyId.value = item.id
+  try {
+    await verifyChapterSupplement(props.chapter.id, item.id)
+    notify.success('已确认这条要求落实')
+    await loadSupplements()
+  } catch (e) {
+    notify.error(e.message || '确认失败')
+  } finally {
+    supplementBusyId.value = null
+  }
+}
+
+async function returnSupplement(item) {
+  if (supplementBusyId.value || !props.chapter?.id) return
+  supplementBusyId.value = item.id
+  try {
+    await returnChapterSupplement(props.chapter.id, item.id)
+    notify.info('已打回，下次写作会重新带上这条要求')
+    await loadSupplements()
+  } catch (e) {
+    notify.error(e.message || '操作失败')
+  } finally {
+    supplementBusyId.value = null
+  }
+}
 
 function openSupplements() {
   showSupplements.value = true
@@ -1272,7 +1303,7 @@ watch(() => props.chapter?.id, () => {
     <V3Modal :visible="showSupplements" title="章节补充要求" width="660px" @close="showSupplements = false">
       <p class="modal-hint">
         策划审稿后逐条追加的修改意见，与「写作要求」分开保存、互不覆盖。
-        点单条的「执行」只让写作 Agent 处理这一条；执行中状态会实时更新，失败或中断会退回「执行」。
+        点单条的「执行」只让写作 Agent 处理这一条；写完后先变成「待核验」，请你看过正文再确认落实或打回。
       </p>
       <p v-if="!supplements.length" class="modal-hint muted">这一章还没有补充要求。</p>
       <div v-else class="supplement-list">
@@ -1280,12 +1311,13 @@ watch(() => props.chapter?.id, () => {
           v-for="(item, index) in supplements"
           :key="item.id"
           class="supplement-card"
-          :class="{ pending: item.status === 'PENDING', executing: item.status === 'EXECUTING' }"
+          :class="{ pending: item.status === 'PENDING', executing: item.status === 'EXECUTING', submitted: item.status === 'SUBMITTED' }"
         >
           <header class="supplement-head">
             <span class="supplement-no">#{{ index + 1 }}</span>
-            <V3Tag :tone="item.status === 'APPLIED' ? 'jade' : 'gold'">
-              {{ item.status === 'PENDING' ? '待执行' : item.status === 'EXECUTING' ? '执行中' : '已执行' }}
+            <V3Tag :tone="item.status === 'APPLIED' ? 'jade' : item.status === 'SUBMITTED' ? 'cinnabar' : 'gold'">
+              {{ item.status === 'PENDING' ? '待执行' : item.status === 'EXECUTING' ? '执行中' :
+                 item.status === 'SUBMITTED' ? '待核验' : '已核验' }}
             </V3Tag>
             <span class="supplement-time">{{ (item.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
           </header>
@@ -1308,7 +1340,25 @@ watch(() => props.chapter?.id, () => {
             >
               执行中
             </V3Button>
-            <span v-else class="supplement-done">已执行</span>
+            <template v-else-if="item.status === 'SUBMITTED'">
+              <V3Button
+                size="sm"
+                :loading="supplementBusyId === item.id"
+                :disabled="Boolean(supplementBusyId)"
+                @click="verifySupplement(item)"
+              >
+                确认落实
+              </V3Button>
+              <V3Button
+                size="sm"
+                variant="ghost"
+                :disabled="Boolean(supplementBusyId)"
+                @click="returnSupplement(item)"
+              >
+                打回重做
+              </V3Button>
+            </template>
+            <span v-else class="supplement-done">已核验</span>
           </div>
         </article>
       </div>
@@ -1514,12 +1564,17 @@ watch(() => props.chapter?.id, () => {
   border-left-color: var(--v3-gold-bright);
   background: var(--v3-surface-2);
 }
+.supplement-card.submitted {
+  border-color: rgba(201, 76, 59, 0.35);
+  border-left-color: var(--v3-cinnabar);
+  background: var(--v3-cinnabar-soft);
+}
 .supplement-head { display: flex; align-items: center; gap: 8px; }
 .supplement-no { font-family: var(--v3-font-mono); font-size: 10px; color: var(--v3-gold); }
 .supplement-time { margin-left: auto; font-family: var(--v3-font-mono); font-size: 9.5px; color: var(--v3-text-faint); }
 .supplement-content { margin: 9px 0 0; font-size: 12.5px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
 .supplement-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
-.supplement-actions { display: flex; justify-content: flex-end; margin-top: 11px; }
+.supplement-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
 .supplement-done { font-size: 10.5px; color: var(--v3-jade); }
 
 /* 时间线里的策划指令：未执行展开，已执行折叠 */

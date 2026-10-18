@@ -87,4 +87,40 @@ public class ChapterSupplementService {
     public void markApplied(List<ChapterSupplement> supplements) {
         supplementMapper.markApplied(supplements.stream().map(ChapterSupplement::getId).toList());
     }
+
+    /**
+     * 写作保存成功后：只标记为"已提交、待核验"。
+     * 保存新版本不等于要求真的落实，必须由作者/策划看过正文后再确认 APPLIED。
+     */
+    @Transactional
+    public void markSubmitted(List<ChapterSupplement> supplements) {
+        supplementMapper.markSubmitted(supplements.stream().map(ChapterSupplement::getId).toList());
+        log.info("补充要求已提交待核验：{} 条", supplements.size());
+    }
+
+    @Transactional
+    public ChapterSupplement verify(Long chapterId, Long supplementId) {
+        ChapterSupplement supplement = requireInChapter(chapterId, supplementId);
+        if (supplementMapper.markVerified(supplementId) == 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "只有待核验的补充要求才能确认落实");
+        }
+        return require(supplementId);
+    }
+
+    @Transactional
+    public ChapterSupplement returnToPending(Long chapterId, Long supplementId) {
+        ChapterSupplement supplement = requireInChapter(chapterId, supplementId);
+        if (supplementMapper.returnToPending(supplementId) == 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "只有待核验的补充要求才能打回重做");
+        }
+        return require(supplementId);
+    }
+
+    private ChapterSupplement requireInChapter(Long chapterId, Long supplementId) {
+        ChapterSupplement supplement = require(supplementId);
+        if (!chapterId.equals(supplement.getChapterId())) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "这条补充要求不属于当前章节");
+        }
+        return supplement;
+    }
 }

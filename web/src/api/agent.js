@@ -33,6 +33,27 @@ export function dismissPlanOptions(conversationId) {
   return http.post(`/agent/conversations/${conversationId}/plan-options/dismiss`)
 }
 
+/** 策划发起的人物/设定/蓝图删除申请 */
+export function listPlannerDeleteRequests(projectId) {
+  return http.get(`/agent/planner/projects/${projectId}/delete-requests`)
+}
+
+export function approvePlannerDeleteRequest(requestId) {
+  return http.post(`/agent/planner/delete-requests/${requestId}/approve`)
+}
+
+export function rejectPlannerDeleteRequest(requestId) {
+  return http.post(`/agent/planner/delete-requests/${requestId}/reject`)
+}
+
+export function verifyChapterSupplement(chapterId, supplementId) {
+  return http.post(`/agent/writer/chapters/${chapterId}/supplements/${supplementId}/verify`)
+}
+
+export function returnChapterSupplement(chapterId, supplementId) {
+  return http.post(`/agent/writer/chapters/${chapterId}/supplements/${supplementId}/return`)
+}
+
 // ==================== 会话（项目与对话解耦） ====================
 
 /**

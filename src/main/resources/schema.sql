@@ -275,3 +275,19 @@ CREATE TABLE IF NOT EXISTS `agent_run` (
   KEY `idx_agent_run_project` (`project_id`,`created_at`),
   KEY `idx_agent_run_role` (`agent_role`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';
+CREATE TABLE IF NOT EXISTS `agent_delete_request` (
+  `id` bigint NOT NULL,
+  `project_id` bigint NOT NULL,
+  `conversation_id` bigint DEFAULT NULL,
+  `entity_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `entity_id` bigint NOT NULL,
+  `entity_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `source` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PLANNER',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_delete_project` (`project_id`,`status`,`created_at`),
+  KEY `idx_agent_delete_entity` (`entity_type`,`entity_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='agent tables';

@@ -247,6 +247,30 @@ public class AgentSchemaInitializer {
             """;
 
     /**
+     * 策划 Agent 的实体删除申请。
+     *
+     * <p>人物/设定/蓝图删除不能直接执行：工具只登记申请，作者确认后才真正删除。
+     */
+    private static final String AGENT_DELETE_REQUEST_DDL = """
+            CREATE TABLE IF NOT EXISTS agent_delete_request (
+                id              BIGINT       NOT NULL,
+                project_id      BIGINT       NOT NULL,
+                conversation_id BIGINT       DEFAULT NULL,
+                entity_type     VARCHAR(20)  NOT NULL COMMENT 'CHARACTER / SETTING / OUTLINE',
+                entity_id       BIGINT       NOT NULL,
+                entity_name     VARCHAR(255) DEFAULT NULL,
+                reason          VARCHAR(1000) DEFAULT NULL,
+                status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / APPROVED / REJECTED',
+                source          VARCHAR(20)  NOT NULL DEFAULT 'PLANNER',
+                created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY idx_agent_delete_project (project_id, status, created_at),
+                KEY idx_agent_delete_entity (entity_type, entity_id)
+            ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '策划实体删除申请'
+            """;
+
+    /**
      * 对话回滚时的数据库撤销日志：记录草稿确认对业务表造成的改动。
      */
     private static final String AGENT_UNDO_LOG_DDL = """
@@ -311,6 +335,7 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(WRITER_INSTRUCTION_DDL);
         jdbcTemplate.execute(AGENT_UNDO_LOG_DDL);
         jdbcTemplate.execute(CHAPTER_DELETE_REQUEST_DDL);
+        jdbcTemplate.execute(AGENT_DELETE_REQUEST_DDL);
         jdbcTemplate.execute(CHAPTER_SUPPLEMENT_DDL);
         addColumnIfMissing("chapter_supplement", "executing_task_id",
                 "BIGINT DEFAULT NULL COMMENT '单独执行时的写作任务 id' AFTER status");

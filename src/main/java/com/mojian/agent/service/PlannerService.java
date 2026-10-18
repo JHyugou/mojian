@@ -65,6 +65,17 @@ public class PlannerService {
                 : conversationService.require(conversationId);
         requirePlannerConversation(conversation, projectId);
 
+        /*
+         * 自动采纳只覆盖本轮新产生的草稿。
+         * 本轮开始前就挂着的旧草稿（上次切走、失败、或作者故意留的）必须继续等作者确认，
+         * 不能因为这次开了自动采纳就被一起清掉。
+         */
+        java.util.Set<Long> pendingDraftIdsBeforeRun = autoApprove
+                ? draftService.listPendingByProject(projectId).stream()
+                        .map(com.mojian.agent.entity.AgentDraft::getId)
+                        .collect(java.util.stream.Collectors.toSet())
+                : java.util.Set.of();
+
         // 2. 历史（必须在落本轮消息之前读）；按字符预算裁掉太早的轮次
         List<AgentMessage> history = ConversationService.trimHistory(
                 conversationService.loadMessages(conversation.getId()), HISTORY_MAX_CHARS);
@@ -166,6 +177,9 @@ public class PlannerService {
         List<String> autoApproveFailed = new ArrayList<>();
         if (autoApprove) {
             for (com.mojian.agent.entity.AgentDraft draft : draftService.listPendingByProject(projectId)) {
+                if (pendingDraftIdsBeforeRun.contains(draft.getId())) {
+                    continue; // 本轮之前就存在的草稿，不属于这次自动采纳
+                }
                 try {
                     draftService.accept(draft.getId());
                     autoApproved.add(draft.getTitle());

@@ -557,10 +557,11 @@ public class WriterService {
             instructionService.markConsumed(instructionService.pending(projectId, chapterId));
             if (targetSupplementId != null) {
                 // 单独执行某条：只标记这一条；其他待执行补充要求留给之后的写作
-                supplementService.markApplied(List.of(supplementService.require(targetSupplementId)));
+                supplementService.markSubmitted(List.of(supplementService.require(targetSupplementId)));
             } else {
-                // 普通写作：本轮上下文里所有待执行补充要求视为已处理
-                supplementService.markApplied(supplementService.pending(chapterId));
+                // 普通写作：本轮上下文里所有待执行补充要求标记为"已提交待核验"。
+                // 保存成功只证明写入了新版本，不能证明每条要求真的落实。
+                supplementService.markSubmitted(supplementService.pending(chapterId));
             }
             memoryWorker.schedule(projectId, chapterId);
             log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);

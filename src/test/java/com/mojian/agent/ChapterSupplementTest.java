@@ -105,10 +105,10 @@ class ChapterSupplementTest {
         assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
                 .contains("已有补充要求").contains("待执行");
 
-        // 写作成功后由 WriterService 标记；这里直接验证标记后审稿显示已执行
+        // 写作成功后由 WriterService 标记；这里直接验证标记后审稿显示已核验
         supplementService.markApplied(supplementService.pending(chapter.getId()));
         assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
-                .contains("已执行").contains("已执行 2");
+                .contains("已核验").contains("已核验 2");
     }
 
     @Test
@@ -161,12 +161,28 @@ class ChapterSupplementTest {
     }
 
     @Test
-    @DisplayName("没有正文时不审稿；没有章节时拒绝追加补充要求")
-    void 空章节与不存在章节() {
-        Chapter chapter = createChapter("", null);
+    @DisplayName("写完后是待核验，不是已应用；确认落实才 APPLIED，打回则回到待执行")
+    void 提交待核验与确认() {
+        Chapter chapter = createChapter("已有正文。", null);
         AgentContext context = AgentContext.of(chapter.getProjectId(), AgentRole.PLANNER);
-        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1))).contains("还没有正文");
-        assertThat(supplementTool.execute(context, Map.of("chapterNo", 2, "supplement", "补一句")))
-                .contains("没有第 2 章");
+        supplementTool.execute(context, Map.of("chapterNo", 1, "supplement", "核验测试：改结尾。"));
+        ChapterSupplement supplement = supplementService.pending(chapter.getId()).get(0);
+
+        supplementService.markSubmitted(List.of(supplement));
+        ChapterSupplement submitted = supplementService.require(supplement.getId());
+        assertThat(submitted.getStatus()).isEqualTo("SUBMITTED");
+        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
+                .contains("待核验 1").contains("[待核验]");
+
+        supplementService.verify(chapter.getId(), supplement.getId());
+        assertThat(supplementService.require(supplement.getId()).getStatus()).isEqualTo("APPLIED");
+        assertThat(reviewTool.execute(context, Map.of("chapterNo", 1)))
+                .contains("已核验 1").contains("[已核验]");
+
+        supplementTool.execute(context, Map.of("chapterNo", 1, "supplement", "核验测试：再改一处。"));
+        ChapterSupplement second = supplementService.pending(chapter.getId()).get(0);
+        supplementService.markSubmitted(List.of(second));
+        supplementService.returnToPending(chapter.getId(), second.getId());
+        assertThat(supplementService.require(second.getId()).getStatus()).isEqualTo("PENDING");
     }
 }

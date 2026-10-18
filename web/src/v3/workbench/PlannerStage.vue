@@ -14,9 +14,10 @@ import { useLibraryStore } from '../../stores/library'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
 import { buildFixRequest, lintDraft } from '../../utils/draftLint'
 import {
-  acceptAllDrafts, acceptDraft, cancelPlannerRun, dismissPlanOptions, getConversationMessages,
-  listAgentProfiles, listConversations, listPlanOptions, listProjectDrafts, plannerChat,
-  rejectDraft, rollbackConversation, selectPlanOption
+  acceptAllDrafts, acceptDraft, approvePlannerDeleteRequest, cancelPlannerRun,
+  dismissPlanOptions, getConversationMessages, listAgentProfiles, listConversations,
+  listPlanOptions, listPlannerDeleteRequests, listProjectDrafts, plannerChat,
+  rejectDraft, rejectPlannerDeleteRequest, rollbackConversation, selectPlanOption
 } from '../../api/agent'
 import { fetchModels } from '../../api/aiConfig'
 
@@ -44,6 +45,9 @@ const conversationId = ref(null)
 const conversationTitle = ref('新对话')
 const planOptions = ref([])
 const drafts = ref([])
+/** 策划发起、等待作者确认的删除申请 */
+const deleteRequests = ref([])
+const deleteBusy = ref(false)
 const sending = ref(false)
 const phase = ref('正在读你的资料…')
 const error = ref('')
@@ -528,12 +532,14 @@ function startPendingPoll(targetConversationId, baselineAssistants) {
 async function refreshSide() {
   if (!props.projectId) return
   try {
-    const [options, pending] = await Promise.all([
+    const [options, pending, deletes] = await Promise.all([
       conversationId.value ? listPlanOptions(conversationId.value) : Promise.resolve([]),
-      listProjectDrafts(props.projectId, true)
+      listProjectDrafts(props.projectId, true),
+      listPlannerDeleteRequests(props.projectId)
     ])
     planOptions.value = options || []
     drafts.value = pending || []
+    deleteRequests.value = deletes || []
   } catch (e) {
     console.warn('刷新侧栏失败', e)
   }
@@ -723,6 +729,31 @@ async function closePlanOptions() {
   }
 }
 
+async function resolveDeleteRequest(request, approve) {
+  if (deleteBusy.value) return
+  deleteBusy.value = true
+  try {
+    if (approve) {
+      await approvePlannerDeleteRequest(request.id)
+      notify.success(`已删除${deleteTypeLabel(request.entityType)}「${request.entityName}」`)
+    } else {
+      await rejectPlannerDeleteRequest(request.id)
+      notify.info('已拒绝这次删除')
+    }
+    deleteRequests.value = deleteRequests.value.filter((item) => item.id !== request.id)
+    await refreshSide()
+    emit('resources-changed')
+  } catch (e) {
+    notify.error(e.message || '处理删除申请失败')
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
+function deleteTypeLabel(type) {
+  return { CHARACTER: '人物', SETTING: '设定', OUTLINE: '蓝图节点' }[type] || '内容'
+}
+
 async function confirmDraft(draft) {
   try {
     await acceptDraft(draft.id)
@@ -874,6 +905,31 @@ onBeforeUnmount(() => {
           <p class="option-summary">{{ opt.summary }}</p>
           <p v-if="opt.detail" class="option-detail">{{ opt.detail }}</p>
         </button>
+      </div>
+    </section>
+
+    <!-- 策划发起的删除申请：必须由作者确认，工具本身不会直接删 -->
+    <section v-if="deleteRequests.length" class="delete-tray">
+      <header class="delete-tray-head">
+        <h3>待确认删除</h3>
+        <span class="muted">策划只提交了申请，确认前不会删除任何内容</span>
+      </header>
+      <div class="delete-list">
+        <article v-for="req in deleteRequests" :key="req.id" class="delete-card">
+          <div class="delete-card-main">
+            <span class="delete-kind">{{ deleteTypeLabel(req.entityType) }}</span>
+            <strong>{{ req.entityName }}</strong>
+          </div>
+          <p v-if="req.reason" class="delete-reason">{{ req.reason }}</p>
+          <div class="delete-actions">
+            <V3Button size="sm" variant="danger" :disabled="deleteBusy" @click="resolveDeleteRequest(req, true)">
+              确认删除
+            </V3Button>
+            <V3Button size="sm" variant="ghost" :disabled="deleteBusy" @click="resolveDeleteRequest(req, false)">
+              保留
+            </V3Button>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -1204,6 +1260,19 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .tray-close:hover { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); }
+
+/* 策划删除申请 */
+.delete-tray { flex-shrink: 0; padding: 10px 28px 12px; border-top: 1px solid var(--v3-hairline); background: var(--v3-inset); }
+.delete-tray-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.delete-tray-head h3 { margin: 0; font-family: var(--v3-font-serif); font-size: 14px; letter-spacing: 0.08em; color: var(--v3-cinnabar); }
+.delete-tray-head .muted { font-size: 10.5px; }
+.delete-list { display: flex; flex-direction: column; gap: 7px; max-height: 180px; overflow-y: auto; }
+.delete-card { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--v3-hairline); border-left: 3px solid var(--v3-cinnabar); border-radius: var(--v3-r-xs); background: var(--v3-surface-1); }
+.delete-card-main { display: flex; align-items: center; gap: 7px; min-width: 0; flex-shrink: 0; }
+.delete-kind { font-size: 9.5px; padding: 2px 6px; border-radius: var(--v3-r-pill); background: var(--v3-cinnabar-soft); color: var(--v3-cinnabar); }
+.delete-card-main strong { font-size: 12px; color: var(--v3-text); font-weight: 600; }
+.delete-reason { flex: 1; min-width: 0; margin: 0; font-size: 10.5px; line-height: 1.6; color: var(--v3-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delete-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-height: 240px; overflow-y: auto; }
 .option {
   position: relative;
