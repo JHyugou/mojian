@@ -679,11 +679,31 @@ async function discardDraft(draft) {
 /* ==================== 头部 ==================== */
 
 .pl-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 26px 12px;
+  padding: 6px 26px 15px;
   flex-shrink: 0;
+}
+
+/*
+ * 标题栏与对话流之间的分隔。
+ *
+ * 用「中间实、两端渐隐」的一条线，而不是贯穿的硬线：
+ * 硬直线和这套圆润的语言打架；而完全不给分隔，标题又会和第一条消息粘在一起，
+ * 分不清哪是标题哪是内容。渐隐线是这两者之间唯一舒服的解法。
+ */
+.pl-head::after {
+  content: "";
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg,
+      transparent, var(--color-brown-soft) 16%, var(--color-brown-soft) 84%, transparent);
 }
 
 .pl-head-hint {
