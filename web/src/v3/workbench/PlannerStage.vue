@@ -51,6 +51,15 @@ const currentRunId = ref(null)
 const openedDrafts = ref(new Set())
 const showDrafts = ref(false)
 
+// ==================== 输入区工具（附件 / 采纳模式） ====================
+const attachments = ref([])
+const plusOpen = ref(false)
+const approveOpen = ref(false)
+const fileInput = ref(null)
+const autoNotice = ref('')
+
+const autoApprove = computed(() => settings.autoApprove)
+
 const draftLints = computed(() => {
   const result = {}
   for (const draft of drafts.value) result[draft.id] = lintDraft(payloadOf(draft))
@@ -102,6 +111,154 @@ function scrollToBottom() {
   })
 }
 watch(messages, scrollToBottom, { deep: true })
+
+function closeMenus() {
+  plusOpen.value = false
+  approveOpen.value = false
+}
+
+// ==================== 附件：上传 / 粘贴 ====================
+function pickFiles() {
+  plusOpen.value = false
+  fileInput.value?.click()
+}
+
+async function onFilesPicked(event) {
+  const files = Array.from(event.target.files || [])
+  for (const file of files) {
+    // 单个文件设上限：几十兆的日志贴进上下文没有意义，只会把请求撑爆
+    if (file.size > 256 * 1024) {
+      notify.error(`「${file.name}」超过 256KB，太大了一律会挤掉正文，先自己节选吧`)
+      continue
+    }
+    try {
+      if (file.type.startsWith('image/')) {
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.readAsDataURL(file)
+        })
+        attachments.value = [...attachments.value, { name: file.name, dataUrl, isImage: true }]
+      } else {
+        const text = await file.text()
+        attachments.value = [...attachments.value, { name: file.name, text, isImage: false }]
+      }
+    } catch (e) {
+      notify.error(`读不了「${file.name}」：${e.message}`)
+    }
+  }
+  // 清空，否则同一个文件连选两次不会触发 change
+  if (fileInput.value) fileInput.value.value = ''
+}
+
+/**
+ * 粘贴。
+ *
+ * <p>截图 → Ctrl+V 是很多人的肌肉记忆，而 textarea 默认会把图片当"空内容"吞掉，
+ * 什么都不发生 —— 那很让人困惑。文本粘贴不受影响。
+ */
+async function onPaste(event) {
+  const items = Array.from(event.clipboardData?.items || [])
+  const imageItem = items.find((item) => item.type.startsWith('image/'))
+  if (!imageItem) return
+
+  event.preventDefault()
+  const file = imageItem.getAsFile()
+  if (!file) return
+  const dataUrl = await new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.readAsDataURL(file)
+  })
+  attachments.value = [...attachments.value, {
+    name: file.name || `粘贴的图片-${attachments.value.length + 1}.png`,
+    dataUrl,
+    isImage: true
+  }]
+  notify.info('图片已添加为附件（当前模型是纯文本的，看不到图，但会记下文件名）')
+}
+
+function removeAttachment(index) {
+  const next = [...attachments.value]
+  next.splice(index, 1)
+  attachments.value = next
+}
+
+/** 附件拼在正文后面：用户打的字是"要求"，附件是"材料"，先说要求再看材料 */
+function buildOutgoing() {
+  let text = buildCitedMessage(props.citations, draftMessage.value)
+  for (const att of attachments.value) {
+    if (att.isImage) {
+      text += `\n\n[图片附件：${att.name}]\n（当前模型是纯文本的，看不到图片内容；` +
+        '如果这张图里有需要参考的信息，请用文字描述一下）'
+    } else if (att.text) {
+      text += `\n\n[附件：${att.name}]\n` + '```' + `\n${att.text}\n` + '```'
+    }
+  }
+  return text
+}
+
+// ==================== 采纳模式 ====================
+function setAutoApprove(value) {
+  settings.setAutoApprove(value)
+  approveOpen.value = false
+  notify.info(value
+    ? '已切换为自动采纳：Agent 起草后会直接写入你的书'
+    : '已切换为手动采纳：起草后逐条等你确认')
+}
+
+/**
+ * 自动采纳模式下，把这一轮起草的内容直接写进书里。
+ *
+ * <p>这是"跳过审阅"换来的顺畅 —— 开着它的人已经明确表示"别再每条都问我"。
+ * 但必须告诉他收了几条：不声不响地改了他的书，比打断他更糟。
+ */
+async function applyAutoApprove() {
+  if (!autoApprove.value) return
+  try {
+    const result = await acceptAllDrafts(props.projectId)
+    if (result.accepted > 0) {
+      autoNotice.value = `已自动采纳 ${result.accepted} 条` +
+        (result.failed?.length ? `，${result.failed.length} 条失败` : '')
+      setTimeout(() => { autoNotice.value = '' }, 5000)
+      await refreshSide()
+      library.touch()
+    }
+  } catch (e) {
+    autoNotice.value = '自动采纳失败：' + e.message
+    setTimeout(() => { autoNotice.value = '' }, 6000)
+  }
+}
+
+/** 导出这段对话为 Markdown（不经过后端：数据本来就在前端手里） */
+function exportLog() {
+  plusOpen.value = false
+  if (!messages.value.length) {
+    notify.error('这段对话还是空的，没什么可导出的')
+    return
+  }
+  const lines = [`# ${conversationTitle.value || '未命名对话'}`, '',
+    `导出时间：${new Date().toLocaleString('zh-CN')}`, '']
+  for (const msg of messages.value) {
+    lines.push(msg.role === 'user' ? '## 你' : '## 策划 Agent')
+    lines.push('')
+    if (msg.reasoning && settings.thinkingMode !== 'hidden') {
+      lines.push('> **思考过程**', '>')
+      msg.reasoning.split('\n').forEach((line) => lines.push('> ' + line))
+      lines.push('')
+    }
+    lines.push(msg.text || '')
+    lines.push('')
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${(conversationTitle.value || '对话').replace(/[\\/:*?"<>|]/g, '_')}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+  notify.success('会话日志已导出')
+}
 
 // ==================== 会话加载 ====================
 watch(
@@ -156,6 +313,8 @@ function newConversation() {
   messages.value = []
   planOptions.value = []
   drafts.value = []
+  attachments.value = []
+  autoNotice.value = ''
   error.value = ''
 }
 
@@ -176,9 +335,9 @@ async function refreshSide() {
 // ==================== 发送 ====================
 async function send() {
   const text = draftMessage.value.trim()
-  if ((!text && !props.citations.length) || sending.value) return
+  if ((!text && !props.citations.length && !attachments.value.length) || sending.value) return
 
-  const outgoing = buildCitedMessage(props.citations, draftMessage.value)
+  const outgoing = buildOutgoing()
   messages.value.push({ role: 'user', text: outgoing })
   draftMessage.value = ''
   emit('clear-citations')
@@ -208,7 +367,10 @@ async function send() {
       steps: data.steps,
       usage: data.usage
     })
+    // 发送成功才清空附件；失败/中止时保留，用户不用重新上传一遍
+    attachments.value = []
     await refreshSide()
+    await applyAutoApprove()
   } catch (e) {
     if (e.name !== 'CanceledError' && e.name !== 'AbortError' && !controller.value?.signal.aborted) {
       error.value = e.message || '这次对话失败了'
@@ -301,8 +463,14 @@ function askFix(draft) {
   showDrafts.value = false
 }
 
-onMounted(() => refreshSide())
-onBeforeUnmount(() => controller.value?.abort())
+onMounted(() => {
+  refreshSide()
+  document.addEventListener('click', closeMenus)
+})
+onBeforeUnmount(() => {
+  controller.value?.abort()
+  document.removeEventListener('click', closeMenus)
+})
 </script>
 
 <template>
@@ -406,6 +574,15 @@ onBeforeUnmount(() => controller.value?.abort())
         <button class="cite-clear" @click="emit('clear-citations')">全部清除</button>
       </div>
 
+      <!-- 附件：跟这条消息一起发出去 -->
+      <div v-if="attachments.length" class="atts">
+        <span v-for="(att, i) in attachments" :key="i" class="att">
+          <img v-if="att.isImage && att.dataUrl" :src="att.dataUrl" class="att-thumb" alt="" />
+          <span class="att-name">{{ att.name }}</span>
+          <button class="att-x" title="移除附件" @click="removeAttachment(i)">×</button>
+        </span>
+      </div>
+
       <div class="input-box">
         <textarea
           v-model="draftMessage"
@@ -415,6 +592,7 @@ onBeforeUnmount(() => controller.value?.abort())
             ? '说说这段要怎么改（' + sendHint() + '）'
             : '说说你的想法…（' + sendHint() + '）'"
           @keydown="onKeydown"
+          @paste="onPaste"
         ></textarea>
         <div class="input-side">
           <button v-if="sending" class="round-btn stop" title="停下" @click="stop">
@@ -423,7 +601,7 @@ onBeforeUnmount(() => controller.value?.abort())
           <button
             v-else
             class="round-btn send"
-            :disabled="!draftMessage.trim() && !citations.length"
+            :disabled="!draftMessage.trim() && !citations.length && !attachments.length"
             title="发送"
             @click="send"
           >
@@ -431,9 +609,61 @@ onBeforeUnmount(() => controller.value?.abort())
           </button>
         </div>
       </div>
+
       <div class="composer-foot">
-        <span class="muted">{{ sendHint() }}</span>
-        <span class="muted">上下文 {{ messages.length ? (planOptions.length ? '含待选方案' : '全量注入') : '就绪' }}</span>
+        <div class="foot-left">
+          <!-- 加号：上传文件 / 导出会话 -->
+          <div class="menu-wrap" @click.stop>
+            <button class="foot-btn" :class="{ open: plusOpen }" title="附件与会话工具"
+                    @click="plusOpen = !plusOpen; approveOpen = false">
+              <Icon name="plus" :size="14" />
+            </button>
+            <div v-if="plusOpen" class="foot-menu">
+              <button class="menu-item" @click="pickFiles">
+                <span class="menu-name">上传文件</span>
+                <span class="menu-desc">文本类文件读进附件，跟着这条消息一起发出去</span>
+              </button>
+              <button class="menu-item" @click="exportLog">
+                <span class="menu-name">导出会话日志</span>
+                <span class="menu-desc">把这段对话存成 Markdown，方便归档或贴给别人看</span>
+              </button>
+            </div>
+            <input
+              ref="fileInput"
+              type="file"
+              class="hidden-file"
+              multiple
+              accept=".txt,.md,.json,.csv,.log,.yml,.yaml,.xml,.html,.css,.js,.ts,.java,.py,image/*"
+              @change="onFilesPicked"
+            />
+          </div>
+
+          <!-- 采纳模式：我怎么审你 -->
+          <div class="menu-wrap" @click.stop>
+            <button class="foot-btn approve-btn" :class="{ auto: autoApprove }" title="切换采纳模式"
+                    @click="approveOpen = !approveOpen; plusOpen = false">
+              <Icon name="shield" :size="13" />
+              <span>{{ autoApprove ? '自动采纳' : '手动采纳' }}</span>
+              <span class="caret">▾</span>
+            </button>
+            <div v-if="approveOpen" class="foot-menu">
+              <button class="menu-item" :class="{ active: !autoApprove }" @click="setAutoApprove(false)">
+                <span class="menu-name">手动采纳</span>
+                <span class="menu-desc">起草后逐条让你确认</span>
+              </button>
+              <button class="menu-item" :class="{ active: autoApprove }" @click="setAutoApprove(true)">
+                <span class="menu-name">自动采纳</span>
+                <span class="menu-desc">起草后直接写入你的书，不再询问</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="foot-right">
+          <span v-if="autoNotice" class="auto-notice">{{ autoNotice }}</span>
+          <span class="muted">{{ sendHint() }}</span>
+          <span class="muted">上下文 {{ messages.length ? (planOptions.length ? '含待选方案' : '全量注入') : '就绪' }}</span>
+        </div>
       </div>
     </footer>
 
@@ -699,7 +929,95 @@ onBeforeUnmount(() => controller.value?.abort())
 .round-btn.send:hover { transform: translateY(-1px) scale(1.03); }
 .round-btn.send:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 .round-btn.stop { background: var(--v3-cinnabar-soft); color: var(--v3-cinnabar); border: 1px solid rgba(201, 76, 59, 0.45); }
-.composer-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10.5px; }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 10.5px; }
+.foot-left { display: flex; align-items: center; gap: 6px; }
+.foot-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.menu-wrap { position: relative; }
+.foot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-pill);
+  background: transparent;
+  color: var(--v3-text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: color var(--v3-dur-2), border-color var(--v3-dur-2), background var(--v3-dur-2);
+}
+.foot-btn:hover, .foot-btn.open {
+  color: var(--v3-gold-bright);
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-glow-gold);
+}
+.foot-btn.approve-btn.auto {
+  color: var(--v3-gold-bright);
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-glow-gold);
+}
+.caret { font-size: 9px; opacity: 0.65; }
+.foot-menu {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 0;
+  z-index: 20;
+  width: 264px;
+  padding: 6px;
+  border: 1px solid var(--v3-hairline-strong);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-solid);
+  box-shadow: var(--v3-shadow-float);
+}
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--v3-r-xs);
+  background: transparent;
+  color: var(--v3-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--v3-dur-1);
+}
+.menu-item:hover { background: var(--v3-surface-1); }
+.menu-item.active { background: var(--v3-glow-gold); }
+.menu-name { font-size: 12px; }
+.menu-desc { font-size: 10px; line-height: 1.5; color: var(--v3-text-faint); }
+.hidden-file { display: none; }
+.auto-notice { color: var(--v3-gold-bright); font-size: 10.5px; white-space: nowrap; }
+
+/* 附件 */
+.atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.att {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 300px;
+  padding: 4px 8px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-xs);
+  background: var(--v3-surface-1);
+  color: var(--v3-text-muted);
+  font-size: 10.5px;
+}
+.att-thumb { width: 22px; height: 22px; border-radius: 4px; object-fit: cover; }
+.att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-x {
+  border: 0;
+  background: transparent;
+  color: var(--v3-text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.att-x:hover { color: var(--v3-cinnabar); }
 
 /* 草稿 */
 .draft-hint { margin: 0 0 14px; font-size: 12px; line-height: 1.8; color: var(--v3-text-muted); }
@@ -730,6 +1048,8 @@ onBeforeUnmount(() => controller.value?.abort())
   .tray { padding: 4px 14px 10px; }
   .options { grid-template-columns: 1fr; max-height: 200px; }
   .composer { padding: 10px 14px 14px; }
-  .composer-foot span:last-child { display: none; }
+  .composer-foot { flex-wrap: wrap; gap: 8px; }
+  .foot-right .muted:last-child { display: none; }
+  .foot-menu { width: min(280px, calc(100vw - 60px)); }
 }
 </style>
