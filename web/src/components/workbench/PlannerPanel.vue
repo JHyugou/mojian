@@ -516,6 +516,30 @@ function setAutoApprove(value) {
  * <p>中止必须真的传到后端：axios 的 abort 会断开连接，
  * 后端那次模型调用随之结束 —— 否则用户按了"停下"，钱还在花。
  */
+/*
+ * 点空白处收起浮层。
+ *
+ * 三个菜单（加号 / 采纳模式 / 发送键）之前都没有外部点击关闭 ——
+ * 打开之后只能再点一次按钮，或者选一项，否则一直挂着。
+ * 用捕获阶段的 mousedown：比 click 更早，也不受子元素 stopPropagation 影响。
+ */
+function onDocumentDown(event) {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    plusOpen.value = false
+    modeMenuOpen.value = false
+    sendKeyMenuOpen.value = false
+    return
+  }
+  // 点在工具条区域里：交给各个按钮自己处理开关，不要在这里抢着关
+  if (target.closest('.pl-mode, .pl-plus-wrap')) return
+  plusOpen.value = false
+  modeMenuOpen.value = false
+  sendKeyMenuOpen.value = false
+}
+
+onMounted(() => document.addEventListener('mousedown', onDocumentDown, true))
+onBeforeUnmount(() => document.removeEventListener('mousedown', onDocumentDown, true))
 async function stop() {
   const runId = currentRunId.value
 
@@ -1482,21 +1506,41 @@ async function discardDraft(draft) {
   animation: mj-pop var(--dur) var(--ease-spring) both;
 }
 
+/*
+ * 菜单项。
+ *
+ * 之前激活项和悬停项都用一整块半透明底色 —— 两行挨着就成了「两块颜色拼在一起」，
+ * 白底衬托下每块都有自己的方角，看起来像贴纸。
+ * 现在只给悬停项一点点底色（几乎看不见），激活项改用**左侧一条短竖线**做标记：
+ * 位置型标记比整块底色安静得多，也不会和相邻项挤在一起。
+ */
 .pl-mode-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
   width: 100%;
-  padding: 10px 13px;
+  padding: 10px 14px;
   border: 0;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-s);
   background: none;
   cursor: pointer;
   text-align: left;
   transition: background var(--dur) var(--ease-out);
 }
 .pl-mode-item:hover { background: var(--tint); }
-.pl-mode-item.active { background: var(--tint-strong); }
+
+.pl-mode-item.active::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 3px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-brown);
+}
 .pl-mode-item.active .pl-mode-name { color: var(--color-brown-deep); }
 
 .pl-mode-name { font-size: 13px; color: var(--color-ink); }
