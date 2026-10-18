@@ -51,6 +51,11 @@ const full = ref(null)
 const text = ref('')
 const requirement = ref('')
 const advice = ref('')
+/** 从对话/正文右键引用的段落（结构化引用，和用户手打内容在视觉上分开） */
+const quotedPassages = ref([])
+const expandedQuotes = ref(new Set())
+const quoteMenu = ref(null)
+let quoteSeq = 0
 const messages = ref([])
 /** 策划 Agent 下发的写作指令（PENDING 待执行 / CONSUMED 已执行） */
 const plannerInstructions = ref([])
@@ -109,9 +114,14 @@ let flushFrame = 0
 
 const hasBlueprint = computed(() => Boolean(props.blueprint))
 const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || Boolean(text.value)
-  || pendingInstructionCount.value > 0)
-const primaryLabel = computed(() => (text.value ? '按这个改' : '开始写'))
+  || pendingInstructionCount.value > 0 || quotedPassages.value.length > 0)
+const primaryLabel = computed(() => (text.value
+  ? (quotedPassages.value.length ? '按引用修改' : '按这个改')
+  : '开始写'))
 const advicePlaceholder = computed(() => {
+  if (quotedPassages.value.length) {
+    return `已引用 ${quotedPassages.value.length} 段，针对它们想怎么改？（${sendHint()}）`
+  }
   if (text.value) return `对现有稿的意见，比如：把开头改得更陡一些（${sendHint()}）`
   return `想交代什么就写在这里，留空则按蓝图与写作要求写（${sendHint()}）`
 })
@@ -128,6 +138,94 @@ function scrollPaper() {
   nextTick(() => {
     if (paperEl.value) paperEl.value.scrollTop = paperEl.value.scrollHeight
   })
+}
+
+// ==================== 引用对话/正文 ====================
+
+function closeQuoteMenu() {
+  quoteMenu.value = null
+}
+
+function onGlobalClickForQuote() {
+  closeQuoteMenu()
+}
+
+function onGlobalKeydownForQuote(event) {
+  if (event.key === 'Escape') closeQuoteMenu()
+}
+
+function onQuoteContextMenu(event) {
+  const selection = window.getSelection()?.toString().trim() || ''
+  const target = event.target.closest?.('.bubble, .paper-text, .ci-content')
+  if (!target) return
+  let text = selection
+  let source = '对话'
+  if (target.classList.contains('paper-text')) {
+    source = '正文'
+    // 正文整章太长，必须由用户先选中一段；聊天消息没有选中时允许引用整条
+    if (!text) return
+  } else if (target.classList.contains('ci-content')) {
+    source = '写作指令'
+  } else {
+    source = '写作 Agent'
+    if (!text) text = target.innerText.trim()
+  }
+  if (!text) return
+  event.preventDefault()
+  quoteMenu.value = {
+    x: Math.min(event.clientX, window.innerWidth - 150),
+    y: Math.min(event.clientY, window.innerHeight - 70),
+    text: text.slice(0, 5000),
+    source
+  }
+}
+
+function toggleQuote(id) {
+  const next = new Set(expandedQuotes.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedQuotes.value = next
+}
+
+function isQuoteExpanded(quote) {
+  return expandedQuotes.value.has(quote.id)
+}
+
+function addQuoteFromMenu() {
+  const menu = quoteMenu.value
+  if (!menu) return
+  const id = ++quoteSeq
+  quotedPassages.value.push({ id, text: menu.text, source: menu.source })
+  // 短引用直接展开，长引用默认折叠，避免输入区被一大段原文淹没
+  if (menu.text.length <= 120) {
+    const next = new Set(expandedQuotes.value)
+    next.add(id)
+    expandedQuotes.value = next
+  }
+  quoteMenu.value = null
+}
+
+function removeQuote(id) {
+  quotedPassages.value = quotedPassages.value.filter((quote) => quote.id !== id)
+}
+
+function clearQuotes() {
+  quotedPassages.value = []
+  expandedQuotes.value = new Set()
+}
+
+/** 把引用块 + 用户输入拼成一条发给写作 Agent 的指令 */
+function buildOutgoing() {
+  const typed = advice.value.trim()
+  if (!quotedPassages.value.length) {
+    return typed || (text.value
+      ? `这是「${full.value?.title || '本章'}」的现有稿，请通读一遍并在不改动剧情的前提下润色文字。`
+      : '请按本章蓝图与写作要求写这一章的正文。')
+  }
+  const quoteBlock = quotedPassages.value.map((quote, index) =>
+    `【引用 ${index + 1} · 来自${quote.source}】\n${quote.text}`).join('\n\n')
+  if (!typed) return `${quoteBlock}\n\n请根据以上引用内容修改这一章；没提到的部分保持不变。`
+  return `${quoteBlock}\n\n【我的修改意见】\n${typed}`
 }
 
 /** 流式正文批量刷新：一帧最多更新一次，避免每个 token 全文重渲染 */
@@ -174,6 +272,7 @@ watch(
     error.value = ''
     statusText.value = ''
     advice.value = ''
+    clearQuotes()
     tab.value = 'text'
     full.value = null
     text.value = ''
@@ -204,6 +303,8 @@ onMounted(() => {
   loadInstructions()
   loadDeleteRequests()
   loadSupplements()
+  document.addEventListener('click', onGlobalClickForQuote)
+  document.addEventListener('keydown', onGlobalKeydownForQuote)
 })
 // 被 KeepAlive 缓存后切回写作模式：策划可能刚下发过新指令，重新拉一次
 onActivated(() => {
@@ -221,6 +322,8 @@ onBeforeUnmount(() => {
   // 只断开事件流，任务继续跑；回来时通过 active-task 重新挂上。
   detachRunning()
   if (flushFrame) cancelAnimationFrame(flushFrame)
+  document.removeEventListener('click', onGlobalClickForQuote)
+  document.removeEventListener('keydown', onGlobalKeydownForQuote)
 })
 
 async function loadConversation() {
@@ -489,10 +592,7 @@ async function start(options = {}) {
   if (!props.chapter?.id || running.value || (!supplement && !canRun.value)) return
   const outgoing = supplement
     ? `请执行本章补充要求（记录 ID ${supplement.id}）：${supplement.content}`
-    : (advice.value.trim() ||
-      (text.value
-        ? `这是「${full.value?.title || '本章'}」的现有稿，请通读一遍并在不改动剧情的前提下润色文字。`
-        : '请按本章蓝图与写作要求写这一章的正文。'))
+    : buildOutgoing()
   const revising = Boolean(text.value)
   const seq = ++runSeq
 
@@ -501,7 +601,10 @@ async function start(options = {}) {
     text: outgoing,
     createdAt: new Date().toISOString()
   }]
-  if (!supplement) advice.value = ''
+  if (!supplement) {
+    advice.value = ''
+    clearQuotes()
+  }
   running.value = true
   error.value = ''
   progress.value = []
@@ -883,7 +986,11 @@ watch(() => props.chapter?.id, () => {
       </div>
     </header>
 
-    <div class="writer-body" :style="{ '--chat-width': chatWidth + 'px' }">
+    <div
+      class="writer-body"
+      :style="{ '--chat-width': chatWidth + 'px' }"
+      @contextmenu="onQuoteContextMenu"
+    >
       <!-- ==================== 左：对话 ==================== -->
       <div class="chat-pane">
         <div ref="chatEl" class="writer-chat v3-scroll">
@@ -975,6 +1082,30 @@ watch(() => props.chapter?.id, () => {
         </div>
 
         <footer class="composer">
+          <!-- 引用托盘：与用户手打的文字用不同底色/边框区分，长引用可折叠 -->
+          <div v-if="quotedPassages.length" class="quote-tray">
+            <div class="quote-tray-head">
+              <span>已引用 {{ quotedPassages.length }} 段</span>
+              <button class="quote-clear" @click="clearQuotes">清空引用</button>
+            </div>
+            <article
+              v-for="quote in quotedPassages"
+              :key="quote.id"
+              class="quote-card"
+              :class="{ expanded: isQuoteExpanded(quote) }"
+            >
+              <header class="quote-card-head" @click="toggleQuote(quote.id)">
+                <Icon name="quote" :size="12" />
+                <span class="quote-source">引自{{ quote.source }}</span>
+                <span v-if="!isQuoteExpanded(quote)" class="quote-preview">
+                  {{ quote.text.replace(/\s+/g, ' ').slice(0, 42) }}{{ quote.text.length > 42 ? '…' : '' }}
+                </span>
+                <span class="quote-fold">{{ isQuoteExpanded(quote) ? '收起' : '展开' }}</span>
+                <button class="quote-remove" title="移除引用" @click.stop="removeQuote(quote.id)">×</button>
+              </header>
+              <p v-if="isQuoteExpanded(quote)" class="quote-text">{{ quote.text }}</p>
+            </article>
+          </div>
           <p v-if="pendingInstructionCount" class="pending-hint">
             策划 Agent 有 {{ pendingInstructionCount }} 条待执行指令；开始写作时会自动带上。你也可以在下面补充作者要求。
             <button class="pending-run" @click="start()">按策划指令开写</button>
@@ -1008,6 +1139,20 @@ watch(() => props.chapter?.id, () => {
             <ModelPicker role="WRITER" />
           </div>
         </footer>
+      </div>
+
+      <!-- 正文/对话右键引用菜单 -->
+      <div
+        v-if="quoteMenu"
+        class="quote-menu"
+        :style="{ left: quoteMenu.x + 'px', top: quoteMenu.y + 'px' }"
+        @click.stop
+        @contextmenu.stop.prevent
+      >
+        <button class="quote-menu-item" @click="addQuoteFromMenu">
+          <Icon name="quote" :size="12" />
+          引用这段
+        </button>
       </div>
 
       <!-- 对话与正文之间的拖拽分割线 -->
@@ -1500,6 +1645,95 @@ watch(() => props.chapter?.id, () => {
 .muted { color: var(--v3-text-faint); }
 
 .composer { flex-shrink: 0; padding: 12px 20px 16px; border-top: 1px solid var(--v3-hairline); }
+
+/* 右键引用菜单 */
+.quote-menu {
+  position: fixed;
+  z-index: 80;
+  padding: 5px;
+  border: 1px solid var(--v3-hairline-strong);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-solid);
+  box-shadow: var(--v3-shadow-float);
+}
+.quote-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: var(--v3-r-xs);
+  background: transparent;
+  color: var(--v3-text-soft);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quote-menu-item:hover { background: var(--v3-glow-gold); color: var(--v3-gold-bright); }
+
+/* 输入区上方的引用托盘：和正常输入分开 */
+.quote-tray { margin-bottom: 9px; }
+.quote-tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--v3-gold);
+}
+.quote-clear {
+  border: 0;
+  background: transparent;
+  color: var(--v3-text-faint);
+  font-size: 10px;
+  cursor: pointer;
+}
+.quote-clear:hover { color: var(--v3-cinnabar); }
+.quote-card {
+  margin-bottom: 6px;
+  padding: 8px 11px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-left: 3px solid var(--v3-gold);
+  border-radius: var(--v3-r-xs);
+  background: var(--v3-glow-gold);
+}
+.quote-card-head { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--v3-gold-bright); }
+.quote-source { flex-shrink: 0; font-size: 10px; letter-spacing: 0.06em; }
+.quote-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  color: var(--v3-text-muted);
+}
+.quote-fold { flex-shrink: 0; font-size: 9.5px; color: var(--v3-text-faint); }
+.quote-remove {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--v3-text-faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.quote-remove:hover { color: var(--v3-cinnabar); background: var(--v3-cinnabar-soft); }
+.quote-text {
+  margin: 7px 0 0;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-top: 7px;
+  border-top: 1px dashed var(--v3-hairline-gold);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--v3-text-soft);
+  white-space: pre-wrap;
+}
 .input-box { display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 14px; border: 1px solid var(--v3-hairline-strong); border-radius: var(--v3-r-lg); background: var(--v3-surface-1); }
 .input-box:focus-within { border-color: var(--v3-hairline-gold); box-shadow: 0 0 0 3px var(--v3-glow-gold); }
 .input-area { flex: 1; min-height: 44px; max-height: 150px; padding: 7px 0; border: 0; background: transparent; color: var(--v3-text); font-family: inherit; font-size: 13px; line-height: 1.8; resize: none; outline: none; }
