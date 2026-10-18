@@ -116,18 +116,34 @@ public class WriterService {
      * </ul>
      */
     public Long startTask(Long chapterId, String instruction) {
-        return startTask(chapterId, instruction, false);
+        return startTask(chapterId, instruction, false, null);
     }
 
     public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete) {
-        chapterService.requireById(chapterId);
+        return startTask(chapterId, instruction, autoApproveDelete, null);
+    }
+
+    public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
+                          Long supplementId) {
+        Chapter chapter = chapterService.requireById(chapterId);
+        Long projectId = chapter.getProjectId();
+        if (supplementId != null) {
+            com.mojian.agent.entity.ChapterSupplement supplement = supplementService.require(supplementId);
+            if (!projectId.equals(supplement.getProjectId()) || !chapterId.equals(supplement.getChapterId())) {
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "这条补充要求不属于当前章节");
+            }
+            if (!"PENDING".equals(supplement.getStatus())) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "这条补充要求已在执行或已执行，请刷新后重试");
+            }
+        }
 
         GenerationTask task = new GenerationTask();
         task.setChapterId(chapterId);
         task.setTaskType(TASK_TYPE_AGENT_WRITE);
         task.setStatus(STATUS_RUNNING);
         task.setStartedAt(LocalDateTime.now());
-        task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete));
+        task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete, supplementId));
         try {
             generationTaskMapper.insert(task);
         } catch (DuplicateKeyException e) {
@@ -136,17 +152,30 @@ public class WriterService {
         }
 
         Long taskId = task.getId();
+        if (supplementId != null) {
+            try {
+                supplementService.markExecuting(supplementId, taskId);
+            } catch (RuntimeException e) {
+                updateTaskStatus(taskId, STATUS_FAILED, null, "补充要求已在执行或已处理");
+                throw e;
+            }
+        }
         broker.publishStatus(taskId, STATUS_RUNNING);
         Future<?> future;
         try {
-            future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction, autoApproveDelete));
+            future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction,
+                    autoApproveDelete, supplementId));
         } catch (RuntimeException e) {
             // 线程池拒绝（队列满/正在关闭）：不能让任务行永远停在 RUNNING
             updateTaskStatus(taskId, STATUS_FAILED, null, "写作任务执行器繁忙，请稍后重试");
+            if (supplementId != null) {
+                supplementService.resetExecuting(supplementId);
+            }
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "写作任务执行器繁忙，请稍后重试");
         }
         runningTasks.put(taskId, future);
-        log.info("写作任务 {} 已提交（第 {} 章，自动批准删除：{}）", taskId, chapterId, autoApproveDelete);
+        log.info("写作任务 {} 已提交（第 {} 章，自动批准删除：{}，补充要求：{}）",
+                taskId, chapterId, autoApproveDelete, supplementId);
         return taskId;
     }
 
@@ -194,9 +223,13 @@ public class WriterService {
                 .stream().findFirst();
     }
 
-    private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete) {
+    private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete,
+                         Long supplementId) {
+        boolean supplementApplied = false;
         try {
-            WriterResult result = execute(chapterId, instruction, autoApproveDelete, taskListener(taskId));
+            WriterResult result = execute(chapterId, instruction, autoApproveDelete, supplementId,
+                    taskListener(taskId));
+            supplementApplied = result.saved();
             if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
                 // 用户停的：如实说"停了"，不要伪装成"写完了"
                 updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
@@ -225,6 +258,14 @@ public class WriterService {
         } finally {
             runningTasks.remove(taskId);
             cancelledTasks.remove(taskId);
+            if (supplementId != null && !supplementApplied) {
+                // 失败/取消/没产出正文：按钮回到"执行"，用户可以直接重试
+                try {
+                    supplementService.resetExecuting(supplementId);
+                } catch (Exception e) {
+                    log.warn("补充要求 {} 状态回滚失败: {}", supplementId, e.getMessage());
+                }
+            }
         }
     }
 
@@ -250,11 +291,13 @@ public class WriterService {
         }
     }
 
-    private String writeInputSnapshot(String instruction, boolean autoApproveDelete) {
+    private String writeInputSnapshot(String instruction, boolean autoApproveDelete, Long supplementId) {
         try {
-            return MAPPER.writeValueAsString(Map.of(
-                    "instruction", instruction == null ? "" : instruction,
-                    "autoApproveDelete", autoApproveDelete));
+            Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
+            snapshot.put("instruction", instruction == null ? "" : instruction);
+            snapshot.put("autoApproveDelete", autoApproveDelete);
+            if (supplementId != null) snapshot.put("supplementId", supplementId);
+            return MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
             return "{}";
         }
@@ -340,11 +383,11 @@ public class WriterService {
     // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
-        return execute(chapterId, instruction, false, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, false, null, AgentRunListener.NOOP);
     }
 
     public WriterResult write(Long chapterId, String instruction, boolean autoApproveDelete) {
-        return execute(chapterId, instruction, autoApproveDelete, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, autoApproveDelete, null, AgentRunListener.NOOP);
     }
 
     /**
@@ -358,19 +401,16 @@ public class WriterService {
     public AgentContextAssembly contextPreview(Long chapterId) {
         Chapter chapter = chapterService.requireById(chapterId);
         return assembleMaterials(chapter, StringUtils.hasText(chapter.getContent()),
-                retrievalQuery(chapter, null));
+                retrievalQuery(chapter, null), null);
     }
 
     /**
      * 组装写作上下文：全量材料 + 本章必备材料。
      *
-     * <p>排除当前章：它已作为"本章现有稿"单独注入，再以"前文原文"的名义出现一遍
-     * 既是重复（一章五千字），也会让模型分不清哪份算数。
-     * 同时排除本章蓝图节点，避免"已有蓝图"里出现第二份任务书。
-     *
-     * @param retrievalQuery 材料超过预算时，用于挑"与当前任务相关"的旧章；装得下则不启用
+     * @param targetSupplementId 单独执行某条补充要求时只注入这一条；普通写作注入全部待执行
      */
-    private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising, String retrievalQuery) {
+    private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising,
+                                                   String retrievalQuery, Long targetSupplementId) {
         List<AgentContextSection> required = new ArrayList<>();
         AgentContextSection blueprint = blueprintSection(chapter);
         if (blueprint != null) {
@@ -381,8 +421,13 @@ public class WriterService {
             required.add(requirement);
         }
         // 策划审稿后的补充要求：与写作要求分开，每条独立注入（编号区分，不合并）
-        List<com.mojian.agent.entity.ChapterSupplement> supplements =
-                supplementService.pending(chapter.getId());
+        List<com.mojian.agent.entity.ChapterSupplement> supplements;
+        if (targetSupplementId != null) {
+            // 单独执行某条：即使它已是 EXECUTING 也要注入这一条
+            supplements = List.of(supplementService.require(targetSupplementId));
+        } else {
+            supplements = supplementService.pending(chapter.getId());
+        }
         int supplementNo = 1;
         for (com.mojian.agent.entity.ChapterSupplement supplement : supplements) {
             StringBuilder text = new StringBuilder(supplement.getContent().trim());
@@ -442,7 +487,7 @@ public class WriterService {
     }
 
     private WriterResult execute(Long chapterId, String instruction, boolean autoApproveDelete,
-                                 AgentRunListener listener) {
+                                 Long targetSupplementId, AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
         // 保存成功的判定基准：版本号只在真正写入正文时递增。
@@ -460,7 +505,7 @@ public class WriterService {
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
         // 3. 组装（全量材料 + 必备材料；排除当前章与本章蓝图节点）
         AgentContextAssembly materials = assembleMaterials(chapter, revising,
-                retrievalQuery(chapter, userInput));
+                retrievalQuery(chapter, userInput), targetSupplementId);
         String systemPrompt = AgentPrompts.writer(materials.text(), revising);
 
         /*
@@ -510,8 +555,13 @@ public class WriterService {
         if (saved) {
             // 指令已执行：标记 CONSUMED，下一章不会重复注入；失败/取消则保持 PENDING，重试仍带上
             instructionService.markConsumed(instructionService.pending(projectId, chapterId));
-            // 审稿补充要求同理：写入正文成功后归档为 APPLIED，保留历史供策划下次审稿查看
-            supplementService.markApplied(supplementService.pending(chapterId));
+            if (targetSupplementId != null) {
+                // 单独执行某条：只标记这一条；其他待执行补充要求留给之后的写作
+                supplementService.markApplied(List.of(supplementService.require(targetSupplementId)));
+            } else {
+                // 普通写作：本轮上下文里所有待执行补充要求视为已处理
+                supplementService.markApplied(supplementService.pending(chapterId));
+            }
             memoryWorker.schedule(projectId, chapterId);
             log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
         }

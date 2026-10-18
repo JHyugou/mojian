@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 章节补充要求：策划审稿后追加、写作任务执行、执行后归档为 APPLIED。
@@ -42,6 +43,24 @@ public class ChapterSupplementService {
 
     public List<ChapterSupplement> pending(Long chapterId) {
         return supplementMapper.selectPending(chapterId);
+    }
+
+    /** 单独执行某条补充要求：标记 EXECUTING 并挂上任务 id */
+    @Transactional
+    public void markExecuting(Long supplementId, Long taskId) {
+        if (supplementMapper.markExecuting(supplementId, taskId) == 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "这条补充要求已经在执行或已处理，请刷新后重试");
+        }
+    }
+
+    /** 任务失败/取消：回到待执行，按钮重新可用 */
+    public void resetExecuting(Long supplementId) {
+        supplementMapper.resetExecuting(supplementId);
+    }
+
+    /** 被任务挂起的补充要求（前端重连时用来判断哪条在执行） */
+    public Optional<ChapterSupplement> findByExecutingTask(Long taskId) {
+        return Optional.ofNullable(supplementMapper.selectByExecutingTask(taskId));
     }
 
     public ChapterSupplement require(Long supplementId) {

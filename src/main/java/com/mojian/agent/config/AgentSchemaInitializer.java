@@ -214,7 +214,8 @@ public class AgentSchemaInitializer {
                 content       TEXT         NOT NULL COMMENT '具体修改要求',
                 reason        VARCHAR(1000) DEFAULT NULL COMMENT '针对什么问题',
                 source        VARCHAR(20)  NOT NULL DEFAULT 'PLANNER',
-                status        VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / APPLIED',
+                status        VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / EXECUTING / APPLIED',
+                executing_task_id BIGINT   DEFAULT NULL COMMENT '单独执行时的写作任务 id',
                 created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
@@ -311,6 +312,8 @@ public class AgentSchemaInitializer {
         jdbcTemplate.execute(AGENT_UNDO_LOG_DDL);
         jdbcTemplate.execute(CHAPTER_DELETE_REQUEST_DDL);
         jdbcTemplate.execute(CHAPTER_SUPPLEMENT_DDL);
+        addColumnIfMissing("chapter_supplement", "executing_task_id",
+                "BIGINT DEFAULT NULL COMMENT '单独执行时的写作任务 id' AFTER status");
 
         // 章节写作要求：除了"写什么"（蓝图），还要能表达"怎么写"
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段

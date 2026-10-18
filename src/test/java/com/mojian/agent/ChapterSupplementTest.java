@@ -137,6 +137,26 @@ class ChapterSupplementTest {
     }
 
     @Test
+    @DisplayName("单独执行状态：EXECUTING 时不进入普通写作上下文，失败回滚后重新可执行")
+    void 执行状态流转() {
+        Chapter chapter = createChapter("已有正文。", null);
+        AgentContext context = AgentContext.of(chapter.getProjectId(), AgentRole.PLANNER);
+        supplementTool.execute(context, Map.of("chapterNo", 1, "supplement", "执行态测试：改结尾。"));
+        ChapterSupplement supplement = supplementService.pending(chapter.getId()).get(0);
+
+        supplementService.markExecuting(supplement.getId(), 123456789L);
+        ChapterSupplement executing = supplementService.require(supplement.getId());
+        assertThat(executing.getStatus()).isEqualTo("EXECUTING");
+        assertThat(executing.getExecutingTaskId()).isEqualTo(123456789L);
+        // 普通写作（不指定 supplementId）不会重复注入正在单独执行的那条
+        assertThat(writerService.contextPreview(chapter.getId()).text()).doesNotContain("执行态测试：改结尾");
+
+        supplementService.resetExecuting(supplement.getId());
+        assertThat(supplementService.require(supplement.getId()).getStatus()).isEqualTo("PENDING");
+        assertThat(writerService.contextPreview(chapter.getId()).text()).contains("执行态测试：改结尾");
+    }
+
+    @Test
     @DisplayName("没有正文时不审稿；没有章节时拒绝追加补充要求")
     void 空章节与不存在章节() {
         Chapter chapter = createChapter("", null);

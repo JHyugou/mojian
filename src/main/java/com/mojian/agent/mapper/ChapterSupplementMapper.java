@@ -31,6 +31,29 @@ public interface ChapterSupplementMapper extends BaseMapper<ChapterSupplement> {
         }
         return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
                 .in(ChapterSupplement::getId, ids)
-                .set(ChapterSupplement::getStatus, "APPLIED"));
+                .set(ChapterSupplement::getStatus, "APPLIED")
+                .set(ChapterSupplement::getExecutingTaskId, null));
+    }
+
+    default int markExecuting(Long supplementId, Long taskId) {
+        return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
+                .eq(ChapterSupplement::getId, supplementId)
+                .eq(ChapterSupplement::getStatus, "PENDING")
+                .set(ChapterSupplement::getStatus, "EXECUTING")
+                .set(ChapterSupplement::getExecutingTaskId, taskId));
+    }
+
+    default int resetExecuting(Long supplementId) {
+        return update(null, new LambdaUpdateWrapper<ChapterSupplement>()
+                .eq(ChapterSupplement::getId, supplementId)
+                .eq(ChapterSupplement::getStatus, "EXECUTING")
+                .set(ChapterSupplement::getStatus, "PENDING")
+                .set(ChapterSupplement::getExecutingTaskId, null));
+    }
+
+    default ChapterSupplement selectByExecutingTask(Long taskId) {
+        return selectOne(new LambdaQueryWrapper<ChapterSupplement>()
+                .eq(ChapterSupplement::getExecutingTaskId, taskId)
+                .last("limit 1"));
     }
 }

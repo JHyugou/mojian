@@ -266,7 +266,8 @@ public class AgentController {
                                                          @RequestBody(required = false) WriterRunRequest request) {
         String instruction = request == null ? null : request.instruction();
         boolean autoApproveDelete = request != null && request.autoApproveDelete();
-        Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete);
+        Long supplementId = request == null ? null : request.supplementId();
+        Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete, supplementId);
         return ApiResponse.ok(Map.of("taskId", taskId));
     }
 
@@ -284,6 +285,8 @@ public class AgentController {
                     data.put("taskId", task.getId());
                     data.put("status", task.getStatus());
                     data.put("startedAt", task.getStartedAt());
+                    data.put("supplementId", chapterSupplementService
+                            .findByExecutingTask(task.getId()).map(ChapterSupplement::getId).orElse(null));
                     return data;
                 }).orElseGet(java.util.LinkedHashMap::new));
     }

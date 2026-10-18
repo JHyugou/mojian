@@ -31,6 +31,9 @@ public class ChapterSupplement extends BaseEntity {
     /** 来源：PLANNER */
     private String source;
 
-    /** PENDING / APPLIED */
+    /** PENDING / EXECUTING / APPLIED */
     private String status;
+
+    /** 正在执行这条补充要求的写作任务 id（仅 EXECUTING 时有值） */
+    private Long executingTaskId;
 }
