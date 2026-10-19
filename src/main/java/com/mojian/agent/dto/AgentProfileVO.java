@@ -8,6 +8,7 @@ import java.math.BigDecimal;
  *
  * @param baseUrlSource   接口地址来自哪里：{@code PROFILE}（本角色单独配的）
  *                        或 {@code GLOBAL}（沿用设置页 / 环境变量）
+ * @param apiKeySource    Key 来自哪里：{@code PROFILE} / {@code GLOBAL} / {@code NONE}
  * @param contextLimit    0 表示未知，会按实测对照表推断
  * @param reasoningEffort 思考强度；null 表示不传、用服务商默认
  */
@@ -15,5 +16,6 @@ public record AgentProfileVO(String role, String model, BigDecimal temperature,
                              String reasoningEffort, int maxSteps,
                              int contextLimit, int reserveOutputTokens,
                              String baseUrl, String baseUrlSource,
-                             boolean apiKeyConfigured, String apiKeyMask) {
+                             boolean apiKeyConfigured, String apiKeyMask,
+                             String apiKeySource) {
 }

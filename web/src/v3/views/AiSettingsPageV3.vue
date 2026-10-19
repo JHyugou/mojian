@@ -34,6 +34,9 @@ const fetchingModels = ref(false)
 const savingModels = ref(false)
 const profiles = ref([])
 const profileDrafts = reactive({})
+/** 每个角色单独拉取的服务商模型（独立连接时用） */
+const roleModels = reactive({})
+const roleFetching = reactive({})
 const showReset = ref(false)
 const resetting = ref(false)
 const usage = ref(null)
@@ -95,12 +98,7 @@ async function load() {
     if (profileResult.status === 'fulfilled') {
       profiles.value = profileResult.value || []
       for (const profile of profiles.value) {
-        profileDrafts[profile.role] = {
-          model: profile.model || '',
-          temperature: profile.temperature ?? 0.8,
-          reasoningEffort: profile.reasoningEffort || '',
-          maxSteps: profile.maxSteps ?? (profile.role === 'WRITER' ? 6 : 10)
-        }
+        resetProfileDraft(profile)
       }
     }
     if (form.baseUrl) await loadModels(true)
@@ -113,6 +111,66 @@ async function load() {
 }
 
 onMounted(load)
+
+/**
+ * 角色配置草稿：保留独立的接口地址/Key 状态。
+ * 不能只把 profile.baseUrl 当成“本角色地址”——没有覆盖时它是全局地址，
+ * 但界面上必须让用户清楚自己是在沿用全局还是单独配置。
+ */
+function resetProfileDraft(profile) {
+  profileDrafts[profile.role] = {
+    model: profile.model || '',
+    temperature: profile.temperature ?? 0.8,
+    reasoningEffort: profile.reasoningEffort || '',
+    maxSteps: profile.maxSteps ?? (profile.role === 'WRITER' ? 6 : 10),
+    useOwnConnection: profile.baseUrlSource === 'PROFILE' || profile.apiKeySource === 'PROFILE',
+    ownKey: profile.apiKeySource === 'PROFILE',
+    baseUrl: profile.baseUrl || form.baseUrl || '',
+    apiKey: ''
+  }
+}
+
+/** 模型候选：全局模型库 + 本角色拉取过的模型 */
+function roleModelOptions(role) {
+  const seen = new Set()
+  const list = []
+  for (const m of [...(modelOptions.value || []), ...(roleModels[role] || [])]) {
+    if (!seen.has(m.id)) {
+      seen.add(m.id)
+      list.push(m)
+    }
+  }
+  return list
+}
+
+/** 独立连接时，用本角色的地址和 Key 拉取模型，不必先切全局服务商 */
+async function fetchRoleModels(profile) {
+  const draft = profileDrafts[profile.role]
+  if (!draft.baseUrl.trim()) {
+    notify.error('先填写本角色的接口地址')
+    return
+  }
+  if (!draft.apiKey.trim()) {
+    notify.error('拉取模型需要临时输入该服务商的 API Key（已保存的 Key 不会回显）')
+    return
+  }
+  roleFetching[profile.role] = true
+  try {
+    const data = await fetchModels({
+      baseUrl: draft.baseUrl.trim(),
+      apiKey: draft.apiKey.trim() || undefined
+    })
+    roleModels[profile.role] = Array.isArray(data) ? data : (data?.models || [])
+    if (!draft.model && roleModels[profile.role].length) {
+      draft.model = roleModels[profile.role][0].id
+    }
+    notify.success(`查到 ${roleModels[profile.role].length} 个模型`)
+  } catch (e) {
+    notify.error(e.message || '拉取本角色模型失败')
+  } finally {
+    roleFetching[profile.role] = false
+  }
+}
 
 function pickProvider(provider) {
   selectedProviderId.value = provider.id
@@ -215,14 +273,28 @@ async function toggleModel(model) {
 
 async function saveProfile(role) {
   const draft = profileDrafts[role]
+  if (draft.useOwnConnection && !draft.baseUrl.trim()) {
+    notify.error('独立连接需要填写接口地址')
+    return
+  }
+  if (draft.useOwnConnection && !draft.ownKey && !draft.apiKey.trim()) {
+    notify.error('独立连接需要填写该服务商的 API Key')
+    return
+  }
   try {
     const updated = await updateAgentProfile(role, {
       model: draft.model || null,
       temperature: draft.temperature,
       reasoningEffort: draft.reasoningEffort ?? '',
-      maxSteps: draft.maxSteps
+      maxSteps: draft.maxSteps,
+      // null = 不改；空字符串 = 清除本角色覆盖、回到全局
+      baseUrl: draft.useOwnConnection ? draft.baseUrl.trim() : '',
+      apiKey: draft.useOwnConnection
+        ? (draft.apiKey.trim() ? draft.apiKey.trim() : null)
+        : ''
     })
     profiles.value = profiles.value.map((p) => (p.role === role ? updated : p))
+    resetProfileDraft(updated)
     notify.success(`${role === 'PLANNER' ? '策划' : '写作'} Agent 配置已更新`)
   } catch (e) {
     notify.error(e.message || '保存角色配置失败')
@@ -380,15 +452,54 @@ const reasoningLevelsOf = (modelId) => {
                 <V3Tag tone="gold">上下文 {{ fmtContext(profile.contextLimit) }}</V3Tag>
               </header>
 
-              <V3Field label="模型" required>
-                <select v-model="profileDrafts[profile.role].model" class="select">
-                  <option value="" disabled>选择一个模型</option>
-                  <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
-                  <option v-if="profile.model && !modelOptions.some(m => m.id === profile.model)" :value="profile.model">
-                    {{ profile.model }}
-                  </option>
-                </select>
+              <V3Field label="模型" required hint="可直接输入该服务商的模型 ID，也可以拉取本角色服务商的模型">
+                <div class="role-model-row">
+                  <input
+                    v-model="profileDrafts[profile.role].model"
+                    class="select"
+                    :list="`role-models-${profile.role}`"
+                    placeholder="例如 deepseek-v4-flash"
+                  />
+                  <V3Button
+                    v-if="profileDrafts[profile.role].useOwnConnection"
+                    variant="glass"
+                    size="sm"
+                    :loading="roleFetching[profile.role]"
+                    @click="fetchRoleModels(profile)"
+                  >
+                    拉取
+                  </V3Button>
+                </div>
+                <datalist :id="`role-models-${profile.role}`">
+                  <option v-for="m in roleModelOptions(profile.role)" :key="m.id" :value="m.id">{{ m.name || m.id }}</option>
+                </datalist>
               </V3Field>
+
+              <div class="role-conn" :class="{ active: profileDrafts[profile.role].useOwnConnection }">
+                <label class="conn-switch">
+                  <input v-model="profileDrafts[profile.role].useOwnConnection" type="checkbox" />
+                  <span>独立连接（服务商 / Key）</span>
+                </label>
+                <span class="conn-state">
+                  {{ profileDrafts[profile.role].useOwnConnection
+                    ? '本角色使用自己的接口地址与 Key'
+                    : '沿用全局连接' }}
+                </span>
+              </div>
+              <template v-if="profileDrafts[profile.role].useOwnConnection">
+                <V3Field label="接口地址" required>
+                  <V3Input v-model="profileDrafts[profile.role].baseUrl" placeholder="https://api.example.com/v1" />
+                </V3Field>
+                <V3Field
+                  label="API Key"
+                  :hint="profileDrafts[profile.role].ownKey
+                    ? '本角色已保存 Key，留空表示沿用'
+                    : '独立连接必须填写该服务商的 Key'"
+                >
+                  <V3Input v-model="profileDrafts[profile.role].apiKey" type="password"
+                           :placeholder="profileDrafts[profile.role].ownKey ? '留空 = 沿用已存 Key' : 'sk-…'" />
+                </V3Field>
+              </template>
 
               <div class="role-row">
                 <V3Field label="温度" :hint="String(profileDrafts[profile.role].temperature)">
@@ -402,8 +513,8 @@ const reasoningLevelsOf = (modelId) => {
               <V3Field label="思考强度" hint="空 = 服务商默认">
                 <select v-model="profileDrafts[profile.role].reasoningEffort" class="select">
                   <option value="">服务商默认</option>
-                  <option v-for="level in reasoningLevelsOf(profile.model)" :key="level" :value="level">{{ level }}</option>
-                  <option v-if="profileDrafts[profile.role].reasoningEffort && !reasoningLevelsOf(profile.model).includes(profileDrafts[profile.role].reasoningEffort)"
+                  <option v-for="level in reasoningLevelsOf(profileDrafts[profile.role].model)" :key="level" :value="level">{{ level }}</option>
+                  <option v-if="profileDrafts[profile.role].reasoningEffort && !reasoningLevelsOf(profileDrafts[profile.role].model).includes(profileDrafts[profile.role].reasoningEffort)"
                           :value="profileDrafts[profile.role].reasoningEffort">
                     {{ profileDrafts[profile.role].reasoningEffort }}（自定义）
                   </option>
@@ -412,7 +523,9 @@ const reasoningLevelsOf = (modelId) => {
 
               <div class="role-foot">
                 <span class="role-hint">
-                  {{ profile.baseUrlSource === 'GLOBAL' ? '接口与 Key 沿用全局设置' : '使用本角色单独配置' }}
+                  {{ profileDrafts[profile.role].useOwnConnection
+                    ? '独立连接：保存后本角色不再使用全局地址/Key'
+                    : '接口与 Key 沿用全局设置' }}
                 </span>
                 <V3Button size="sm" @click="saveProfile(profile.role)">保存配置</V3Button>
               </div>
@@ -609,6 +722,23 @@ const reasoningLevelsOf = (modelId) => {
 .range { width: 100%; accent-color: var(--v3-gold); }
 .role-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .role-hint { font-size: 10.5px; color: var(--v3-text-faint); }
+.role-conn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--v3-hairline);
+  border-radius: var(--v3-r-xs);
+  background: var(--v3-inset);
+}
+.role-conn.active { border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.role-model-row { display: flex; align-items: center; gap: 8px; }
+.role-model-row .select { flex: 1; min-width: 0; }
+.conn-switch { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--v3-text-soft); cursor: pointer; }
+.conn-switch input { accent-color: var(--v3-gold); }
+.conn-state { font-size: 10.5px; color: var(--v3-text-faint); text-align: right; }
 
 .usage-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 520px; margin-bottom: 16px; }
 .usage-stat { padding: 14px 18px; border: 1px solid var(--v3-hairline); border-radius: var(--v3-r-sm); background: var(--v3-surface-1); }

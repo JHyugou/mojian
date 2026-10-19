@@ -143,7 +143,8 @@ public class AgentProfileService {
                 ownUrl ? profile.getBaseUrl() : (global == null ? null : global.baseUrl()),
                 ownUrl ? "PROFILE" : "GLOBAL",
                 ownKey || (global != null && StringUtils.hasText(global.apiKey())),
-                ownKey ? "（本角色单独配置）" : mask(global == null ? null : global.apiKey()));
+                ownKey ? "（本角色单独配置）" : mask(global == null ? null : global.apiKey()),
+                ownKey ? "PROFILE" : (global != null && StringUtils.hasText(global.apiKey()) ? "GLOBAL" : "NONE"));
     }
 
     private String mask(String key) {
