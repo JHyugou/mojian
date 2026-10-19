@@ -42,10 +42,10 @@ public class UpdateBlueprintTool implements AgentTool {
 
     @Override
     public String description() {
-        return "修改一个已有蓝图节点的内容，提交给用户确认。"
-                + "当用户要求改动某段已经规划好的剧情（例如框选了一段蓝图说『这里改成……』）时使用。"
+        return "修改一个已有蓝图节点的名称或内容，提交给用户确认。"
+                + "当用户要求改节点名（例如把「第六章 不留手」改成「第六章 决赛」）或改动某段已规划的剧情时使用。"
                 + "必须先用 query_outline 找到目标节点的 ID。"
-                + "只需要给出要改的部分：没提到的字段会保持原样。"
+                + "name 和 summary 至少给一个；没提到的字段会保持原样。"
                 + "调用后草稿进入『待确认』状态，不会立刻改动蓝图。";
     }
 
@@ -61,12 +61,14 @@ public class UpdateBlueprintTool implements AgentTool {
                 "properties", Map.of(
                         "nodeId", Map.of("type", "integer",
                                 "description", "要修改的蓝图节点 ID（先用 query_outline 查到）"),
+                        "name", Map.of("type", "string",
+                                "description", "新的节点名称；只改名时传它，不传 summary 即可"),
                         "summary", Map.of("type", "string",
                                 "description", "节点的新内容（完整内容，不是差异片段）。"
                                         + "要保留原内容里没被要求改的部分，把它们一起写进来"),
                         "reason", Map.of("type", "string",
                                 "description", "改动理由，或者用户的原话引用")),
-                "required", List.of("nodeId", "summary", "reason"));
+                "required", List.of("nodeId", "reason"));
     }
 
     @Override
@@ -78,9 +80,13 @@ public class UpdateBlueprintTool implements AgentTool {
         if (nodeId == null) {
             return "错误：必须提供 nodeId（先用 query_outline 查到目标节点的 ID）。";
         }
+        String name = text(arguments.get("name"));
         String summary = text(arguments.get("summary"));
-        if (summary.isEmpty()) {
-            return "错误：必须提供 summary（节点的新内容）。";
+        if (name.isEmpty() && summary.isEmpty()) {
+            return "错误：name 和 summary 至少要提供一个，否则这次修改没有任何内容。";
+        }
+        if (name.length() > 200) {
+            return "错误：蓝图节点名称不能超过 200 字。";
         }
         String reason = text(arguments.get("reason"));
 
@@ -91,14 +97,22 @@ public class UpdateBlueprintTool implements AgentTool {
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("name", node.getName());
+        if (!name.isEmpty()) {
+            payload.put("name", name);
+        }
         payload.put("nodeType", node.getNodeType());
-        payload.put("summary", summary);
+        if (!summary.isEmpty()) {
+            payload.put("summary", summary);
+        }
 
+        String draftTitle = name.isEmpty() ? node.getName() : name;
         AgentDraft draft = draftService.draft(conversationId, projectId, DraftType.BLUEPRINT,
-                node.getName(), payload, reason, nodeId);
+                draftTitle, payload, reason, nodeId);
 
-        return "已起草对蓝图节点「" + node.getName() + "」的修改（草稿 " + draft.getId() + "），"
+        String change = name.isEmpty()
+                ? "修改蓝图节点「" + node.getName() + "」的内容"
+                : "把蓝图节点「" + node.getName() + "」改名为「" + name + "」";
+        return "已起草" + change + "（草稿 " + draft.getId() + "），"
                 + "尚未生效 —— 它会出现在『待你确认』里。\n"
                 + "现在请停下：用两三句话向用户说明你打算怎么改、为什么这么改"
                 + "（如果用户框选了一段原文，请复述那一段，让他确认你理解对了位置）。"

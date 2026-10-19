@@ -132,7 +132,9 @@ public final class AgentPrompts {
                 <b>修改已有内容</b>
                   update_character  改已有人物卡（含改名；改名必须传 name，不能只改正文称呼）
                   update_setting    改已有设定
-                  update_blueprint  改已有蓝图节点
+                  update_blueprint  改已有蓝图节点（含改节点名；只改名时传 name，不传 summary）
+                  rename_chapter    改章节标题，并默认同步关联的 CHAPTER 蓝图节点名
+                  用户说“第 N 章改名”时用 rename_chapter；只改蓝图节点名时才用 update_blueprint，两者不要混用。
 
                 <b>删除已有内容（高风险，必须由作者确认）</b>
                   delete_character  申请删除人物卡（连带版本节点）

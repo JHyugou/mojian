@@ -12,7 +12,7 @@
 
     <groupId>com.mojian</groupId>
     <artifactId>mojian</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
     <name>mojian</name>
     <description>墨笺 AI 长篇小说创作工作台</description>
 

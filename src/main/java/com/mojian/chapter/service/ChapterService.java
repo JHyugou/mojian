@@ -85,6 +85,26 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
         return chapter;
     }
 
+    /**
+     * 只改章节标题，不碰正文、状态和版本号。
+     *
+     * <p>标题是元数据，不产生新正文版本；真正需要版本的是正文内容。
+     */
+    @Transactional
+    public Chapter rename(Long chapterId, String title) {
+        Chapter chapter = requireById(chapterId);
+        if (!StringUtils.hasText(title)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "章节标题不能为空");
+        }
+        String normalized = title.trim();
+        if (normalized.length() > 200) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "章节标题不能超过 200 字");
+        }
+        chapter.setTitle(normalized);
+        updateById(chapter);
+        return chapter;
+    }
+
     public Chapter get(Long chapterId) {
         return requireById(chapterId);
     }

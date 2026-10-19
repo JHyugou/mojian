@@ -124,6 +124,22 @@ public class OutlineService extends ServiceImpl<PlotOutlineMapper, PlotOutline> 
         return node;
     }
 
+    /** 只改蓝图节点名称，保留类型、摘要、父子关系和排序。 */
+    @Transactional
+    public PlotOutline rename(Long nodeId, String name) {
+        PlotOutline node = requireById(nodeId);
+        if (!StringUtils.hasText(name)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "蓝图节点名称不能为空");
+        }
+        String normalized = name.trim();
+        if (normalized.length() > 200) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "蓝图节点名称不能超过 200 字");
+        }
+        node.setName(normalized);
+        updateById(node);
+        return node;
+    }
+
     /**
      * 删除节点及其全部子孙节点；关联章节的 outline_node_id 置空，不删除章节正文。
      */
