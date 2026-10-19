@@ -16,6 +16,7 @@ import com.mojian.agent.entity.AgentDraft;
 import com.mojian.agent.entity.AgentPlanOption;
 import com.mojian.agent.entity.ChapterDeleteRequest;
 import com.mojian.agent.entity.ChapterSupplement;
+import com.mojian.agent.entity.WriterInstruction;
 import com.mojian.agent.service.AgentContextService;
 import com.mojian.agent.service.AgentDeleteRequestService;
 import com.mojian.agent.service.AgentProfileService;
@@ -241,6 +242,12 @@ public class AgentController {
                     data.put("createdAt", item.getCreatedAt());
                     return data;
                 }).toList());
+    }
+
+    /** 撤回一条尚未执行的策划写作指令（作者或策划均可调用） */
+    @PostMapping("/writer/instructions/{instructionId}/cancel")
+    public ApiResponse<WriterInstruction> cancelWriterInstruction(@PathVariable Long instructionId) {
+        return ApiResponse.ok(writerInstructionService.cancel(instructionId));
     }
 
     // ==================== 章节补充要求 ====================

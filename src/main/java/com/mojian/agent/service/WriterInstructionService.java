@@ -49,4 +49,40 @@ public class WriterInstructionService {
     public void markConsumed(List<WriterInstruction> instructions) {
         instructionMapper.markConsumed(instructions.stream().map(WriterInstruction::getId).toList());
     }
+
+    public WriterInstruction require(Long instructionId) {
+        WriterInstruction instruction = instructionMapper.selectById(instructionId);
+        if (instruction == null) {
+            throw new com.mojian.common.exception.BusinessException(
+                    com.mojian.common.api.ErrorCode.NOT_FOUND,
+                    "写作指令不存在：" + instructionId);
+        }
+        return instruction;
+    }
+
+    /** 撤回一条尚未执行的指令；已执行的历史不能撤回。 */
+    public WriterInstruction cancel(Long instructionId) {
+        WriterInstruction instruction = require(instructionId);
+        if (!"PENDING".equals(instruction.getStatus())) {
+            throw new com.mojian.common.exception.BusinessException(
+                    com.mojian.common.api.ErrorCode.CONFLICT,
+                    "这条指令已经是「" + statusLabel(instruction.getStatus()) + "」，不能撤回");
+        }
+        if (instructionMapper.markCancelled(instructionId) == 0) {
+            throw new com.mojian.common.exception.BusinessException(
+                    com.mojian.common.api.ErrorCode.CONFLICT, "指令状态已变化，请刷新后重试");
+        }
+        instruction.setStatus("CANCELLED");
+        log.info("撤回写作指令 {}（原内容：{}）", instructionId, instruction.getContent());
+        return instruction;
+    }
+
+    private String statusLabel(String status) {
+        return switch (status == null ? "" : status) {
+            case "PENDING" -> "待执行";
+            case "CONSUMED" -> "已执行";
+            case "CANCELLED" -> "已撤回";
+            default -> status;
+        };
+    }
 }

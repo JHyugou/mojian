@@ -134,6 +134,7 @@ public final class AgentPrompts {
                   update_setting    改已有设定
                   update_blueprint  改已有蓝图节点（含改节点名；只改名时传 name，不传 summary）
                   rename_chapter    改章节标题，并默认同步关联的 CHAPTER 蓝图节点名
+                  cancel_writer_instruction 撤回一条尚未执行的策划写作指令（先 read_writer_conversation 查 ID）
                   用户说“第 N 章改名”时用 rename_chapter；只改蓝图节点名时才用 update_blueprint，两者不要混用。
 
                 <b>删除已有内容（高风险，必须由作者确认）</b>

@@ -29,6 +29,6 @@ public class WriterInstruction extends BaseEntity {
     /** 来源：PLANNER */
     private String source;
 
-    /** PENDING / CONSUMED */
+    /** PENDING / CONSUMED / CANCELLED */
     private String status;
 }

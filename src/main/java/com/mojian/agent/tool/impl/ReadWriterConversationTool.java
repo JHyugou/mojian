@@ -97,10 +97,18 @@ public class ReadWriterConversationTool implements AgentTool {
 
         List<WriterInstruction> instructions = instructionService.recent(projectId, 10);
         if (!instructions.isEmpty()) {
-            sb.append("\n【策划此前下发的写作指令】（供参考，不代表已经执行）\n");
+            sb.append("\n【策划此前下发的写作指令】（供参考；带记录 ID，可撤回待执行指令）\n");
             for (WriterInstruction instruction : instructions) {
-                sb.append("- [").append("PENDING".equals(instruction.getStatus()) ? "待执行" : "已执行")
-                        .append("] ").append(instruction.getContent()).append('\n');
+                String status = switch (instruction.getStatus() == null ? "" : instruction.getStatus()) {
+                    case "PENDING" -> "待执行";
+                    case "CONSUMED" -> "已执行";
+                    case "CANCELLED" -> "已撤回";
+                    default -> instruction.getStatus();
+                };
+                sb.append("- #").append(instruction.getId())
+                        .append(" [").append(status).append("] （章节记录 ID ")
+                        .append(instruction.getChapterId()).append("）：")
+                        .append(instruction.getContent()).append('\n');
             }
         }
         sb.append("\n请结合 review_chapter 看到的当前正文判断；"

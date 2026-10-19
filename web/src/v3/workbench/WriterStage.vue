@@ -17,7 +17,7 @@ import {
   listVersions, rollbackChapter, saveChapter, saveMemory
 } from '../../api/chapter'
 import {
-  approveChapterDeleteRequest, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
+  approveChapterDeleteRequest, cancelWriterInstruction, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
   getChapterDeleteRequests, getChapterSupplements, getWriterConversation, getWriterInstructions,
   rejectChapterDeleteRequest, returnChapterSupplement, setWritingRequirement, startWritingTask,
   subscribeWritingTask, verifyChapterSupplement
@@ -349,6 +349,17 @@ async function loadInstructions() {
     plannerInstructions.value = (await getWriterInstructions(props.projectId)) || []
   } catch (e) {
     console.warn('读取策划分工指令失败', e)
+  }
+}
+
+async function cancelInstruction(instruction) {
+  if (instruction.status !== 'PENDING') return
+  try {
+    await cancelWriterInstruction(instruction.id)
+    notify.info('已撤回这条策划写作指令')
+    await loadInstructions()
+  } catch (e) {
+    notify.error(e.message || '撤回指令失败')
   }
 }
 
@@ -1083,9 +1094,18 @@ watch(() => props.chapter?.id, () => {
                 <span class="ci-sender">策划 Agent</span>
                 <span class="ci-title">写作指令</span>
                 <V3Tag :tone="item.data.status === 'PENDING' ? 'gold' : 'line'">
-                  {{ item.data.status === 'PENDING' ? '待执行' : '已执行' }}
+                  {{ item.data.status === 'PENDING' ? '待执行'
+                    : item.data.status === 'CANCELLED' ? '已撤回' : '已执行' }}
                 </V3Tag>
                 <span class="ci-time">{{ (item.data.createdAt || '').replace('T', ' ').slice(5, 16) }}</span>
+                <button
+                  v-if="item.data.status === 'PENDING'"
+                  class="ci-cancel"
+                  title="撤回这条尚未执行的指令"
+                  @click.stop="cancelInstruction(item.data)"
+                >
+                  撤回
+                </button>
                 <span class="ci-fold">
                   {{ item.data.status === 'PENDING' ? '' : (isInstructionOpen(item.data) ? '收起' : '展开') }}
                 </span>
@@ -1094,7 +1114,9 @@ watch(() => props.chapter?.id, () => {
                 <p class="ci-content">{{ item.data.content }}</p>
                 <p v-if="item.data.reason" class="ci-reason">策划的理由：{{ item.data.reason }}</p>
               </template>
-              <p v-else class="ci-folded">已执行 · 点击展开当时的指令</p>
+              <p v-else class="ci-folded">
+                {{ item.data.status === 'CANCELLED' ? '已撤回' : '已执行' }} · 点击展开当时的指令
+              </p>
             </article>
           </template>
 
@@ -1598,6 +1620,17 @@ watch(() => props.chapter?.id, () => {
 .ci-content { margin: 9px 0 0; font-size: 12px; line-height: 1.85; color: var(--v3-text-soft); white-space: pre-wrap; }
 .ci-reason { margin: 7px 0 0; font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
 .ci-folded { margin: 7px 0 0; font-size: 10.5px; color: var(--v3-text-faint); }
+.ci-cancel {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-pill);
+  background: transparent;
+  color: var(--v3-text-faint);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+.ci-cancel:hover { color: var(--v3-cinnabar); border-color: var(--v3-cinnabar); }
 .planner-notes { margin: 0 0 18px; }
 .danger-text { color: #e8a8a0; }
 .danger-text b { color: #ffd9d3; }

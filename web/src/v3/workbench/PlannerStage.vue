@@ -103,6 +103,7 @@ const toolLabels = {
   update_setting: '改设定',
   update_blueprint: '改蓝图',
   rename_chapter: '改章节名',
+  cancel_writer_instruction: '撤回写作指令',
   delete_character: '删人物',
   delete_setting: '删设定',
   delete_blueprint: '删蓝图',

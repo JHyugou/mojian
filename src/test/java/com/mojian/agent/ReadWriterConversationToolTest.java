@@ -62,7 +62,7 @@ class ReadWriterConversationToolTest {
                 .contains("作者").contains("写作 Agent")
                 .contains("甲叶子响的位置")
                 .contains("结尾改成动作收束")
-                .contains("不代表已经执行");
+                .contains("带记录 ID");
     }
 
     @Test

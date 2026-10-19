@@ -35,4 +35,12 @@ public interface WriterInstructionMapper extends BaseMapper<WriterInstruction> {
                 .in(WriterInstruction::getId, ids)
                 .set(WriterInstruction::getStatus, "CONSUMED"));
     }
+
+    /** 只允许撤回尚未执行的指令；已执行的历史不能被改写 */
+    default int markCancelled(Long id) {
+        return update(null, new LambdaUpdateWrapper<WriterInstruction>()
+                .eq(WriterInstruction::getId, id)
+                .eq(WriterInstruction::getStatus, "PENDING")
+                .set(WriterInstruction::getStatus, "CANCELLED"));
+    }
 }

@@ -127,6 +127,11 @@ export function getWriterInstructions(projectId) {
   return http.get(`/agent/writer/projects/${projectId}/instructions`)
 }
 
+/** 撤回一条尚未执行的策划写作指令 */
+export function cancelWriterInstruction(instructionId) {
+  return http.post(`/agent/writer/instructions/${instructionId}/cancel`)
+}
+
 export function getChapterSupplements(chapterId) {
   return http.get(`/agent/writer/chapters/${chapterId}/supplements`)
 }
