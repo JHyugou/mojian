@@ -22,6 +22,9 @@ public class AgentProfile extends BaseEntity {
 
     private String model;
 
+    /** 选中的模型服务商 id；空表示沿用旧的全局/角色连接配置 */
+    private Long providerId;
+
     /** 策划宜低（求稳），写作宜高（求发散） */
     private java.math.BigDecimal temperature;
 

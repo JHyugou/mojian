@@ -309,6 +309,25 @@ public class LlmSettingsService {
                 .toList();
     }
 
+    /**
+     * 按服务商查询模型，不做全局"启用列表"过滤。
+     * 多服务商模型库里每个服务商的模型都应该保留，否则会被旧的全局勾选状态误伤。
+     */
+    public List<LlmModelVO> fetchProviderModels(String baseUrl, String apiKey) {
+        if (!StringUtils.hasText(baseUrl)) {
+            throw new BusinessException(ErrorCode.PARAM_INVALID, "请先填写接口地址");
+        }
+        List<ModelsDevCatalog.ModelInfo> raw;
+        List<ModelsDevCatalog.ModelInfo> fromCatalog = catalog.modelsFor(baseUrl);
+        if (!fromCatalog.isEmpty()) {
+            raw = fromCatalog;
+        } else {
+            String key = StringUtils.hasText(apiKey) ? apiKey.trim() : storedPlainKey();
+            raw = StringUtils.hasText(key) ? askProvider(baseUrl, key) : List.of();
+        }
+        return raw.stream().map(info -> LlmModelVO.of(info, true)).toList();
+    }
+
     /** 问服务商要模型列表（{@code GET /models}）。不是每家都实现了 */
     private List<ModelsDevCatalog.ModelInfo> askProvider(String baseUrl, String key) {
         String url = baseUrl.trim().replaceAll("/+$", "") + "/models";

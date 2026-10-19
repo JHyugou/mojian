@@ -1,9 +1,12 @@
 package com.mojian.settings.controller;
 
 import com.mojian.common.api.ApiResponse;
+import com.mojian.settings.dto.LlmProviderSaveRequest;
 import com.mojian.settings.dto.LlmSettingsSaveRequest;
 import com.mojian.settings.llm.LlmProviderPreset;
+import com.mojian.settings.service.LlmProviderService;
 import com.mojian.settings.vo.LlmModelVO;
+import com.mojian.settings.vo.LlmProviderVO;
 import com.mojian.settings.service.LlmSettingsService;
 import com.mojian.settings.vo.LlmSettingsStatusVO;
 import jakarta.validation.Valid;
@@ -23,6 +26,7 @@ import java.util.Map;
 public class LlmSettingsController {
 
     private final LlmSettingsService settingsService;
+    private final LlmProviderService providerService;
 
     @GetMapping("/settings/llm")
     public ApiResponse<LlmSettingsStatusVO> status() {
@@ -33,6 +37,31 @@ public class LlmSettingsController {
     @PutMapping("/settings/llm")
     public ApiResponse<LlmSettingsStatusVO> save(@Valid @RequestBody LlmSettingsSaveRequest request) {
         return ApiResponse.ok(settingsService.save(request));
+    }
+
+    /** 当前已配置的服务商（含各自模型库；Key 只出掩码） */
+    @GetMapping("/settings/llm/provider-configs")
+    public ApiResponse<List<LlmProviderVO>> providerConfigs() {
+        return ApiResponse.ok(providerService.list());
+    }
+
+    /** 新增或修改一个服务商配置 */
+    @PostMapping("/settings/llm/provider-configs")
+    public ApiResponse<LlmProviderVO> saveProvider(@RequestBody LlmProviderSaveRequest request) {
+        return ApiResponse.ok(providerService.save(request));
+    }
+
+    /** 刷新某个服务商的模型列表 */
+    @PostMapping("/settings/llm/provider-configs/{providerId}/refresh-models")
+    public ApiResponse<LlmProviderVO> refreshProviderModels(@PathVariable Long providerId) {
+        return ApiResponse.ok(providerService.refreshModels(providerId));
+    }
+
+    /** 删除服务商配置；仍被 Agent 使用时拒绝 */
+    @DeleteMapping("/settings/llm/provider-configs/{providerId}")
+    public ApiResponse<Void> deleteProvider(@PathVariable Long providerId) {
+        providerService.delete(providerId);
+        return ApiResponse.ok();
     }
 
     /** 用待保存参数发起一次最小真实调用验证连通性（不落库） */

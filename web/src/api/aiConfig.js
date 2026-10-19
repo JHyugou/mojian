@@ -49,3 +49,20 @@ export function fetchModels(data) {
 export function saveEnabledModels(models) {
   return http.put('/settings/llm/models/enabled', { models })
 }
+
+/** 多服务商配置：每家独立保存 Base URL / Key */
+export function getProviderConfigs() {
+  return http.get('/settings/llm/provider-configs')
+}
+
+export function saveProviderConfig(data) {
+  return http.post('/settings/llm/provider-configs', data)
+}
+
+export function refreshProviderModels(providerId) {
+  return http.post(`/settings/llm/provider-configs/${providerId}/refresh-models`)
+}
+
+export function deleteProviderConfig(providerId) {
+  return http.delete(`/settings/llm/provider-configs/${providerId}`)
+}

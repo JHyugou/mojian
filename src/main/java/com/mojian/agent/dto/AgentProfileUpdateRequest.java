@@ -16,12 +16,14 @@ import java.math.BigDecimal;
  * <p>为什么要有"清除覆盖"这个语义：角色配置里的接口地址与密钥是<b>可选的覆盖</b>，
  * 默认沿用 {@code llm_settings}。换供应商时，你可能只想用一次就切回来。
  *
+ * @param providerId      选中的服务商 id；非 null 时使用该服务商的地址与 Key
  * @param reasoningEffort 思考强度（low / medium / high 等）。各家值域不同，
  *                        所以只存字符串不校验 —— 真正的可选值由模型目录提供给界面。
  *                        传空字符串表示"回到服务商默认"。
  */
 public record AgentProfileUpdateRequest(
         String model,
+        Long providerId,
         BigDecimal temperature,
         String reasoningEffort,
         Integer maxSteps,

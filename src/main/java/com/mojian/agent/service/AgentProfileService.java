@@ -11,6 +11,8 @@ import com.mojian.agent.mapper.AgentProfileMapper;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.crypto.LocalSecretCipher;
 import com.mojian.common.exception.BusinessException;
+import com.mojian.settings.mapper.LlmProviderMapper;
+import com.mojian.settings.entity.LlmProvider;
 import com.mojian.settings.service.LlmSettingsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +46,7 @@ public class AgentProfileService {
 
     private final AgentProfileMapper profileMapper;
     private final LlmSettingsService llmSettingsService;
+    private final LlmProviderMapper providerMapper;
     private final com.mojian.settings.llm.ModelsDevCatalog catalog;
     private final LocalSecretCipher cipher;
 
@@ -82,6 +85,10 @@ public class AgentProfileService {
         if (StringUtils.hasText(request.model())) {
             profile.setModel(request.model().trim());
         }
+        if (request.providerId() != null) {
+            // 0 用于明确表示"切回旧的全局/角色连接"
+            profile.setProviderId(request.providerId() > 0 ? request.providerId() : null);
+        }
         if (request.temperature() != null) {
             profile.setTemperature(request.temperature());
         }
@@ -109,6 +116,7 @@ public class AgentProfileService {
         profileMapper.update(null, Wrappers.<AgentProfile>lambdaUpdate()
                 .eq(AgentProfile::getId, profile.getId())
                 .set(AgentProfile::getModel, profile.getModel())
+                .set(AgentProfile::getProviderId, profile.getProviderId())
                 .set(AgentProfile::getTemperature, profile.getTemperature())
                 .set(AgentProfile::getReasoningEffort, profile.getReasoningEffort())
                 .set(AgentProfile::getMaxSteps, profile.getMaxSteps())
@@ -128,23 +136,39 @@ public class AgentProfileService {
 
     /** 对外视图：密钥只出掩码，完整值不出后端 */
     public AgentProfileVO toVo(AgentProfile profile) {
+        LlmProvider provider = profile.getProviderId() == null
+                ? null : providerMapper.selectById(profile.getProviderId());
+        boolean viaProvider = provider != null;
         boolean ownKey = StringUtils.hasText(profile.getApiKeyCipher());
         boolean ownUrl = StringUtils.hasText(profile.getBaseUrl());
         LlmSettingsService.Effective global = llmSettingsService.effective();
 
+        String providerKey = viaProvider ? cipher.decryptSafe(provider.getApiKeyCipher()) : null;
+        String effectiveUrl = viaProvider ? provider.getBaseUrl()
+                : (ownUrl ? profile.getBaseUrl() : (global == null ? null : global.baseUrl()));
+        boolean keyConfigured = viaProvider ? StringUtils.hasText(providerKey)
+                : (ownKey || (global != null && StringUtils.hasText(global.apiKey())));
+        String keyMask = viaProvider ? mask(providerKey)
+                : (ownKey ? "（本角色单独配置）" : mask(global == null ? null : global.apiKey()));
+        String urlSource = viaProvider ? "PROVIDER" : (ownUrl ? "PROFILE" : "GLOBAL");
+        String keySource = viaProvider ? "PROVIDER"
+                : (ownKey ? "PROFILE" : (global != null && StringUtils.hasText(global.apiKey()) ? "GLOBAL" : "NONE"));
+
         return new AgentProfileVO(
                 profile.getRole(),
                 profile.getModel(),
+                viaProvider ? provider.getId() : profile.getProviderId(),
+                viaProvider ? provider.getName() : null,
                 profile.getTemperature(),
                 profile.getReasoningEffort(),
                 profile.getMaxSteps() == null ? 10 : profile.getMaxSteps(),
                 resolveContextLimit(profile),
                 profile.getReserveOutputTokens() == null ? 8_192 : profile.getReserveOutputTokens(),
-                ownUrl ? profile.getBaseUrl() : (global == null ? null : global.baseUrl()),
-                ownUrl ? "PROFILE" : "GLOBAL",
-                ownKey || (global != null && StringUtils.hasText(global.apiKey())),
-                ownKey ? "（本角色单独配置）" : mask(global == null ? null : global.apiKey()),
-                ownKey ? "PROFILE" : (global != null && StringUtils.hasText(global.apiKey()) ? "GLOBAL" : "NONE"));
+                effectiveUrl,
+                urlSource,
+                keyConfigured,
+                keyMask,
+                keySource);
     }
 
     private String mask(String key) {
@@ -179,15 +203,25 @@ public class AgentProfileService {
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED, role + " 角色的模型配置已停用");
         }
 
-        LlmSettingsService.Effective fallback = llmSettingsService.effective();
-
-        String baseUrl = StringUtils.hasText(profile.getBaseUrl())
-                ? profile.getBaseUrl()
-                : (fallback == null ? null : fallback.baseUrl());
-
-        String apiKey = StringUtils.hasText(profile.getApiKeyCipher())
-                ? cipher.decryptSafe(profile.getApiKeyCipher())
-                : (fallback == null ? null : fallback.apiKey());
+        String baseUrl;
+        String apiKey;
+        if (profile.getProviderId() != null) {
+            LlmProvider provider = providerMapper.selectById(profile.getProviderId());
+            if (provider == null || !Boolean.TRUE.equals(provider.getEnabled())) {
+                throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
+                        role + " 角色选中的服务商不存在或已停用，请重新选择");
+            }
+            baseUrl = provider.getBaseUrl();
+            apiKey = cipher.decryptSafe(provider.getApiKeyCipher());
+        } else {
+            LlmSettingsService.Effective fallback = llmSettingsService.effective();
+            baseUrl = StringUtils.hasText(profile.getBaseUrl())
+                    ? profile.getBaseUrl()
+                    : (fallback == null ? null : fallback.baseUrl());
+            apiKey = StringUtils.hasText(profile.getApiKeyCipher())
+                    ? cipher.decryptSafe(profile.getApiKeyCipher())
+                    : (fallback == null ? null : fallback.apiKey());
+        }
 
         if (!StringUtils.hasText(baseUrl) || !StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.LLM_REQUEST_FAILED,
