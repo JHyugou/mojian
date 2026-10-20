@@ -175,6 +175,9 @@ public class LlmProviderService {
             provider.setApiKeyCipher(StringUtils.hasText(request.getApiKey())
                     ? cipher.encrypt(request.getApiKey().trim()) : null);
         }
+        if (request.getModels() != null) {
+            provider.setModelsJson(writeModels(request.getModels()));
+        }
         if (create && !StringUtils.hasText(provider.getApiKeyCipher())) {
             throw new BusinessException(ErrorCode.PARAM_INVALID, "新服务商必须填写 API Key");
         }
@@ -231,6 +234,27 @@ public class LlmProviderService {
         } catch (Exception e) {
             log.warn("解析服务商模型缓存失败：{}", e.getMessage());
             return List.of();
+        }
+    }
+
+    /** 自定义服务商允许手动维护模型；去重、去空，避免保存出重复下拉项。 */
+    private String writeModels(List<LlmModelVO> models) {
+        List<LlmModelVO> cleaned = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (LlmModelVO model : models) {
+            if (model == null || !StringUtils.hasText(model.id())) continue;
+            String id = model.id().trim();
+            if (!seen.add(id)) continue;
+            String name = StringUtils.hasText(model.name()) ? model.name().trim() : id;
+            cleaned.add(new LlmModelVO(id, name, model.contextLimit(),
+                    model.inputCost(), model.outputCost(),
+                    model.reasoningLevels() == null ? List.of() : model.reasoningLevels(),
+                    model.vision(), model.enabled()));
+        }
+        try {
+            return MAPPER.writeValueAsString(cleaned);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "模型列表序列化失败：" + e.getMessage());
         }
     }
 

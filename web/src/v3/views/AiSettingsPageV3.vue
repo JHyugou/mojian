@@ -7,7 +7,7 @@ import V3Input from '../../components/v3/V3Input.vue'
 import V3Tag from '../../components/v3/V3Tag.vue'
 import { useV3Notify } from '../notify'
 import {
-  deleteProviderConfig, getProviderConfigs, listProviders, refreshProviderModels,
+  deleteProviderConfig, fetchModels, getProviderConfigs, listProviders, refreshProviderModels,
   saveProviderConfig
 } from '../../api/aiConfig'
 import { getAgentUsage, listAgentProfiles, updateAgentProfile } from '../../api/agent'
@@ -21,13 +21,15 @@ const profiles = ref([])
 const usage = ref(null)
 const modelKeyword = ref('')
 const savingProvider = ref(false)
-const refreshingProviderId = ref(null)
 const savingProfile = ref('')
 
 /** 正在编辑的服务商；id=null 表示新增；active=false 表示还没打开编辑区 */
 const editing = reactive({
-  id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false, active: false
+  id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false, active: false,
+  models: []
 })
+const draftModelId = ref('')
+const draftModelsLoading = ref(false)
 const profileDrafts = reactive({})
 
 const configuredCount = computed(() => providerConfigs.value.length)
@@ -133,14 +135,15 @@ function beginPreset(preset) {
     baseUrl: preset.baseUrl || '',
     apiKey: '',
     existing: false,
-    active: true
+    active: true,
+    models: []
   })
 }
 
 function newCustomProvider() {
   Object.assign(editing, {
     id: null, name: '自定义服务商', presetKey: 'custom', baseUrl: '', apiKey: '', existing: false,
-    active: true
+    active: true, models: []
   })
 }
 
@@ -152,8 +155,76 @@ function editProvider(config) {
     baseUrl: config.baseUrl,
     apiKey: '',
     existing: true,
-    active: true
+    active: true,
+    models: (config.models || []).map(normalizeModel)
   })
+}
+
+function cancelEditing() {
+  editing.active = false
+}
+
+function normalizeModel(model) {
+  const id = String(model?.id || '').trim()
+  return {
+    id,
+    name: String(model?.name || id).trim() || id,
+    contextLimit: model?.contextLimit ?? null,
+    inputCost: model?.inputCost ?? null,
+    outputCost: model?.outputCost ?? null,
+    reasoningLevels: model?.reasoningLevels || [],
+    vision: Boolean(model?.vision),
+    enabled: model?.enabled !== false
+  }
+}
+
+function addDraftModel() {
+  const id = draftModelId.value.trim()
+  if (!id) return
+  if (editing.models.some((model) => model.id === id)) {
+    notify.error(`模型「${id}」已经在列表里`)
+    return
+  }
+  editing.models = [...editing.models, normalizeModel({ id })]
+  draftModelId.value = ''
+}
+
+function removeDraftModel(id) {
+  editing.models = editing.models.filter((model) => model.id !== id)
+}
+
+async function fetchDraftModels() {
+  if (!editing.baseUrl.trim()) {
+    notify.error('先填写 API 地址')
+    return
+  }
+  if (!editing.existing && !editing.apiKey.trim()) {
+    notify.error('先填写 API Key，才能拉取模型')
+    return
+  }
+  draftModelsLoading.value = true
+  try {
+    if (editing.existing) {
+      const updated = await refreshProviderModels(editing.id)
+      editing.models = (updated.models || []).map(normalizeModel)
+      const index = providerConfigs.value.findIndex((item) => item.id === updated.id)
+      if (index >= 0) providerConfigs.value[index] = updated
+      notify.success(`已拉取 ${editing.models.length} 个模型`)
+    } else {
+      const result = await fetchModels({
+        baseUrl: editing.baseUrl.trim(),
+        apiKey: editing.apiKey.trim()
+      })
+      editing.models = (result.models || []).map(normalizeModel)
+      notify.success(editing.models.length
+        ? `已拉取 ${editing.models.length} 个模型`
+        : '没有拉到模型，可以手动添加模型 ID')
+    }
+  } catch (e) {
+    notify.error(e.message || '拉取模型失败，可以直接手动添加')
+  } finally {
+    draftModelsLoading.value = false
+  }
 }
 
 async function saveProvider() {
@@ -172,7 +243,8 @@ async function saveProvider() {
       name: editing.name,
       presetKey: editing.presetKey,
       baseUrl: editing.baseUrl.trim(),
-      apiKey: editing.apiKey.trim() ? editing.apiKey.trim() : null
+      apiKey: editing.apiKey.trim() ? editing.apiKey.trim() : null,
+      models: editing.models
     })
     providerConfigs.value = await getProviderConfigs()
     editProvider(saved)
@@ -181,27 +253,6 @@ async function saveProvider() {
     notify.error(e.message || '保存服务商失败')
   } finally {
     savingProvider.value = false
-  }
-}
-
-async function refreshModels(config) {
-  refreshingProviderId.value = config.id
-  try {
-    const updated = await refreshProviderModels(config.id)
-    providerConfigs.value = providerConfigs.value.map((p) => p.id === updated.id ? updated : p)
-    // 角色草稿如果指向这家服务商，模型列表要同步
-    profiles.value.forEach((profile) => {
-      const draft = profileDrafts[profile.role]
-      if (draft && String(draft.providerId) === String(updated.id) &&
-          updated.models?.length && !updated.models.some((m) => m.id === draft.model)) {
-        draft.model = updated.models[0].id
-      }
-    })
-    notify.success(`「${updated.name}」已更新 ${updated.models?.length || 0} 个模型`)
-  } catch (e) {
-    notify.error(e.message || '刷新模型失败')
-  } finally {
-    refreshingProviderId.value = null
   }
 }
 
@@ -367,31 +418,85 @@ async function saveProfile(role) {
                 删除这个服务商
               </button>
             </div>
-            <div class="conn-grid">
-              <V3Field label="显示名">
-                <V3Input v-model="editing.name" placeholder="例如 DeepSeek 官方、OpenCode Go" />
-              </V3Field>
-              <V3Field label="接口地址（Base URL）" required>
-                <V3Input v-model="editing.baseUrl" placeholder="https://api.example.com/v1" />
-              </V3Field>
+            <div class="conn-form">
+              <div class="conn-row">
+                <V3Field label="显示名称" required>
+                  <V3Input v-model="editing.name" placeholder="例如 DeepSeek 官方、我的中转站" />
+                </V3Field>
+                <V3Field label="服务商 ID" :hint="editing.existing ? '内部记录 ID' : '保存后自动生成'">
+                  <V3Input
+                    :model-value="editing.id ? `provider-${editing.id}` : ''"
+                    placeholder="保存后自动生成"
+                    disabled
+                  />
+                </V3Field>
+              </div>
+
+              <div class="conn-row">
+                <V3Field label="API 地址（Base URL）" required>
+                  <V3Input v-model="editing.baseUrl" placeholder="https://gateway.example.com/v1" />
+                </V3Field>
+                <V3Field label="API 协议">
+                  <div class="control-static">
+                    <span>OpenAI Chat Completions</span>
+                    <span class="control-hint">当前版本仅支持</span>
+                  </div>
+                </V3Field>
+              </div>
+
               <V3Field
                 label="API Key"
                 :hint="editing.existing ? '已保存的 Key 不回显；留空表示沿用' : '新服务商必须填写'"
               >
-                <V3Input v-model="editing.apiKey" type="password"
-                         :placeholder="editing.existing ? '留空 = 沿用已存 Key' : 'sk-…'" />
+                <V3Input
+                  v-model="editing.apiKey"
+                  type="password"
+                  :placeholder="editing.existing ? '留空 = 沿用已存 Key' : 'sk-…'"
+                />
               </V3Field>
+
+              <div class="model-catalog">
+                <div class="model-catalog-head">
+                  <div>
+                    <strong>模型目录</strong>
+                    <span class="muted">可以自动拉取，也可以手动添加模型 ID；目录外 ID 仍可直接调用。</span>
+                  </div>
+                  <V3Button
+                    variant="glass"
+                    size="sm"
+                    :loading="draftModelsLoading"
+                    @click="fetchDraftModels"
+                  >
+                    获取可用模型
+                  </V3Button>
+                </div>
+
+                <div v-if="editing.models.length" class="draft-models">
+                  <span v-for="model in editing.models" :key="model.id" class="draft-model">
+                    <span>{{ model.id }}</span>
+                    <button type="button" title="移除模型" @click="removeDraftModel(model.id)">×</button>
+                  </span>
+                </div>
+                <p v-else class="catalog-empty">
+                  还没有模型。保存后也可以回到这里获取或手动添加；模型目录外 ID 仍可直接发送。
+                </p>
+
+                <div class="add-model-row">
+                  <V3Input
+                    v-model="draftModelId"
+                    placeholder="输入模型 ID，例如 gpt-4o"
+                    @enter.prevent="addDraftModel"
+                  />
+                  <V3Button variant="glass" size="sm" @click="addDraftModel">添加模型</V3Button>
+                </div>
+              </div>
             </div>
+
             <div class="conn-actions">
-              <V3Button :loading="savingProvider" @click="saveProvider">保存服务商</V3Button>
-              <V3Button
-                v-if="editing.existing"
-                variant="glass"
-                :loading="refreshingProviderId === editing.id"
-                @click="refreshModels(providerById(editing.id))"
-              >
-                刷新模型
+              <V3Button :loading="savingProvider" @click="saveProvider">
+                {{ editing.existing ? '保存服务商' : '创建服务商' }}
               </V3Button>
+              <V3Button variant="ghost" @click="cancelEditing">取消</V3Button>
             </div>
           </template>
         </section>
@@ -589,10 +694,66 @@ async function saveProfile(role) {
 .editor-head .muted { margin-left: 10px; font-size: 10.5px; color: var(--v3-text-faint); }
 .text-btn { border: 0; background: transparent; font-size: 11px; cursor: pointer; }
 .text-btn.danger { color: var(--v3-cinnabar); }
-.conn-grid { display: grid; grid-template-columns: 1fr 1.35fr 1.2fr; gap: 14px; }
+.conn-form { display: flex; flex-direction: column; gap: 14px; }
+.conn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.conn-form :deep(.v3-field + .v3-field) { margin-top: 0; }
+.conn-form :deep(.v3-field-head) { min-height: 18px; }
+.conn-form :deep(.v3-input) { height: var(--v3-control-h); }
+.control-static {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: var(--v3-control-h);
+  padding: 0 15px;
+  border: 1px solid var(--v3-hairline-strong);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-surface-1);
+  color: var(--v3-text-soft);
+  font-size: 13px;
+}
+.control-hint { color: var(--v3-text-faint); font-size: 10.5px; }
+.model-catalog {
+  margin-top: 2px;
+  padding: 15px;
+  border: 1px solid var(--v3-hairline);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-inset);
+}
+.model-catalog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.model-catalog-head strong { display: block; margin-bottom: 3px; font-size: 12.5px; font-weight: 500; color: var(--v3-text); }
+.model-catalog-head .muted { font-size: 10.5px; line-height: 1.7; color: var(--v3-text-faint); }
+.draft-models { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.draft-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 7px 0 10px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-radius: var(--v3-r-pill);
+  background: var(--v3-glow-gold);
+  color: var(--v3-text-soft);
+  font-family: var(--v3-font-mono);
+  font-size: 10px;
+}
+.draft-model button {
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--v3-text-faint);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.draft-model button:hover { color: var(--v3-cinnabar); background: var(--v3-cinnabar-soft); }
+.catalog-empty { margin: 10px 0 0; font-size: 10.5px; line-height: 1.75; color: var(--v3-text-faint); }
+.add-model-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 12px; }
 .conn-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
 .model-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.search { width: min(320px, 100%); height: 38px; padding: 0 12px; border: 1px solid var(--v3-hairline); border-radius: var(--v3-r-sm); background: var(--v3-surface-2); color: var(--v3-text); font-size: 12px; outline: none; }
+.search { width: min(320px, 100%); height: var(--v3-control-h); padding: 0 12px; border: 1px solid var(--v3-hairline); border-radius: var(--v3-r-sm); background: var(--v3-surface-2); color: var(--v3-text); font-size: 12px; outline: none; }
 .search:focus { border-color: var(--v3-gold); box-shadow: 0 0 0 3px var(--v3-glow-gold); }
 .model-count { margin-left: auto; font-family: var(--v3-font-mono); font-size: 10px; color: var(--v3-text-faint); }
 .model-groups { display: flex; flex-direction: column; gap: 14px; }
@@ -617,7 +778,7 @@ async function saveProfile(role) {
 .range { width: 100%; accent-color: var(--v3-gold); }
 .role-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .role-hint { font-size: 10.5px; color: var(--v3-text-faint); }
-.select, .num { width: 100%; height: 42px; padding: 0 12px; border: 1px solid var(--v3-hairline-strong); border-radius: var(--v3-r-sm); background: var(--v3-surface-1); color: var(--v3-text); font-size: 13px; outline: none; }
+.select, .num { width: 100%; height: var(--v3-control-h); padding: 0 12px; border: 1px solid var(--v3-hairline-strong); border-radius: var(--v3-r-sm); background: var(--v3-surface-1); color: var(--v3-text); font-size: 13px; outline: none; }
 .select:focus, .num:focus { border-color: var(--v3-gold); box-shadow: 0 0 0 3px var(--v3-glow-gold); }
 .select option { background: var(--v3-surface-solid); color: var(--v3-text); }
 .usage-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 520px; margin-bottom: 16px; }

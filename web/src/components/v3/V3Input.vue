@@ -26,7 +26,7 @@ const emit = defineEmits(['update:modelValue', 'enter'])
 <style scoped>
 .v3-input {
   width: 100%;
-  height: 42px;
+  height: var(--v3-control-h, 42px);
   padding: 0 15px;
   border: 1px solid var(--v3-hairline-strong);
   border-radius: var(--v3-r-sm);
