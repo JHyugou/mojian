@@ -24,9 +24,9 @@ const savingProvider = ref(false)
 const refreshingProviderId = ref(null)
 const savingProfile = ref('')
 
-/** 正在编辑的服务商；id=null 表示新增 */
+/** 正在编辑的服务商；id=null 表示新增；active=false 表示还没打开编辑区 */
 const editing = reactive({
-  id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false
+  id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false, active: false
 })
 const profileDrafts = reactive({})
 
@@ -132,13 +132,15 @@ function beginPreset(preset) {
     presetKey: preset.id,
     baseUrl: preset.baseUrl || '',
     apiKey: '',
-    existing: false
+    existing: false,
+    active: true
   })
 }
 
 function newCustomProvider() {
   Object.assign(editing, {
-    id: null, name: '自定义服务商', presetKey: 'custom', baseUrl: '', apiKey: '', existing: false
+    id: null, name: '自定义服务商', presetKey: 'custom', baseUrl: '', apiKey: '', existing: false,
+    active: true
   })
 }
 
@@ -149,7 +151,8 @@ function editProvider(config) {
     presetKey: config.presetKey || '',
     baseUrl: config.baseUrl,
     apiKey: '',
-    existing: true
+    existing: true,
+    active: true
   })
 }
 
@@ -208,7 +211,9 @@ async function removeProvider(config) {
     await deleteProviderConfig(config.id)
     providerConfigs.value = providerConfigs.value.filter((p) => p.id !== config.id)
     if (editing.id === config.id) {
-      Object.assign(editing, { id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false })
+      Object.assign(editing, {
+        id: null, name: '', presetKey: '', baseUrl: '', apiKey: '', existing: false, active: false
+      })
     }
     profiles.value.forEach(resetProfileDraft)
     notify.success('服务商已删除')
@@ -347,7 +352,7 @@ async function saveProfile(role) {
             </div>
           </header>
 
-          <div v-if="!editing.baseUrl && !editing.existing" class="editor-empty">
+          <div v-if="!editing.active" class="editor-empty">
             从上面选择一个服务商，或点「添加自定义服务商」。
             <V3Button variant="glass" size="sm" @click="newCustomProvider">添加自定义服务商</V3Button>
           </div>
