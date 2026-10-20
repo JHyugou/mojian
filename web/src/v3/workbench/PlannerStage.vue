@@ -9,6 +9,7 @@ import ModelPicker from './ModelPicker.vue'
 import MarkdownText from '../../components/MarkdownText.vue'
 import { useV3Notify } from '../notify'
 import { useComposerSend } from '../../composables/useComposerSend'
+import { useComposerDraft } from '../../composables/useComposerDraft'
 import { useSettingsStore } from '../../stores/settings'
 import { useLibraryStore } from '../../stores/library'
 import { buildCitedMessage, citationPreview } from '../../utils/citation'
@@ -43,6 +44,9 @@ const messages = ref([])
 const draftMessage = ref('')
 const conversationId = ref(null)
 const conversationTitle = ref('新对话')
+// 输入框草稿按“项目 + 会话”保存，页面被重载/刷新也不会丢
+const composerDraft = useComposerDraft(draftMessage,
+  () => `${props.projectId}.planner.${conversationId.value || 'new'}`)
 const planOptions = ref([])
 const drafts = ref([])
 /** 策划发起、等待作者确认的删除申请 */
@@ -558,7 +562,7 @@ async function send() {
   const hadPlanOptions = planOptions.value.length > 0
   const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8)
   messages.value.push({ role: 'user', text: outgoing })
-  draftMessage.value = ''
+  composerDraft.clear()
   emit('clear-citations')
   sending.value = true
   error.value = ''

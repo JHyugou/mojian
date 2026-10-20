@@ -11,6 +11,7 @@ import MarkdownText from '../../components/MarkdownText.vue'
 import { useV3Notify } from '../notify'
 import { useSettingsStore } from '../../stores/settings'
 import { useComposerSend } from '../../composables/useComposerSend'
+import { useComposerDraft } from '../../composables/useComposerDraft'
 import { useWidthResize } from '../useWidthResize'
 import {
   compareVersions, createChapter, getChapter, getMemory, getVersion,
@@ -52,6 +53,9 @@ const full = ref(null)
 const text = ref('')
 const requirement = ref('')
 const advice = ref('')
+// 按“项目 + 章节”保存输入框草稿，页面重载/刷新不会丢
+const composerDraft = useComposerDraft(advice,
+  () => `${props.projectId}.writer.${props.chapter?.id || 'none'}`)
 /** 从对话/正文右键引用的段落（结构化引用，和用户手打内容在视觉上分开） */
 const quotedPassages = ref([])
 const expandedQuotes = ref(new Set())
@@ -274,7 +278,6 @@ watch(
     progress.value = []
     error.value = ''
     statusText.value = ''
-    advice.value = ''
     clearQuotes()
     tab.value = 'text'
     full.value = null
@@ -644,7 +647,7 @@ async function start(options = {}) {
     createdAt: new Date().toISOString()
   }]
   if (!supplement) {
-    advice.value = ''
+    composerDraft.clear()
     clearQuotes()
   }
   running.value = true
