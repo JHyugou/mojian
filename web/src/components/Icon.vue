@@ -60,6 +60,7 @@ const PATHS = {
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   quote: '<path d="M9 7H5v5h4c0 3-2 4-4 5"/><path d="M19 7h-4v5h4c0 3-2 4-4 5"/>',
   home: '<path d="M4 11l8-6.5 8 6.5"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>',
+  help: '<circle cx="12" cy="12" r="8.8"/><path d="M9.4 9.2a2.7 2.7 0 1 1 3.8 2.5c-.8.4-1.2 1-1.2 1.8v.4"/><circle cx="12" cy="17.2" r=".8" fill="currentColor" stroke="none"/>',
   cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/>'
 }
 </script>

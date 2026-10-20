@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
 import V3Ambient from '../../components/v3/V3Ambient.vue'
 import V3CommandPalette from '../../components/v3/V3CommandPalette.vue'
+import V3GuideModal from '../../components/v3/V3GuideModal.vue'
 import V3Toasts from '../../components/v3/V3Toasts.vue'
 import V3Splitter from '../../components/v3/V3Splitter.vue'
 import { useV3Theme } from '../theme'
@@ -56,6 +57,8 @@ const {
   reset: resetDockWidth
 } = useWidthResize({ initial: 264, min: 200, max: 440, storageKey: 'mojian.dockWidth' })
 const paletteOpen = ref(false)
+const guideOpen = ref(false)
+const guideSeen = ref(localStorage.getItem('mojian.guideSeen') === '1')
 const projects = ref([])
 const conversations = ref([])
 const expanded = ref(new Set())
@@ -169,6 +172,7 @@ const paletteItems = computed(() => [
   { id: 'nav-book', label: '成书', hint: '导航', icon: 'book', action: () => router.push('/book') },
   { id: 'nav-ai', label: '模型接入', hint: '导航', icon: 'cpu', action: () => router.push('/ai-settings') },
   { id: 'nav-settings', label: '偏好设置', hint: '主题 / 思维链 / 发送键', icon: 'gear', action: () => router.push('/settings') },
+  { id: 'open-guide', label: '打开使用指南', hint: '第一次使用 / 六步上手', icon: 'help', action: openGuide },
   { id: 'toggle-theme', label: theme.value === 'inksea' ? '切换到素笺（亮色）' : '切换到墨海（暗色）', hint: '主题', icon: theme.value === 'inksea' ? 'sun' : 'moon', action: toggleTheme },
   { id: 'toggle-dock', label: dockOpen.value ? '收起工作区树' : '展开工作区树', hint: '布局', icon: 'layers', action: () => (dockOpen.value = !dockOpen.value) },
   ...pageCommands.value,
@@ -194,6 +198,19 @@ function onGlobalKeydown(event) {
 }
 
 const closeFloating = () => (convMenu.value = null)
+
+function openGuide() {
+  guideOpen.value = true
+  guideSeen.value = true
+  try {
+    localStorage.setItem('mojian.guideSeen', '1')
+  } catch { /* ignore */ }
+}
+
+function navigateFromGuide(path) {
+  guideOpen.value = false
+  router.push(path)
+}
 
 onMounted(() => {
   load()
@@ -241,6 +258,15 @@ defineExpose({ reload: load })
           <button class="rail-item" :title="theme === 'inksea' ? '切到素笺' : '切到墨海'" @click="toggleTheme">
             <Icon :name="theme === 'inksea' ? 'sun' : 'moon'" :size="18" />
             <span class="rail-label">{{ theme === 'inksea' ? '素笺' : '墨海' }}</span>
+          </button>
+          <button
+            class="rail-item rail-guide"
+            :class="{ 'is-fresh': !guideSeen }"
+            title="第一次用？打开使用指南"
+            @click="openGuide"
+          >
+            <Icon name="help" :size="18" />
+            <span class="rail-label">指南</span>
           </button>
           <button class="rail-item" :title="dockOpen ? '收起工作区' : '展开工作区'" @click="dockOpen = !dockOpen">
             <Icon name="layers" :size="18" />
@@ -358,6 +384,11 @@ defineExpose({ reload: load })
       </div>
     </div>
 
+    <V3GuideModal
+      :visible="guideOpen"
+      @close="guideOpen = false"
+      @navigate="navigateFromGuide"
+    />
     <V3CommandPalette
       :visible="paletteOpen"
       :items="paletteItems"
@@ -427,6 +458,18 @@ defineExpose({ reload: load })
 }
 .rail-item:hover { color: var(--v3-text); background: var(--v3-surface-2); transform: translateY(-1px); }
 .rail-item.active { color: var(--v3-gold-bright); background: var(--v3-glow-gold); }
+.rail-guide { color: var(--v3-gold); }
+.rail-guide.is-fresh::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--v3-cinnabar);
+  box-shadow: 0 0 0 2px var(--v3-surface-1);
+}
 .rail-item.active::before {
   content: '';
   position: absolute;
