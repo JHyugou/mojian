@@ -1,5 +1,7 @@
 package com.mojian.agent;
 
+import com.mojian.agent.entity.ChapterSupplement;
+import com.mojian.agent.service.ChapterSupplementService;
 import com.mojian.agent.tool.impl.UpdateChapterStatusTool;
 import com.mojian.chapter.dto.ChapterSaveRequest;
 import com.mojian.chapter.entity.Chapter;
@@ -13,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,6 +34,8 @@ class UpdateChapterStatusToolTest {
     private ProjectService projectService;
     @Autowired
     private ChapterService chapterService;
+    @Autowired
+    private ChapterSupplementService supplementService;
 
     private Long project() {
         ProjectSaveRequest request = new ProjectSaveRequest();
@@ -56,6 +61,26 @@ class UpdateChapterStatusToolTest {
                 "reason", "审稿通过，人物与前情一致，文风达标。"));
 
         assertThat(result).contains("改为 已完成").contains("(COMPLETED)");
+        assertThat(chapterService.requireById(chapter.getId()).getStatus()).isEqualTo("COMPLETED");
+    }
+
+    @Test
+    @DisplayName("还有待核验补充要求时不能标记完成；确认落实后可以")
+    void 未核验补充要求阻止完成() {
+        Long projectId = project();
+        Chapter chapter = chapter(projectId, "正文已经写完，但还有补充要求待核验。");
+        ChapterSupplement supplement = supplementService.create(projectId, chapter.getId(),
+                "结尾再冷一点", "审稿意见");
+        supplementService.markSubmitted(List.of(supplement));
+        AgentContext context = AgentContext.of(projectId, AgentRole.PLANNER);
+
+        String blocked = tool.execute(context, Map.of("chapterNo", 1, "status", "COMPLETED"));
+        assertThat(blocked).contains("补充要求没有完成核验").contains("待核验 1");
+        assertThat(chapterService.requireById(chapter.getId()).getStatus()).isNotEqualTo("COMPLETED");
+
+        supplementService.verify(chapter.getId(), supplement.getId());
+        String passed = tool.execute(context, Map.of("chapterNo", 1, "status", "COMPLETED"));
+        assertThat(passed).contains("改为 已完成");
         assertThat(chapterService.requireById(chapter.getId()).getStatus()).isEqualTo("COMPLETED");
     }
 

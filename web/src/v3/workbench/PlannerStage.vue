@@ -114,6 +114,7 @@ const toolLabels = {
   create_chapter: '新建章节',
   review_chapter: '审稿',
   read_writer_conversation: '看写作对话',
+  verify_chapter_supplement: '确认补充要求',
   add_chapter_supplement: '追补充要求',
   remove_chapter_supplement: '撤补充要求',
   update_chapter_status: '改章节状态',
@@ -586,7 +587,8 @@ async function send() {
       await closePlanOptions()
     }
     const data = await plannerChat(props.projectId, conversationId.value, outgoing,
-      controller.value.signal, runId, currentImages(), autoApprove.value)
+      controller.value.signal, runId, currentImages(), autoApprove.value,
+      settings.plannerVerifySupplements)
     if (loadAtSend !== loadSeq) {
       // 请求期间用户切了项目/会话：不要把旧回答灌进当前聊天；
       // 标记保留，等用户回到原会话时由轮询恢复。

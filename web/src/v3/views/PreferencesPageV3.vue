@@ -165,6 +165,36 @@ const currentTheme = computed(() => themes.find((t) => t.key === theme.value))
         <header class="block-head">
           <span class="block-no">陆</span>
           <div>
+            <h2>审稿确认</h2>
+            <p>写作完成后补充要求先进入「待核验」。你可以允许策划审稿时直接确认，也可以全部留给自己确认。</p>
+          </div>
+        </header>
+        <div class="options two">
+          <button
+            class="option"
+            :class="{ active: settings.plannerVerifySupplements }"
+            @click="settings.setPlannerVerifySupplements(true)"
+          >
+            <span class="option-label">策划可以确认落实（默认）</span>
+            <span class="option-hint">审稿时由策划核对正文，把确实改到的「待核验」条目标记为已核验；仍有未核验条目时不能定稿</span>
+            <span v-if="settings.plannerVerifySupplements" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+          <button
+            class="option"
+            :class="{ active: !settings.plannerVerifySupplements }"
+            @click="settings.setPlannerVerifySupplements(false)"
+          >
+            <span class="option-label">只能由我确认</span>
+            <span class="option-hint">策划只能提醒，确认按钮只在写作页由你点击；补充要求全部核验前章节不能标记完成</span>
+            <span v-if="!settings.plannerVerifySupplements" class="option-check"><Icon name="check" :size="13" /></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="block">
+        <header class="block-head">
+          <span class="block-no">柒</span>
+          <div>
             <h2>快捷键与说明</h2>
             <p>常用入口集中在这里，避免在写作时到处找按钮。</p>
           </div>

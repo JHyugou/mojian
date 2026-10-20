@@ -57,7 +57,8 @@ public class PlannerService {
     private final DraftService draftService;
 
     public PlannerChatResponse chat(Long projectId, Long conversationId, String userMessage,
-                                       String runId, List<String> images, boolean autoApprove) {
+                                       String runId, List<String> images, boolean autoApprove,
+                                       boolean allowSupplementVerify) {
         List<String> userImages = normalizeImages(images);
         // 1. 会话
         AgentConversation conversation = conversationId == null
@@ -92,7 +93,7 @@ public class PlannerService {
         }
         AgentContextAssembly materials = agentContextService.assemble(
                 AgentRole.PLANNER, projectId, extra, null, null, userMessage);
-        String systemPrompt = AgentPrompts.planner(materials.text(), autoApprove);
+        String systemPrompt = AgentPrompts.planner(materials.text(), autoApprove, allowSupplementVerify);
 
         /*
          * 历史也要计入预算。
@@ -112,7 +113,8 @@ public class PlannerService {
         conversationService.append(conversation.getId(), 0, AgentMessage.user(userMessage));
 
         // 5. 跑循环
-        AgentContext context = AgentContext.ofConversation(projectId, AgentRole.PLANNER, conversation.getId());
+        AgentContext context = AgentContext.ofConversation(projectId, AgentRole.PLANNER,
+                conversation.getId(), allowSupplementVerify);
 
         /*
          * 收集思考过程。

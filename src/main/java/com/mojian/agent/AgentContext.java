@@ -24,9 +24,12 @@ import java.util.UUID;
  * @param autoApproveDelete 作者是否在设置里开启了"自动批准删除章节"。
  *                       写作 Agent 的 delete_chapter 工具据此决定：立即删除，还是先挂起等作者确认。
  *                       默认 false —— 删除是不可逆的高风险动作。
+ * @param allowSupplementVerify 作者是否允许策划 Agent 确认补充要求已落实。
+ *                       默认 true；关闭后只能由作者在写作页手动确认。
  */
 public record AgentContext(Long projectId, String agentRole, Long conversationId,
-                           Long chapterId, String sessionId, boolean autoApproveDelete) {
+                           Long chapterId, String sessionId, boolean autoApproveDelete,
+                           boolean allowSupplementVerify) {
 
     public AgentContext {
         if (agentRole == null || agentRole.isBlank()) {
@@ -37,7 +40,7 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
     /** 一次性运行（没有持久会话，比如调试接口）：每次分配新的 sessionId */
     public static AgentContext of(Long projectId, String agentRole) {
         return new AgentContext(projectId, agentRole, null, null,
-                "mojian-run-" + UUID.randomUUID(), false);
+                "mojian-run-" + UUID.randomUUID(), false, true);
     }
 
     /**
@@ -49,11 +52,16 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
      * 用会话 id 派生，多轮对话里那段不变的材料前缀就能一直命中缓存。
      */
     public static AgentContext ofConversation(Long projectId, String agentRole, Long conversationId) {
-        return new AgentContext(projectId, agentRole, conversationId, null,
-                "mojian-conv-" + conversationId, false);
+        return ofConversation(projectId, agentRole, conversationId, true);
     }
 
-    /** 写作运行的上下文：绑定到具体章节 */
+    public static AgentContext ofConversation(Long projectId, String agentRole,
+                                              Long conversationId, boolean allowSupplementVerify) {
+        return new AgentContext(projectId, agentRole, conversationId, null,
+                "mojian-conv-" + conversationId, false, allowSupplementVerify);
+    }
+
+    /** 写作运行的上下文：绑定到具体章节（写作不使用补充要求确认权限） */
     public static AgentContext forChapter(Long projectId, String agentRole,
                                           Long conversationId, Long chapterId) {
         return forChapter(projectId, agentRole, conversationId, chapterId, false);
@@ -64,7 +72,7 @@ public record AgentContext(Long projectId, String agentRole, Long conversationId
                                           Long conversationId, Long chapterId,
                                           boolean autoApproveDelete) {
         return new AgentContext(projectId, agentRole, conversationId, chapterId,
-                "mojian-chapter-" + chapterId, autoApproveDelete);
+                "mojian-chapter-" + chapterId, autoApproveDelete, false);
     }
 
     public Long requireProjectId() {

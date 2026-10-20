@@ -802,6 +802,13 @@ async function saveEdit() {
 
 async function markComplete() {
   if (!props.chapter?.id) return
+  const unfinished = supplements.value.filter((item) =>
+    ['PENDING', 'EXECUTING', 'SUBMITTED'].includes(item.status))
+  if (unfinished.length) {
+    showSupplements.value = true
+    notify.error(`还有 ${unfinished.length} 条补充要求没有完成核验，先把它们确认落实或移除，再标记完成`)
+    return
+  }
   saving.value = true
   try {
     const saved = await saveChapter(props.chapter.id, {

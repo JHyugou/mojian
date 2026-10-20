@@ -19,6 +19,7 @@ import java.util.List;
  *                       不进历史库 —— 历史只存文本，避免每轮重复上传几 MB 图片。
  * @param autoApprove    作者当前是否开启自动采纳。开启时后端会告诉策划 Agent
  *                       "本轮草稿会在回答后自动写入，不要再说需要手动确认"。
+ * @param allowSupplementVerify 作者是否允许策划 Agent 确认补充要求已落实；缺省 true。
  */
 public record PlannerChatRequest(
         @NotNull(message = "缺少 projectId") Long projectId,
@@ -26,5 +27,6 @@ public record PlannerChatRequest(
         @NotBlank(message = "内容不能为空") String message,
         String runId,
         List<String> images,
-        Boolean autoApprove) {
+        Boolean autoApprove,
+        Boolean allowSupplementVerify) {
 }

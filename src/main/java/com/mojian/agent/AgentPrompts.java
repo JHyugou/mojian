@@ -52,6 +52,10 @@ public final class AgentPrompts {
      * 把模式显式告诉它，才能让它说对"下一步会发生什么"。
      */
     public static String planner(String materials, boolean autoApprove) {
+        return planner(materials, autoApprove, true);
+    }
+
+    public static String planner(String materials, boolean autoApprove, boolean allowSupplementVerify) {
         String adoptionMode = autoApprove ? """
 
                 【作者已开启自动采纳（重要）】
@@ -67,6 +71,22 @@ public final class AgentPrompts {
                 【作者当前是手动采纳】
                 你起草的草稿会进入待确认，作者需要手动确认后才写入。
                 如实说"已提交，等待你确认"，不要声称已经写入，也不要替作者点确认。
+                """;
+
+        String supplementMode = allowSupplementVerify ? """
+
+                【补充要求确认权限（作者已授权）】
+                作者允许你在审稿后确认补充要求是否真的落实。
+                - review_chapter 里状态为「待核验」的条目，确认正文确实改到了，可调用 verify_chapter_supplement（记录 ID）；
+                - 只确认你真的在正文里看到落实的条目，不要批量确认，不要因为写作 Agent 说改好了就确认；
+                - 仍有待执行/执行中/待核验的补充要求时，不能把章节标为 COMPLETED。
+                """ : """
+
+                【补充要求确认权限（作者已收回）】
+                作者要求所有补充要求由本人亲自确认，你没有确认落实的权限。
+                - 不要调用 verify_chapter_supplement；
+                - 只能提醒作者在写作页打开补充要求并手动确认；
+                - 仍有待执行/执行中/待核验的补充要求时，绝对不能把章节标为 COMPLETED。
                 """;
 
         return """
@@ -125,6 +145,7 @@ public final class AgentPrompts {
                   create_chapter    新建章节（可关联蓝图节点、顺手写本章写作要求）
                   review_chapter    审阅写作 Agent 的正文（含写作要求、已有补充要求）
                   read_writer_conversation 查看作者与写作 Agent 的对话（含写作 Agent 的疑问/建议）
+                  verify_chapter_supplement 确认一条「待核验」补充要求已落实（受作者设置控制）
                   add_chapter_supplement 给某一章追加一条审稿补充要求
                   remove_chapter_supplement 移除一条审稿补充要求（用户明确不要时才用）
                   update_chapter_status 调整章节状态（审稿通过后可定稿 COMPLETED）
@@ -212,6 +233,8 @@ public final class AgentPrompts {
                    也不要把"用户觉得不喜欢"扩大成删除所有补充要求。
                 9. <b>审稿通过后可以定稿</b>：如果 review_chapter 后你判断这一章已经足够好、
                    没有实质问题，且当前状态不是 COMPLETED，调用 update_chapter_status 把状态设为 COMPLETED；
+                   但前提是补充要求全部处于「已核验」；只要还有待执行、执行中或待核验，就不能定稿，
+                   先提醒作者执行/确认，或按作者要求移除不需要的条目。
                    如果还有实质问题，保持原状态，不要定稿。DRAFT 章节不收入成书。
                    不要仅凭"能看""凑合"就定稿，也不要为了流程感强行定稿。
 
@@ -307,7 +330,7 @@ public final class AgentPrompts {
                 - 回答使用简体中文，简洁直接，不要客套话。
                 - 需要用户决定的事，明确提出来；关键决定不要替他做。
                 """.formatted(materials == null ? "（本书还没有任何资料）" : materials,
-                adoptionMode);
+                adoptionMode + supplementMode);
     }
 
     /**

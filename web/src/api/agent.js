@@ -13,8 +13,11 @@ const WRITER_TIMEOUT = 30 * 60 * 1000
 // ==================== 策划对话 ====================
 
 /** conversationId 传 null 表示新开一段对话；signal 用于中止（用户点"停下"）；images 为 data URL；autoApprove 告诉后端当前采纳模式 */
-export function plannerChat(projectId, conversationId, message, signal, runId, images = [], autoApprove = false) {
-  return http.post('/agent/planner/chat', { projectId, conversationId, message, runId, images, autoApprove },
+export function plannerChat(projectId, conversationId, message, signal, runId, images = [], autoApprove = false,
+                            allowSupplementVerify = true) {
+  return http.post('/agent/planner/chat', {
+    projectId, conversationId, message, runId, images, autoApprove, allowSupplementVerify
+  },
     { timeout: PLANNER_TIMEOUT, signal })
 }
 
@@ -131,7 +134,6 @@ export function getWriterInstructions(projectId) {
 export function cancelWriterInstruction(instructionId) {
   return http.post(`/agent/writer/instructions/${instructionId}/cancel`)
 }
-
 export function getChapterSupplements(chapterId) {
   return http.get(`/agent/writer/chapters/${chapterId}/supplements`)
 }

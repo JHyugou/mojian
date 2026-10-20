@@ -28,6 +28,7 @@ const KEY_SEND = 'mojian.sendKey'
 const KEY_AUTO_APPROVE = 'mojian.autoApprove'
 const KEY_ROLLBACK_DB = 'mojian.rollbackDatabase'
 const KEY_AUTO_APPROVE_DELETE = 'mojian.autoApproveDelete'
+const KEY_PLANNER_VERIFY_SUPPLEMENTS = 'mojian.plannerVerifySupplements'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -45,7 +46,9 @@ export const useSettingsStore = defineStore('settings', {
      * 是否自动批准写作 Agent 的删除章节申请；默认关。
      * 这是不可逆的高危动作：开着时写作 Agent 可以在你不在场时直接删章。
      */
-    autoApproveDelete: localStorage.getItem(KEY_AUTO_APPROVE_DELETE) === '1'
+    autoApproveDelete: localStorage.getItem(KEY_AUTO_APPROVE_DELETE) === '1',
+    /** 策划是否可以把「待核验」的补充要求确认落实；默认开 */
+    plannerVerifySupplements: localStorage.getItem(KEY_PLANNER_VERIFY_SUPPLEMENTS) !== '0'
   }),
 
   actions: {
@@ -78,6 +81,11 @@ export const useSettingsStore = defineStore('settings', {
     setAutoApproveDelete(value) {
       this.autoApproveDelete = value
       localStorage.setItem(KEY_AUTO_APPROVE_DELETE, value ? '1' : '0')
+    },
+
+    setPlannerVerifySupplements(value) {
+      this.plannerVerifySupplements = value
+      localStorage.setItem(KEY_PLANNER_VERIFY_SUPPLEMENTS, value ? '1' : '0')
     },
 
     /**

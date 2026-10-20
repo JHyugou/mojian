@@ -102,7 +102,8 @@ public class AgentController {
         return ApiResponse.ok(plannerService.chat(
                 request.projectId(), request.conversationId(),
                 request.message(), request.runId(), request.images(),
-                Boolean.TRUE.equals(request.autoApprove())));
+                Boolean.TRUE.equals(request.autoApprove()),
+                !Boolean.FALSE.equals(request.allowSupplementVerify())));
     }
 
     /**

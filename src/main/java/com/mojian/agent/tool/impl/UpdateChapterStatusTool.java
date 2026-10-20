@@ -1,7 +1,9 @@
 package com.mojian.agent.tool.impl;
 
 import com.mojian.agent.AgentContext;
+import com.mojian.agent.entity.ChapterSupplement;
 import com.mojian.agent.material.ChapterIndex;
+import com.mojian.agent.service.ChapterSupplementService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.chapter.entity.Chapter;
 import com.mojian.chapter.service.ChapterService;
@@ -28,6 +30,7 @@ public class UpdateChapterStatusTool implements AgentTool {
 
     private final ChapterIndex chapterIndex;
     private final ChapterService chapterService;
+    private final ChapterSupplementService supplementService;
 
     @Override
     public String name() {
@@ -82,6 +85,21 @@ public class UpdateChapterStatusTool implements AgentTool {
         if ("COMPLETED".equals(status)
                 && !StringUtils.hasText(chapter.getContent())) {
             return "错误：第 " + chapterNo + " 章还没有正文，不能标记为已完成。先让写作 Agent 写出来。";
+        }
+        if ("COMPLETED".equals(status)) {
+            List<ChapterSupplement> supplements = supplementService.listByChapter(chapter.getId());
+            long pending = supplements.stream().filter(s -> "PENDING".equals(s.getStatus())).count();
+            long executing = supplements.stream().filter(s -> "EXECUTING".equals(s.getStatus())).count();
+            long submitted = supplements.stream().filter(s -> "SUBMITTED".equals(s.getStatus())).count();
+            if (pending + executing + submitted > 0) {
+                return "错误：第 " + chapterNo + " 章《" + chapter.getTitle() + "》还有 "
+                        + (pending + executing + submitted) + " 条补充要求没有完成核验"
+                        + "（待执行 " + pending + "，执行中 " + executing + "，待核验 " + submitted + "）。\n"
+                        + "先把它们执行并确认落实，或按作者要求移除不需要的条目，再标记完成。"
+                        + (context.allowSupplementVerify()
+                            ? "如果正文确实已经改到，可先逐条调用 verify_chapter_supplement。"
+                            : "作者已关闭策划确认权限，请让作者在写作页手动确认。");
+            }
         }
         if (status.equals(chapter.getStatus())) {
             return "第 " + chapterNo + " 章《" + chapter.getTitle() + "》已经是 " + status + " 状态，无需调整。";
