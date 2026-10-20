@@ -46,6 +46,27 @@ class OutlineServiceTest {
         return outlineService.create(projectId, req);
     }
 
+    private PlotOutline newNodeWithSort(Long projectId, String name, int sortOrder) {
+        OutlineNodeSaveRequest req = new OutlineNodeSaveRequest();
+        req.setNodeType("CHAPTER");
+        req.setName(name);
+        req.setSortOrder(sortOrder);
+        return outlineService.create(projectId, req);
+    }
+
+    @Test
+    void treeOrdersRootsByDatabaseCreationTimeNotStaleSortOrder() {
+        Long projectId = newProjectId();
+        PlotOutline first = newNodeWithSort(projectId, "先创建但 sortOrder 很大", 99);
+        PlotOutline second = newNodeWithSort(projectId, "后创建但 sortOrder 很小", -99);
+
+        List<OutlineNodeVO> tree = outlineService.tree(projectId);
+
+        assertEquals(2, tree.size());
+        assertEquals(first.getName(), tree.get(0).getName());
+        assertEquals(second.getName(), tree.get(1).getName());
+    }
+
     @Test
     void treeAssemblesParentChildNesting() {
         Long projectId = newProjectId();

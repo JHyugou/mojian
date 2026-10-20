@@ -69,7 +69,9 @@ public class OutlineService extends ServiceImpl<PlotOutlineMapper, PlotOutline> 
         projectService.requireById(projectId);
         List<PlotOutline> nodes = lambdaQuery()
                 .eq(PlotOutline::getProjectId, projectId)
-                .orderByAsc(PlotOutline::getSortOrder)
+                // 蓝图面板按数据库创建顺序展示；sort_order 是旧字段，可能残留手填/导入值，
+                // 继续优先使用会把节点排成与创建时间无关的顺序。
+                .orderByAsc(PlotOutline::getCreatedAt)
                 .orderByAsc(PlotOutline::getId)
                 .list();
 
