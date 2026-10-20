@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <p v-if="error" class="chat-error">{{ error }}</p>
+      <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
     </div>
 
     <!-- 方案卡 -->
@@ -1245,7 +1245,18 @@ onBeforeUnmount(() => {
   background: var(--v3-surface-1);
 }
 .trace-meta { font-size: 10.5px; color: var(--v3-text-faint); }
-.chat-error { margin: 12px 0; padding: 10px 14px; border-radius: var(--v3-r-sm); background: var(--v3-cinnabar-soft); color: #ffd9d3; font-size: 12.5px; }
+.chat-error {
+  margin: 12px 0;
+  padding: 11px 14px;
+  border: 1px solid var(--v3-danger-border);
+  border-left: 3px solid var(--v3-cinnabar);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-danger-bg);
+  color: var(--v3-danger-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.7;
+}
 .muted { color: var(--v3-text-faint); }
 
 /* 方案卡 */

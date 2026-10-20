@@ -69,6 +69,9 @@ html[data-v3-theme="inksea"] {
   --v3-gold-deep: #a9854f;
   --v3-cinnabar: #c94c3b;
   --v3-cinnabar-soft: rgba(201, 76, 59, 0.16);
+  --v3-danger-text: #ffc4ba;
+  --v3-danger-bg: rgba(201, 76, 59, 0.22);
+  --v3-danger-border: rgba(255, 180, 168, 0.42);
   --v3-jade: #7fa8a1;
 
   --v3-glow-gold: rgba(206, 169, 110, 0.26);
@@ -115,6 +118,9 @@ html[data-v3-theme="sujuan"] {
   --v3-gold-deep: #7c5f34;
   --v3-cinnabar: #b2452f;
   --v3-cinnabar-soft: rgba(178, 69, 47, 0.12);
+  --v3-danger-text: #8f2f20;
+  --v3-danger-bg: rgba(178, 69, 47, 0.1);
+  --v3-danger-border: rgba(178, 69, 47, 0.35);
   --v3-jade: #5f827c;
 
   --v3-glow-gold: rgba(169, 133, 79, 0.16);

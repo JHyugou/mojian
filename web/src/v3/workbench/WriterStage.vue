@@ -1134,7 +1134,7 @@ watch(() => props.chapter?.id, () => {
             </div>
           </div>
 
-          <p v-if="error" class="chat-error">{{ error }}</p>
+          <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
         </div>
 
         <footer class="composer">
@@ -1732,7 +1732,18 @@ watch(() => props.chapter?.id, () => {
 .dots i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes blink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 .mini-chip { padding: 2px 8px; border-radius: var(--v3-r-pill); border: 1px solid var(--v3-hairline); font-size: 10px; color: var(--v3-text-faint); }
-.chat-error { margin: 12px 0; padding: 10px 14px; border-radius: var(--v3-r-sm); background: var(--v3-cinnabar-soft); color: #ffd9d3; font-size: 12.5px; }
+.chat-error {
+  margin: 12px 0;
+  padding: 11px 14px;
+  border: 1px solid var(--v3-danger-border);
+  border-left: 3px solid var(--v3-cinnabar);
+  border-radius: var(--v3-r-sm);
+  background: var(--v3-danger-bg);
+  color: var(--v3-danger-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.7;
+}
 .muted { color: var(--v3-text-faint); }
 
 .composer { flex-shrink: 0; padding: 12px 20px 16px; border-top: 1px solid var(--v3-hairline); }
