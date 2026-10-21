@@ -878,7 +878,13 @@ onBeforeUnmount(() => {
 
       <div v-if="sending" class="msg is-assistant">
         <div class="msg-head"><span class="msg-who">策划 Agent</span></div>
-        <div class="bubble thinking">
+        <V3Thinking
+          v-if="settings.thinkingMode !== 'hidden'"
+          :text="phase || '正在思考…'"
+          :mode="settings.thinkingMode"
+          pending
+        />
+        <div v-else class="bubble thinking">
           <span class="dots"><i></i><i></i><i></i></span>
           <span class="muted">{{ phase }}</span>
         </div>

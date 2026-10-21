@@ -1,10 +1,11 @@
 <script setup>
 import { computed, ref } from 'vue'
 
-/** v3 思考过程块：默认折叠成一行，点开看全文 */
+/** v3 思考过程块：默认折叠成一行，点开看全文；pending 时显示"正在…"状态 */
 const props = defineProps({
   text: { type: String, default: '' },
-  mode: { type: String, default: 'collapsed' }
+  mode: { type: String, default: 'collapsed' },
+  pending: { type: Boolean, default: false }
 })
 const opened = ref(false)
 const visible = computed(() => Boolean(props.text && props.text.trim()))
@@ -17,16 +18,22 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <div v-if="visible && mode !== 'hidden'" class="think" :class="{ expanded }">
-    <button v-if="mode === 'collapsed'" class="think-trigger" @click="opened = !opened">
+  <div v-if="visible && mode !== 'hidden'" class="think" :class="{ expanded, pending }">
+    <div v-if="pending" class="think-trigger is-pending">
       <span class="dots"><i></i><i></i><i></i></span>
-      <span>{{ summary }}</span>
-      <span class="caret">▾</span>
-    </button>
-    <div v-if="expanded" class="think-body">
-      <p v-if="mode === 'full'" class="think-meta">{{ summary }}</p>
-      <div class="think-text">{{ text }}</div>
+      <span>{{ text }}</span>
     </div>
+    <template v-else>
+      <button v-if="mode === 'collapsed'" class="think-trigger" @click="opened = !opened">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span>{{ summary }}</span>
+        <span class="caret">▾</span>
+      </button>
+      <div v-if="expanded" class="think-body">
+        <p v-if="mode === 'full'" class="think-meta">{{ summary }}</p>
+        <div class="think-text">{{ text }}</div>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -47,8 +54,25 @@ const summary = computed(() => {
   transition: color var(--v3-dur-2), border-color var(--v3-dur-2), background var(--v3-dur-2);
 }
 .think-trigger:hover { color: var(--v3-text-soft); border-color: var(--v3-hairline-gold); background: var(--v3-surface-2); }
+.think-trigger.is-pending {
+  cursor: default;
+  border-color: var(--v3-hairline-gold);
+  background: var(--v3-surface-2);
+  color: var(--v3-text-muted);
+}
+.think-trigger.is-pending:hover { transform: none; }
 .dots { display: inline-flex; gap: 3px; }
 .dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--v3-gold); opacity: 0.7; }
+.is-pending .dots i { animation: think-bounce 1.15s infinite ease-in-out; }
+.is-pending .dots i:nth-child(2) { animation-delay: 0.14s; }
+.is-pending .dots i:nth-child(3) { animation-delay: 0.28s; }
+@keyframes think-bounce {
+  0%, 70%, 100% { opacity: 0.3; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-pending .dots i { animation: none; opacity: 0.7; }
+}
 .expanded .dots i { opacity: 0.45; }
 .caret { font-size: 9px; transition: transform var(--v3-dur-2); }
 .expanded .caret { transform: rotate(180deg); }
