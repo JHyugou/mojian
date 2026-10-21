@@ -5,11 +5,19 @@ import { computed, ref } from 'vue'
 const props = defineProps({
   text: { type: String, default: '' },
   mode: { type: String, default: 'collapsed' },
-  pending: { type: Boolean, default: false }
+  pending: { type: Boolean, default: false },
+  /** 超长思考只渲染后半段，避免展开时一次性排版几十万字把页面卡死 */
+  maxChars: { type: Number, default: 12000 }
 })
 const opened = ref(false)
 const visible = computed(() => Boolean(props.text && props.text.trim()))
 const expanded = computed(() => props.mode === 'full' || opened.value)
+const truncated = computed(() => (props.text || '').length > props.maxChars)
+const shownText = computed(() => {
+  const text = props.text || ''
+  if (!truncated.value) return text
+  return `…（较早的 ${text.length - props.maxChars} 字已省略，只显示最近一段）\n\n${text.slice(-props.maxChars)}`
+})
 const summary = computed(() => {
   const chars = (props.text || '').trim().length
   if (chars < 40) return '想了想'
@@ -31,7 +39,7 @@ const summary = computed(() => {
       </button>
       <div v-if="expanded" class="think-body">
         <p v-if="mode === 'full'" class="think-meta">{{ summary }}</p>
-        <div class="think-text">{{ text }}</div>
+        <div class="think-text">{{ shownText }}</div>
       </div>
     </template>
   </div>
@@ -92,5 +100,6 @@ const summary = computed(() => {
   font-size: 12px;
   line-height: 1.95;
   color: var(--v3-text-muted);
+  contain: content;
 }
 </style>

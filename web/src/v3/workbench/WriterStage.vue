@@ -118,6 +118,10 @@ let currentTaskId = null
 let runSeq = 0
 let contentBuffer = ''
 let flushFrame = 0
+/** 思考链最多保留最近两万字，避免模型跑飞时把几十万字塞进 DOM */
+const MAX_REASONING_BUFFER = 24000
+let reasoningBuffer = ''
+let reasoningTimer = 0
 
 const hasBlueprint = computed(() => Boolean(props.blueprint))
 const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || Boolean(text.value)
@@ -246,8 +250,45 @@ function pushContent(delta) {
     scrollPaper()
   })
 }
-function flushContentNow() {
-  if (flushFrame) {
+/**
+ * 思考链增量单独节流：模型可能连续吐几万个 reasoning 片段。
+ * 如果每个 token 都改一次响应式字符串，展开状态下会整段重排版，页面直接假死。
+ */
+function pushReasoning(delta) {
+  reasoningBuffer += delta
+  if (reasoningBuffer.length > MAX_REASONING_BUFFER) {
+    reasoningBuffer = reasoningBuffer.slice(-MAX_REASONING_BUFFER)
+  }
+  if (reasoningTimer) return
+  reasoningTimer = setTimeout(() => {
+    reasoningTimer = 0
+    streamingReasoning.value = reasoningBuffer
+    scrollChat()
+  }, 120)
+}
+
+function snapshotReasoning(snapshot) {
+  reasoningBuffer = snapshot || ''
+  if (reasoningBuffer.length > MAX_REASONING_BUFFER) {
+    reasoningBuffer = reasoningBuffer.slice(-MAX_REASONING_BUFFER)
+  }
+  if (reasoningTimer) {
+    clearTimeout(reasoningTimer)
+    reasoningTimer = 0
+  }
+  streamingReasoning.value = reasoningBuffer
+}
+
+function resetReasoning() {
+  if (reasoningTimer) {
+    clearTimeout(reasoningTimer)
+    reasoningTimer = 0
+  }
+  reasoningBuffer = ''
+  streamingReasoning.value = ''
+}
+
+function flushContentNow() {  if (flushFrame) {
     cancelAnimationFrame(flushFrame)
     flushFrame = 0
   }
@@ -274,7 +315,7 @@ watch(
     runSeq += 1
     running.value = false
     streamingAnswer.value = ''
-    streamingReasoning.value = ''
+    resetReasoning()
     progress.value = []
     error.value = ''
     statusText.value = ''
@@ -328,6 +369,10 @@ onBeforeUnmount(() => {
   // 只断开事件流，任务继续跑；回来时通过 active-task 重新挂上。
   detachRunning()
   if (flushFrame) cancelAnimationFrame(flushFrame)
+  if (reasoningTimer) {
+    clearTimeout(reasoningTimer)
+    reasoningTimer = 0
+  }
   document.removeEventListener('click', onGlobalClickForQuote)
   document.removeEventListener('keydown', onGlobalKeydownForQuote)
 })
@@ -555,7 +600,7 @@ function detachRunning() {
   statusText.value = ''
   phase.value = ''
   streamingAnswer.value = ''
-  streamingReasoning.value = ''
+  resetReasoning()
 }
 
 /**
@@ -598,8 +643,8 @@ async function reconnectActiveTask() {
       },
       onDelta: (delta) => { if (seq === runSeq) { streamingAnswer.value += delta; scrollChat() } },
       onDeltaSnapshot: (snapshot) => { if (seq === runSeq) streamingAnswer.value = snapshot },
-      onReasoning: (delta) => { if (seq === runSeq) { streamingReasoning.value += delta; scrollChat() } },
-      onReasoningSnapshot: (snapshot) => { if (seq === runSeq) streamingReasoning.value = snapshot },
+      onReasoning: (delta) => { if (seq === runSeq) pushReasoning(delta) },
+      onReasoningSnapshot: (snapshot) => { if (seq === runSeq) snapshotReasoning(snapshot) },
       onError: (message) => {
         if (seq !== runSeq) return
         running.value = false
@@ -622,7 +667,7 @@ async function reconnectActiveTask() {
           console.warn('写完后刷新失败', e)
         }
         streamingAnswer.value = ''
-        streamingReasoning.value = ''
+        resetReasoning()
       }
     })
   } catch (e) {
@@ -654,7 +699,7 @@ async function start(options = {}) {
   error.value = ''
   progress.value = []
   streamingAnswer.value = ''
-  streamingReasoning.value = ''
+  resetReasoning()
   phase.value = supplement ? '正在处理补充要求…' : '正在准备材料…'
   statusText.value = '写作中'
   scrollChat()
@@ -694,8 +739,8 @@ async function start(options = {}) {
       },
       onDelta: (delta) => { if (seq === runSeq) { streamingAnswer.value += delta; scrollChat() } },
       onDeltaSnapshot: (snapshot) => { if (seq === runSeq) streamingAnswer.value = snapshot },
-      onReasoning: (delta) => { if (seq === runSeq) { streamingReasoning.value += delta; scrollChat() } },
-      onReasoningSnapshot: (snapshot) => { if (seq === runSeq) streamingReasoning.value = snapshot },
+      onReasoning: (delta) => { if (seq === runSeq) pushReasoning(delta) },
+      onReasoningSnapshot: (snapshot) => { if (seq === runSeq) snapshotReasoning(snapshot) },
       onError: (message) => {
         if (seq !== runSeq) return
         running.value = false
@@ -720,7 +765,7 @@ async function start(options = {}) {
           console.warn('写完后刷新失败', e)
         }
         streamingAnswer.value = ''
-        streamingReasoning.value = ''
+        resetReasoning()
       }
     })
   } catch (e) {
@@ -757,7 +802,7 @@ async function stop() {
     await loadChapter(props.chapter.id)
   } catch { /* 忽略 */ }
   streamingAnswer.value = ''
-  streamingReasoning.value = ''
+  resetReasoning()
   messages.value = [...messages.value, {
     role: 'assistant',
     text: '（已按你的要求停下。正文已刷新为上次保存的版本；未保存的生成内容不会保留。）'
