@@ -20,7 +20,7 @@ import {
 import {
   approveChapterDeleteRequest, cancelWriterInstruction, cancelWritingTask, clearWriterHistory, getActiveWritingTask,
   getChapterDeleteRequests, getChapterSupplements, getWriterConversation, getWriterInstructions,
-  rejectChapterDeleteRequest, returnChapterSupplement, setWritingRequirement, startWritingTask,
+  rejectChapterDeleteRequest, resolveQuoteAnchor, returnChapterSupplement, setWritingRequirement, startWritingTask,
   subscribeWritingTask, verifyChapterSupplement
 } from '../../api/agent'
 
@@ -72,6 +72,7 @@ const quotedPassages = ref([])
 const expandedQuotes = ref(new Set())
 const quoteMenu = ref(null)
 let quoteSeq = 0
+let quoteMenuSeq = 0
 const messages = ref([])
 /** 策划 Agent 下发的写作指令（PENDING 待执行 / CONSUMED 已执行） */
 const plannerInstructions = ref([])
@@ -90,6 +91,8 @@ const phase = ref('')
 const progress = ref([])
 const tab = ref('text')
 const error = ref('')
+const lastTaskResult = ref('')
+const lastTaskSaved = ref(null)
 const editing = ref(false)
 const draftText = ref('')
 const saving = ref(false)
@@ -195,12 +198,51 @@ function onQuoteContextMenu(event) {
   }
   if (!text) return
   event.preventDefault()
-  quoteMenu.value = {
-    x: Math.min(event.clientX, window.innerWidth - 150),
-    y: Math.min(event.clientY, window.innerHeight - 70),
+  const menu = {
+    token: ++quoteMenuSeq,
+    x: Math.min(event.clientX, window.innerWidth - 290),
+    y: Math.min(event.clientY, window.innerHeight - 110),
     text: text.slice(0, 5000),
-    source
+    source,
+    anchor: null,
+    locating: false,
+    locateError: ''
   }
+  quoteMenu.value = menu
+  if (source === '正文' && props.chapter?.id) {
+    menu.locating = true
+    const chapterId = props.chapter.id
+    const content = text.value || ''
+    const pos = content.indexOf(menu.text)
+    const payload = {
+      quotedText: menu.text,
+      contextBefore: pos >= 0 ? content.slice(Math.max(0, pos - 120), pos) : '',
+      contextAfter: pos >= 0 ? content.slice(pos + menu.text.length, pos + menu.text.length + 120) : ''
+    }
+    resolveQuoteAnchor(chapterId, payload)
+      .then((anchor) => {
+        if (quoteMenu.value?.token !== menu.token) return
+        quoteMenu.value = { ...menu, anchor, locating: false }
+      })
+      .catch((e) => {
+        if (quoteMenu.value?.token !== menu.token) return
+        quoteMenu.value = { ...menu, locating: false, locateError: e.message || '无法定位段落' }
+      })
+  }
+}
+
+function quoteLocation(quote) {
+  const anchor = quote?.anchor
+  if (!anchor) return ''
+  const paragraph = anchor.paragraphStart === anchor.paragraphEnd
+    ? `第 ${anchor.paragraphStart} 段`
+    : `第 ${anchor.paragraphStart}–${anchor.paragraphEnd} 段`
+  return `第 ${anchor.chapterNo} 章《${anchor.chapterTitle}》·${paragraph}`
+}
+
+function quoteSourceLabel(quote) {
+  const location = quoteLocation(quote)
+  return location ? `引自${location}` : `引自${quote.source}`
 }
 
 function toggleQuote(id) {
@@ -216,9 +258,11 @@ function isQuoteExpanded(quote) {
 
 function addQuoteFromMenu() {
   const menu = quoteMenu.value
-  if (!menu) return
+  if (!menu || menu.locating) return
   const id = ++quoteSeq
-  quotedPassages.value.push({ id, text: menu.text, source: menu.source })
+  quotedPassages.value.push({
+    id, text: menu.text, source: menu.source, anchor: menu.anchor || null
+  })
   // 短引用直接展开，长引用默认折叠，避免输入区被一大段原文淹没
   if (menu.text.length <= 120) {
     const next = new Set(expandedQuotes.value)
@@ -238,17 +282,36 @@ function clearQuotes() {
 }
 
 /** 把引用块 + 用户输入拼成一条发给写作 Agent 的指令 */
-function buildOutgoing() {
-  const typed = advice.value.trim()
+function buildOutgoing() {  const typed = advice.value.trim()
   if (!quotedPassages.value.length) {
     return typed || (text.value
       ? `这是「${full.value?.title || '本章'}」的现有稿，请通读一遍并在不改动剧情的前提下润色文字。`
       : '请按本章蓝图与写作要求写这一章的正文。')
   }
-  const quoteBlock = quotedPassages.value.map((quote, index) =>
-    `【引用 ${index + 1} · 来自${quote.source}】\n${quote.text}`).join('\n\n')
+  const quoteBlock = quotedPassages.value.map((quote, index) => {
+    const location = quoteLocation(quote)
+    const header = location
+      ? `【引用 ${index + 1} · ${location}（字符 ${quote.anchor.charStart}–${quote.anchor.charEnd}，基于版本 ${quote.anchor.baseVersionNo}）】`
+      : `【引用 ${index + 1} · 来自${quote.source}】`
+    return `${header}\n${quote.text}`
+  }).join('\n\n')
   if (!typed) return `${quoteBlock}\n\n请根据以上引用内容修改这一章；没提到的部分保持不变。`
   return `${quoteBlock}\n\n【我的修改意见】\n${typed}`
+}
+
+/** 只有成功锚定到正文段落的引用才进入结构化补丁流程 */
+function buildQuotePayload() {
+  return quotedPassages.value
+    .filter((quote) => quote.anchor)
+    .map((quote) => ({
+      chapterId: quote.anchor.chapterId,
+      baseVersionNo: quote.anchor.baseVersionNo,
+      paragraphStart: quote.anchor.paragraphStart,
+      paragraphEnd: quote.anchor.paragraphEnd,
+      charStart: quote.anchor.charStart,
+      charEnd: quote.anchor.charEnd,
+      quotedText: quote.text
+    }))
 }
 
 /** 流式正文批量刷新：一帧最多更新一次，避免每个 token 全文重渲染 */
@@ -298,6 +361,15 @@ function resetReasoning() {
   }
   reasoningBuffer = ''
   streamingReasoning.value = ''
+}
+
+/** 任务结果以服务端版本号为准，不能只信 Agent 在对话里的说法 */
+function applyTaskResult(summary) {
+  lastTaskResult.value = summary || ''
+  lastTaskSaved.value = String(summary || '').startsWith('已写入正文')
+  if (lastTaskSaved.value === false) {
+    notify.error('本轮没有写入正文：Agent 的回复不代表修改已保存')
+  }
 }
 
 function flushContentNow() {  if (flushFrame) {
@@ -632,6 +704,8 @@ async function reconnectActiveTask() {
     currentTaskId = data.taskId
     running.value = true
     error.value = ''
+    lastTaskResult.value = ''
+    lastTaskSaved.value = null
     progress.value = []
     phase.value = '写作任务仍在后台运行…'
     statusText.value = '写作中'
@@ -659,6 +733,7 @@ async function reconnectActiveTask() {
       onDeltaSnapshot: (snapshot) => { if (seq === runSeq) streamingAnswer.value = snapshot },
       onReasoning: (delta) => { if (seq === runSeq) pushReasoning(delta) },
       onReasoningSnapshot: (snapshot) => { if (seq === runSeq) snapshotReasoning(snapshot) },
+      onResult: (summary) => { if (seq === runSeq) applyTaskResult(summary) },
       onError: (message) => {
         if (seq !== runSeq) return
         running.value = false
@@ -702,6 +777,8 @@ async function start(options = {}) {
     : supplement
       ? `请执行${chapterLabel.value}的补充要求（记录 ID ${supplement.id}）：${supplement.content}`
       : buildOutgoing()
+  // 必须在 clearQuotes() 之前取；否则结构化引用会被清空后只剩文本块
+  const quotePayload = buildQuotePayload()
   const revising = Boolean(text.value)
   const seq = ++runSeq
 
@@ -716,6 +793,8 @@ async function start(options = {}) {
   }
   running.value = true
   error.value = ''
+  lastTaskResult.value = ''
+  lastTaskSaved.value = null
   progress.value = []
   streamingAnswer.value = ''
   resetReasoning()
@@ -731,7 +810,7 @@ async function start(options = {}) {
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing,
-      settings.autoApproveDelete, supplement?.id || null, requirementMode)
+      settings.autoApproveDelete, supplement?.id || null, requirementMode, quotePayload)
     await loadSupplements()
     if (seq !== runSeq) {
       // 章节被切走：任务仍在后台跑，不取消；回到该章时会自动重新挂上
@@ -761,6 +840,7 @@ async function start(options = {}) {
       onDeltaSnapshot: (snapshot) => { if (seq === runSeq) streamingAnswer.value = snapshot },
       onReasoning: (delta) => { if (seq === runSeq) pushReasoning(delta) },
       onReasoningSnapshot: (snapshot) => { if (seq === runSeq) snapshotReasoning(snapshot) },
+      onResult: (summary) => { if (seq === runSeq) applyTaskResult(summary) },
       onError: (message) => {
         if (seq !== runSeq) return
         running.value = false
@@ -1235,6 +1315,9 @@ watch(() => props.chapter?.id, () => {
           </div>
 
           <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
+          <p v-if="lastTaskSaved === false && !running" class="chat-error task-result" role="status">
+            本轮没有写入正文：Agent 的回复不代表修改已保存。请检查引用是否过期、章节版本是否已变化，然后重试。
+          </p>
         </div>
 
         <footer class="composer">
@@ -1252,7 +1335,7 @@ watch(() => props.chapter?.id, () => {
             >
               <header class="quote-card-head" @click="toggleQuote(quote.id)">
                 <Icon name="quote" :size="12" />
-                <span class="quote-source">引自{{ quote.source }}</span>
+                <span class="quote-source">{{ quoteSourceLabel(quote) }}</span>
                 <span v-if="!isQuoteExpanded(quote)" class="quote-preview">
                   {{ quote.text.replace(/\s+/g, ' ').slice(0, 42) }}{{ quote.text.length > 42 ? '…' : '' }}
                 </span>
@@ -1305,10 +1388,16 @@ watch(() => props.chapter?.id, () => {
         @click.stop
         @contextmenu.stop.prevent
       >
-        <button class="quote-menu-item" @click="addQuoteFromMenu">
+        <button class="quote-menu-item" :disabled="quoteMenu.locating" @click="addQuoteFromMenu">
           <Icon name="quote" :size="12" />
-          引用这段
+          {{ quoteMenu.locating ? '正在定位段落…' : '引用这段' }}
         </button>
+        <p v-if="quoteMenu.anchor" class="quote-menu-loc">
+          第 {{ quoteMenu.anchor.chapterNo }} 章 · 第 {{ quoteMenu.anchor.paragraphStart }} 段
+        </p>
+        <p v-else-if="quoteMenu.locateError" class="quote-menu-loc is-error">
+          未定位到段落，将只引用文字
+        </p>
       </div>
 
       <!-- 对话与正文之间的拖拽分割线 -->
@@ -1885,12 +1974,21 @@ watch(() => props.chapter?.id, () => {
 .quote-menu {
   position: fixed;
   z-index: 80;
+  min-width: 190px;
   padding: 5px;
   border: 1px solid var(--v3-hairline-strong);
   border-radius: var(--v3-r-sm);
   background: var(--v3-surface-solid);
   box-shadow: var(--v3-shadow-float);
 }
+.quote-menu-loc {
+  margin: 3px 8px 5px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--v3-gold);
+}
+.quote-menu-loc.is-error { color: var(--v3-text-faint); }
+.quote-menu-item:disabled { cursor: wait; opacity: 0.65; }
 .quote-menu-item {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@ import com.mojian.agent.dto.AgentProfileUpdateRequest;
 import com.mojian.agent.dto.AgentProfileVO;
 import com.mojian.agent.dto.PlannerChatRequest;
 import com.mojian.agent.dto.PlannerChatResponse;
+import com.mojian.agent.dto.QuoteAnchorRequest;
 import com.mojian.agent.dto.WriterRunRequest;
 import com.mojian.agent.dto.WritingRequirementRequest;
 import com.mojian.agent.context.AgentContextAssembly;
@@ -28,13 +29,13 @@ import com.mojian.agent.service.ConversationService;
 import com.mojian.agent.service.ConversationRollbackService;
 import com.mojian.agent.service.DraftService;
 import com.mojian.agent.service.PlannerService;
+import com.mojian.agent.service.QuoteAnchorService;
 import com.mojian.agent.service.WriterInstructionService;
 import com.mojian.agent.service.WriterService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.agent.tool.ToolRegistry;
 import com.mojian.chapter.entity.Chapter;
-import com.mojian.chapter.service.ChapterService;
-import com.mojian.common.api.ApiResponse;
+import com.mojian.chapter.service.ChapterService;import com.mojian.common.api.ApiResponse;
 import com.mojian.generation.sse.TaskEventBroker;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -87,6 +88,7 @@ public class AgentController {
     private final WriterInstructionService writerInstructionService;
     private final ChapterDeleteRequestService chapterDeleteRequestService;
     private final ChapterSupplementService chapterSupplementService;
+    private final QuoteAnchorService quoteAnchorService;
     private final TaskEventBroker broker;
     private final com.mojian.generation.mapper.GenerationTaskMapper generationTaskMapper;
 
@@ -323,8 +325,16 @@ public class AgentController {
         Long supplementId = request == null ? null : request.supplementId();
         boolean executeRequirement = request != null && request.executeRequirement();
         Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete, supplementId,
-                executeRequirement);
+                executeRequirement, request == null ? null : request.quotes());
         return ApiResponse.ok(Map.of("taskId", taskId));
+    }
+
+    /** 把正文里选中的一段文字解析成章节/段落锚点，供引用卡片和段落补丁使用。 */
+    @PostMapping("/writer/chapters/{chapterId}/quote-anchor")
+    public ApiResponse<com.mojian.agent.vo.QuoteAnchorVO> quoteAnchor(
+            @PathVariable Long chapterId,
+            @RequestBody QuoteAnchorRequest request) {
+        return ApiResponse.ok(quoteAnchorService.locate(chapterId, request));
     }
 
     /**

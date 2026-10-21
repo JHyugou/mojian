@@ -158,13 +158,19 @@ export function clearWriterHistory(projectId) {
 
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
 export function startWritingTask(chapterId, instruction, autoApproveDelete = false, supplementId = null,
-                                 executeRequirement = false) {
+                                 executeRequirement = false, quotes = []) {
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, {
     instruction,
     autoApproveDelete,
     supplementId,
-    executeRequirement
+    executeRequirement,
+    quotes
   })
+}
+
+/** 把正文选段解析成章节/段落锚点 */
+export function resolveQuoteAnchor(chapterId, data) {
+  return http.post(`/agent/writer/chapters/${chapterId}/quote-anchor`, data)
 }
 
 /** 该章当前正在跑的写作任务；用于切走再切回时重新挂载，而不是取消重来 */

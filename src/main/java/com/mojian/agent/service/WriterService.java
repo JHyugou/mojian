@@ -13,10 +13,12 @@ import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.entity.AgentConversation;
 import com.mojian.agent.entity.ChapterSupplement;
+import com.mojian.agent.dto.WriterQuoteRequest;
 import com.mojian.agent.llm.AgentMessage;
 import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.material.ChapterIndex;
 import com.mojian.chapter.entity.Chapter;
+import com.mojian.chapter.service.ChapterParagraphs;
 import com.mojian.chapter.service.ChapterService;
 import com.mojian.common.api.ErrorCode;
 import com.mojian.common.exception.BusinessException;
@@ -126,13 +128,21 @@ public class WriterService {
 
     public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
                           Long supplementId) {
-        return startTask(chapterId, instruction, autoApproveDelete, supplementId, false);
+        return startTask(chapterId, instruction, autoApproveDelete, supplementId, false, null);
     }
 
     public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
                           Long supplementId, boolean executeRequirement) {
+        return startTask(chapterId, instruction, autoApproveDelete, supplementId,
+                executeRequirement, null);
+    }
+
+    public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
+                          Long supplementId, boolean executeRequirement,
+                          List<WriterQuoteRequest> quotes) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
+        validateQuotes(projectId, chapterId, chapter, quotes);
         if (supplementId != null) {
             com.mojian.agent.entity.ChapterSupplement supplement = supplementService.require(supplementId);
             if (!projectId.equals(supplement.getProjectId()) || !chapterId.equals(supplement.getChapterId())) {
@@ -150,7 +160,7 @@ public class WriterService {
         task.setStatus(STATUS_RUNNING);
         task.setStartedAt(LocalDateTime.now());
         task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete, supplementId,
-                executeRequirement));
+                executeRequirement, quotes));
         try {
             generationTaskMapper.insert(task);
         } catch (DuplicateKeyException e) {
@@ -171,7 +181,7 @@ public class WriterService {
         Future<?> future;
         try {
             future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction,
-                    autoApproveDelete, supplementId, executeRequirement));
+                    autoApproveDelete, supplementId, executeRequirement, quotes));
         } catch (RuntimeException e) {
             // 线程池拒绝（队列满/正在关闭）：不能让任务行永远停在 RUNNING
             updateTaskStatus(taskId, STATUS_FAILED, null, "写作任务执行器繁忙，请稍后重试");
@@ -231,11 +241,12 @@ public class WriterService {
     }
 
     private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete,
-                         Long supplementId, boolean executeRequirement) {
+                         Long supplementId, boolean executeRequirement,
+                         List<WriterQuoteRequest> quotes) {
         boolean supplementApplied = false;
         try {
             WriterResult result = execute(chapterId, instruction, autoApproveDelete, supplementId,
-                    executeRequirement, taskListener(taskId));
+                    executeRequirement, quotes, taskListener(taskId));
             supplementApplied = supplementId == null
                     ? result.saved()
                     : result.savedChapterIds().contains(chapterId);
@@ -301,13 +312,14 @@ public class WriterService {
     }
 
     private String writeInputSnapshot(String instruction, boolean autoApproveDelete, Long supplementId,
-                                      boolean executeRequirement) {
+                                      boolean executeRequirement, List<WriterQuoteRequest> quotes) {
         try {
             Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
             snapshot.put("instruction", instruction == null ? "" : instruction);
             snapshot.put("autoApproveDelete", autoApproveDelete);
             snapshot.put("executeRequirement", executeRequirement);
             if (supplementId != null) snapshot.put("supplementId", supplementId);
+            if (quotes != null && !quotes.isEmpty()) snapshot.put("quotes", quotes);
             return MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
             return "{}";
@@ -394,11 +406,11 @@ public class WriterService {
     // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
-        return execute(chapterId, instruction, false, null, false, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, false, null, false, null, AgentRunListener.NOOP);
     }
 
     public WriterResult write(Long chapterId, String instruction, boolean autoApproveDelete) {
-        return execute(chapterId, instruction, autoApproveDelete, null, false, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, autoApproveDelete, null, false, null, AgentRunListener.NOOP);
     }
 
     /**
@@ -412,7 +424,7 @@ public class WriterService {
     public AgentContextAssembly contextPreview(Long chapterId) {
         Chapter chapter = chapterService.requireById(chapterId);
         return assembleMaterials(chapter, StringUtils.hasText(chapter.getContent()),
-                retrievalQuery(chapter, null), null);
+                retrievalQuery(chapter, null), null, null);
     }
 
     /**
@@ -421,7 +433,8 @@ public class WriterService {
      * @param targetSupplementId 单独执行某条补充要求时只注入这一条；普通写作注入全部待执行
      */
     private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising,
-                                                   String retrievalQuery, Long targetSupplementId) {
+                                                   String retrievalQuery, Long targetSupplementId,
+                                                   List<WriterQuoteRequest> quotes) {
         List<AgentContextSection> required = new ArrayList<>();
         int chapterNo = chapterIndex.numberOf(chapter.getProjectId(), chapter.getId());
         String chapterLabel = "第 " + chapterNo + " 章《" + chapter.getTitle() + "》";
@@ -430,6 +443,10 @@ public class WriterService {
                 chapterLabel + "\n本次任务只修改这一章。"
                         + "save_chapter_draft 必须带 chapterNo=" + chapterNo
                         + "，不要保存到其他章节。"));
+        if (quotes != null && !quotes.isEmpty()) {
+            required.add(AgentContextSection.required("正文引用定位（必须使用段落补丁）",
+                    quoteMaterial(chapter, chapterNo, quotes)));
+        }
         AgentContextSection blueprint = blueprintSection(chapter);
         if (blueprint != null) {
             required.add(blueprint);
@@ -508,6 +525,7 @@ public class WriterService {
 
     private WriterResult execute(Long chapterId, String instruction, boolean autoApproveDelete,
                                  Long targetSupplementId, boolean executeRequirement,
+                                 List<WriterQuoteRequest> quotes,
                                  AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
@@ -529,7 +547,7 @@ public class WriterService {
         String userInput = StringUtils.hasText(instruction) ? instruction : defaultInstruction(chapter, projectId);
         // 3. 组装（全量材料 + 必备材料；排除当前章与本章蓝图节点）
         AgentContextAssembly materials = assembleMaterials(chapter, revising,
-                retrievalQuery(chapter, userInput), targetSupplementId);
+                retrievalQuery(chapter, userInput), targetSupplementId, quotes);
         String systemPrompt = AgentPrompts.writer(materials.text(), revising);
 
         /*
@@ -616,6 +634,60 @@ public class WriterService {
             versions.put(chapter.getId(), versionOf(chapter));
         }
         return versions;
+    }
+
+    /**
+     * 引用必须绑定任务目标章节和当前版本。旧版本的引用直接拒绝，
+     * 否则模型会拿一段已经变化的第 3 段去改新正文。
+     */
+    private void validateQuotes(Long projectId, Long chapterId, Chapter chapter,
+                                List<WriterQuoteRequest> quotes) {
+        if (quotes == null || quotes.isEmpty()) return;
+        int version = versionOf(chapter);
+        for (WriterQuoteRequest quote : quotes) {
+            if (quote == null) continue;
+            if (!chapterId.equals(quote.chapterId())) {
+                throw new BusinessException(ErrorCode.PARAM_INVALID,
+                        "引用来自其他章节，请切到那一章后再执行");
+            }
+            if (quote.baseVersionNo() == null || quote.baseVersionNo() != version) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "引用基于旧版本，请重新选中并引用后再执行");
+            }
+            if (quote.paragraphStart() == null || quote.paragraphStart() < 1
+                    || quote.paragraphEnd() == null || quote.paragraphEnd() < quote.paragraphStart()
+                    || !StringUtils.hasText(quote.quotedText())) {
+                throw new BusinessException(ErrorCode.PARAM_INVALID, "引用位置不完整，请重新引用");
+            }
+            List<ChapterParagraphs.Paragraph> paragraphs = ChapterParagraphs.split(chapter.getContent());
+            if (quote.paragraphEnd() > paragraphs.size()) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "引用段落已不存在，请重新选中并引用");
+            }
+        }
+    }
+
+    private String quoteMaterial(Chapter chapter, int chapterNo, List<WriterQuoteRequest> quotes) {
+        List<ChapterParagraphs.Paragraph> paragraphs = ChapterParagraphs.split(chapter.getContent());
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下引用已经解析成准确的章节和段落，禁止凭感觉找位置。\n");
+        sb.append("修改引用时只能调用 patch_chapter_paragraphs，并带上对应的 chapterNo、")
+                .append("baseVersionNo、paragraphIndex 和 expectedText；校验不通过就停下来向作者说明。\n\n");
+        int index = 1;
+        for (WriterQuoteRequest quote : quotes) {
+            ChapterParagraphs.Paragraph paragraph = paragraphs.get(quote.paragraphStart() - 1);
+            sb.append("【引用 ").append(index++).append("】第 ").append(chapterNo)
+                    .append(" 章《").append(chapter.getTitle()).append("》·第 ")
+                    .append(quote.paragraphStart());
+            if (quote.paragraphEnd() != null && !quote.paragraphEnd().equals(quote.paragraphStart())) {
+                sb.append("–").append(quote.paragraphEnd());
+            }
+            sb.append(" 段（字符 ").append(quote.charStart()).append("–").append(quote.charEnd())
+                    .append("，基于版本 ").append(quote.baseVersionNo()).append("）\n");
+            sb.append("原文：").append(quote.quotedText()).append("\n");
+            sb.append("该段完整原文：").append(paragraph.text()).append("\n\n");
+        }
+        return sb.toString().trim();
     }
 
     private int versionOf(Chapter chapter) {
