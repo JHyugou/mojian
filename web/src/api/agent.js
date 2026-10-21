@@ -157,11 +157,13 @@ export function clearWriterHistory(projectId) {
 }
 
 /** 启动写作任务，立刻返回 { taskId }，正文通过 SSE 推送 */
-export function startWritingTask(chapterId, instruction, autoApproveDelete = false, supplementId = null) {
+export function startWritingTask(chapterId, instruction, autoApproveDelete = false, supplementId = null,
+                                 executeRequirement = false) {
   return http.post(`/agent/writer/chapters/${chapterId}/tasks`, {
     instruction,
     autoApproveDelete,
-    supplementId
+    supplementId,
+    executeRequirement
   })
 }
 

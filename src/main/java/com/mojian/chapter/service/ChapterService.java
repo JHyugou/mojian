@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +60,8 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
         chapter.setProjectId(projectId);
         chapter.setCurrentVersionNo(0);
         chapter.setStatus(StringUtils.hasText(request.getStatus()) ? request.getStatus() : "DRAFT");
+        chapter.setWritingRequirementStatus(StringUtils.hasText(chapter.getWritingRequirement())
+                ? "PENDING" : "NONE");
         save(chapter);
         return chapter;
     }
@@ -120,7 +123,23 @@ public class ChapterService extends ServiceImpl<ChapterMapper, Chapter> {
     @Transactional
     public Chapter updateWritingRequirement(Long chapterId, String requirement) {
         Chapter chapter = requireById(chapterId);
-        chapter.setWritingRequirement(requirement);
+        String normalized = StringUtils.hasText(requirement) ? requirement.trim() : null;
+        chapter.setWritingRequirement(normalized);
+        chapter.setWritingRequirementStatus(normalized == null ? "NONE" : "PENDING");
+        chapter.setWritingRequirementExecutedAt(null);
+        updateById(chapter);
+        return chapter;
+    }
+
+    /** 写作任务按写作要求成功写完后调用；只改状态，不碰正文。 */
+    @Transactional
+    public Chapter markWritingRequirementExecuted(Long chapterId) {
+        Chapter chapter = requireById(chapterId);
+        if (!StringUtils.hasText(chapter.getWritingRequirement())) {
+            return chapter;
+        }
+        chapter.setWritingRequirementStatus("EXECUTED");
+        chapter.setWritingRequirementExecutedAt(LocalDateTime.now());
         updateById(chapter);
         return chapter;
     }

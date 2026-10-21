@@ -344,6 +344,16 @@ public class AgentSchemaInitializer {
         // ——风格、人称、篇幅、禁忌、必须出现/必须避开的桥段
         addColumnIfMissing("chapter", "writing_requirement",
                 "TEXT DEFAULT NULL COMMENT '本章写作要求：风格/人称/篇幅/禁忌等'");
+        addColumnIfMissing("chapter", "writing_requirement_status",
+                "VARCHAR(20) NOT NULL DEFAULT 'NONE' COMMENT '写作要求状态：NONE/PENDING/EXECUTED' AFTER writing_requirement");
+        addColumnIfMissing("chapter", "writing_requirement_executed_at",
+                "DATETIME DEFAULT NULL COMMENT '最近一次按写作要求完成写作的时间' AFTER writing_requirement_status");
+        // 老数据没有状态：有要求的先标为待执行，避免界面显示"无要求"却实际有内容
+        jdbcTemplate.update("""
+                UPDATE chapter SET writing_requirement_status = 'PENDING'
+                WHERE writing_requirement IS NOT NULL AND writing_requirement <> ''
+                  AND (writing_requirement_status IS NULL OR writing_requirement_status = 'NONE')
+                """);
 
         // 消息表结构修正：工具调用改为存数组（一轮可以要求调多个工具）
         addColumnIfMissing("agent_message_log", "tool_calls_json",

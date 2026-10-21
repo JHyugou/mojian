@@ -321,7 +321,9 @@ public class AgentController {
         String instruction = request == null ? null : request.instruction();
         boolean autoApproveDelete = request != null && request.autoApproveDelete();
         Long supplementId = request == null ? null : request.supplementId();
-        Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete, supplementId);
+        boolean executeRequirement = request != null && request.executeRequirement();
+        Long taskId = writerService.startTask(chapterId, instruction, autoApproveDelete, supplementId,
+                executeRequirement);
         return ApiResponse.ok(Map.of("taskId", taskId));
     }
 

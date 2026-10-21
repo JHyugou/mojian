@@ -5,6 +5,8 @@ import com.mojian.common.entity.BaseEntity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.time.LocalDateTime;
+
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName("chapter")
@@ -26,6 +28,12 @@ public class Chapter extends BaseEntity {
      * 由写作 Agent 作为必需上下文注入，永不裁剪。
      */
     private String writingRequirement;
+
+    /** 写作要求执行状态：NONE 无要求 / PENDING 待执行 / EXECUTED 已执行 */
+    private String writingRequirementStatus;
+
+    /** 最近一次按写作要求完成写作的时间 */
+    private LocalDateTime writingRequirementExecutedAt;
 
     /** 状态：DRAFT / WRITING / COMPLETED */
     private String status;

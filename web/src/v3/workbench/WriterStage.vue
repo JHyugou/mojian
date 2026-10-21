@@ -52,6 +52,8 @@ const { onKeydown, sendHint } = useComposerSend(() => start())
 const full = ref(null)
 const text = ref('')
 const requirement = ref('')
+const requirementStatus = ref('NONE')
+const requirementExecutedAt = ref(null)
 const advice = ref('')
 // 按“项目 + 章节”保存输入框草稿，页面重载/刷新不会丢
 const composerDraft = useComposerDraft(advice,
@@ -125,6 +127,7 @@ let reasoningTimer = 0
 
 const hasBlueprint = computed(() => Boolean(props.blueprint))
 const canRun = computed(() => hasBlueprint.value || Boolean(advice.value.trim()) || Boolean(text.value)
+  || Boolean(requirement.value.trim())
   || pendingInstructionCount.value > 0 || quotedPassages.value.length > 0)
 const primaryLabel = computed(() => (text.value
   ? (quotedPassages.value.length ? '按引用修改' : '按这个改')
@@ -303,6 +306,8 @@ async function loadChapter(id) {
   full.value = detail
   text.value = detail.content || ''
   requirement.value = detail.writingRequirement || ''
+  requirementStatus.value = detail.writingRequirementStatus || 'NONE'
+  requirementExecutedAt.value = detail.writingRequirementExecutedAt || null
   editing.value = false
   draftText.value = ''
 }
@@ -679,10 +684,15 @@ async function start(options = {}) {
   // 模板里 @click="start" 会把 MouseEvent 传进来；这里只认显式 options
   if (options instanceof Event) options = {}
   const supplement = options.supplement || null
+  const requirementMode = Boolean(options.requirement)
   if (!props.chapter?.id || running.value || (!supplement && !canRun.value)) return
-  const outgoing = supplement
-    ? `请执行本章补充要求（记录 ID ${supplement.id}）：${supplement.content}`
-    : buildOutgoing()
+  const outgoing = requirementMode
+    ? (text.value
+        ? '请按【本章写作要求】重写这一章，严格执行要求里的写法、视角、篇幅与禁忌。'
+        : '请按【本章写作要求】写这一章。')
+    : supplement
+      ? `请执行本章补充要求（记录 ID ${supplement.id}）：${supplement.content}`
+      : buildOutgoing()
   const revising = Boolean(text.value)
   const seq = ++runSeq
 
@@ -700,7 +710,8 @@ async function start(options = {}) {
   progress.value = []
   streamingAnswer.value = ''
   resetReasoning()
-  phase.value = supplement ? '正在处理补充要求…' : '正在准备材料…'
+  phase.value = supplement ? '正在处理补充要求…'
+    : requirementMode ? '正在执行写作要求…' : '正在准备材料…'
   statusText.value = '写作中'
   scrollChat()
 
@@ -711,7 +722,7 @@ async function start(options = {}) {
 
   try {
     const { taskId } = await startWritingTask(props.chapter.id, outgoing,
-      settings.autoApproveDelete, supplement?.id || null)
+      settings.autoApproveDelete, supplement?.id || null, requirementMode)
     await loadSupplements()
     if (seq !== runSeq) {
       // 章节被切走：任务仍在后台跑，不取消；回到该章时会自动重新挂上
@@ -935,10 +946,34 @@ async function saveRequirement() {
   try {
     const saved = await setWritingRequirement(props.chapter.id, requirementDraft.value)
     requirement.value = saved.writingRequirement || ''
+    requirementStatus.value = saved.writingRequirementStatus || 'NONE'
+    requirementExecutedAt.value = saved.writingRequirementExecutedAt || null
     showRequirement.value = false
-    notify.success('本章写作要求已保存')
+    notify.success('本章写作要求已保存，可以点「执行写作」开始写')
   } catch (e) {
     notify.error(e.message)
+  }
+}
+
+/** 在写作要求弹窗里直接执行；有改动先保存，再启动带 executeRequirement 标记的写作任务 */
+async function executeRequirement() {
+  if (!props.chapter?.id || running.value) return
+  const value = requirementDraft.value.trim()
+  if (!value) {
+    notify.error('写作要求为空，先写要求或直接关闭弹窗用普通写作')
+    return
+  }
+  try {
+    if (value !== (requirement.value || '').trim()) {
+      const saved = await setWritingRequirement(props.chapter.id, value)
+      requirement.value = saved.writingRequirement || ''
+      requirementStatus.value = saved.writingRequirementStatus || 'PENDING'
+      requirementExecutedAt.value = saved.writingRequirementExecutedAt || null
+    }
+    showRequirement.value = false
+    await start({ requirement: true })
+  } catch (e) {
+    notify.error(e.message || '执行写作要求失败')
   }
 }
 
@@ -1063,6 +1098,10 @@ watch(() => props.chapter?.id, () => {
         </button>
         <button class="head-btn" @click="openRequirement">
           <Icon name="edit" :size="13" /> 写作要求
+          <span v-if="requirementStatus === 'EXECUTED'" class="req-badge done">已执行</span>
+          <span v-else-if="requirementStatus === 'PENDING'" class="req-badge">
+            {{ running ? '执行中' : '待执行' }}
+          </span>
         </button>
         <button class="head-btn" @click="openSupplements">
           <Icon name="layers" :size="13" /> 补充要求
@@ -1446,12 +1485,35 @@ watch(() => props.chapter?.id, () => {
 
     <!-- 写作要求 -->
     <V3Modal :visible="showRequirement" title="本章写作要求" width="640px" @close="showRequirement = false">
-      <p class="modal-hint">「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。</p>
+      <p class="modal-hint">「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。策划写入的要求也会出现在这里。</p>
       <textarea v-model="requirementDraft" class="req-editor" rows="7"
         placeholder="例：第三人称，视角锁定在主角身上；篇幅 4000~5000 字；短句、动作与器物细节；不要写『仿佛』『宛如』这类套话；必须出现……"></textarea>
       <template #footer>
+        <span class="req-status" :class="{ done: requirementStatus === 'EXECUTED' }">
+          <template v-if="requirementStatus === 'EXECUTED'">
+            已执行<template v-if="requirementExecutedAt"> · {{ requirementExecutedAt.replace('T', ' ').slice(5, 16) }}</template>
+          </template>
+          <template v-else-if="running">执行中</template>
+          <template v-else-if="requirementDraft.trim()">待执行</template>
+          <template v-else>未填写</template>
+        </span>
         <V3Button variant="ghost" @click="showRequirement = false">取消</V3Button>
-        <V3Button @click="saveRequirement">保存要求</V3Button>
+        <V3Button variant="glass" @click="saveRequirement">保存要求</V3Button>
+        <V3Button
+          v-if="requirementStatus === 'EXECUTED'"
+          variant="glass"
+          :disabled="!requirementDraft.trim() || running"
+          @click="executeRequirement"
+        >
+          重新执行
+        </V3Button>
+        <V3Button
+          v-else
+          :disabled="!requirementDraft.trim() || running"
+          @click="executeRequirement"
+        >
+          执行写作
+        </V3Button>
       </template>
     </V3Modal>
 
@@ -1597,6 +1659,16 @@ watch(() => props.chapter?.id, () => {
 }
 .head-btn:hover { color: var(--v3-text); border-color: var(--v3-hairline-gold); }
 .head-btn.is-linked { color: var(--v3-gold-bright); border-color: var(--v3-hairline-gold); background: var(--v3-glow-gold); }
+.req-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-radius: var(--v3-r-pill);
+  background: var(--v3-glow-gold);
+  color: var(--v3-gold);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+.req-badge.done { border-color: var(--v3-hairline); background: var(--v3-surface-2); color: var(--v3-jade); }
 
 .writer-body { flex: 1; min-height: 0; display: flex; }
 .chat-pane {
@@ -2015,6 +2087,22 @@ html[data-v3-theme='sujuan'] .paper-text { background: #fffdf7; }
 .memory-editor:focus { border-color: var(--v3-hairline-gold); }
 .memory-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; font-size: 11.5px; }
 .modal-hint { margin: 0 0 14px; font-size: 12.5px; line-height: 1.9; color: var(--v3-text-muted); }
+.req-status {
+  margin-right: auto;
+  align-self: center;
+  padding: 3px 9px;
+  border: 1px solid var(--v3-hairline-gold);
+  border-radius: var(--v3-r-pill);
+  background: var(--v3-glow-gold);
+  color: var(--v3-gold);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.req-status.done {
+  border-color: var(--v3-hairline);
+  background: var(--v3-surface-2);
+  color: var(--v3-jade);
+}
 .bp-search {
   width: 100%;
   height: 38px;

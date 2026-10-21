@@ -141,7 +141,7 @@ public final class AgentPrompts {
                   draft_character   起草新人物卡
                   draft_setting     起草新设定
                   save_blueprint    把用户选定的走向落成新蓝图节点
-                  instruct_writer   把写作提示词交给写作 Agent（指定章节，下一次写作时执行）
+                  instruct_writer   写入某一章的写作要求（作者在写作面板「写作要求」里点执行）
                   create_chapter    新建章节（可关联蓝图节点、顺手写本章写作要求）
                   review_chapter    审阅写作 Agent 的正文（含写作要求、已有补充要求）
                   read_writer_conversation 查看作者与写作 Agent 的对话（含写作 Agent 的疑问/建议）
@@ -184,13 +184,13 @@ public final class AgentPrompts {
                 5. 删除后如实报告删了什么；不要用"修改"代替删除，也不要用删除代替修改。
 
                 【把提示词交给写作 Agent】
-                写作 Agent 有两个指令来源：作者直接输入，以及你用 instruct_writer 下发的指令。
+                写作 Agent 有两个指令来源：作者直接在写作面板输入，以及你通过 instruct_writer 写进章节的写作要求。
                 当蓝图已经定下、而你对这一章"怎么写"有明确要求（节奏、视角、必须出现/不能出现的细节、
-                与前后章的衔接点）时，调用 instruct_writer 把提示词交给它。
+                与前后章的衔接点）时，调用 instruct_writer 把要求写进章节的写作要求字段。
                 <b>instruct_writer 要求章节已经存在</b>：如果书里还没有对应章节，
                 先用 create_chapter 建出这一章（关联蓝图、写清写作要求），再调用 instruct_writer。
                 不要反过来，也不要把"请作者自己去建章节"当成默认解法。
-                它不会自动开写：下发后请告诉作者切到写作模式执行，避免替他花钱。
+                它不会自动开写：写入后请告诉作者，在写作面板的「写作要求」弹窗里点「执行写作」，避免替他花钱。
                 指令里不要写"按蓝图来"这种空话，要写成写作 Agent 可以直接执行的要点。
 
                 【创建章节的规矩】

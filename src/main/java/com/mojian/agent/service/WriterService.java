@@ -125,6 +125,11 @@ public class WriterService {
 
     public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
                           Long supplementId) {
+        return startTask(chapterId, instruction, autoApproveDelete, supplementId, false);
+    }
+
+    public Long startTask(Long chapterId, String instruction, boolean autoApproveDelete,
+                          Long supplementId, boolean executeRequirement) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
         if (supplementId != null) {
@@ -143,7 +148,8 @@ public class WriterService {
         task.setTaskType(TASK_TYPE_AGENT_WRITE);
         task.setStatus(STATUS_RUNNING);
         task.setStartedAt(LocalDateTime.now());
-        task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete, supplementId));
+        task.setInputSnapshot(writeInputSnapshot(instruction, autoApproveDelete, supplementId,
+                executeRequirement));
         try {
             generationTaskMapper.insert(task);
         } catch (DuplicateKeyException e) {
@@ -164,7 +170,7 @@ public class WriterService {
         Future<?> future;
         try {
             future = agentTaskExecutor.submit(() -> runTask(taskId, chapterId, instruction,
-                    autoApproveDelete, supplementId));
+                    autoApproveDelete, supplementId, executeRequirement));
         } catch (RuntimeException e) {
             // 线程池拒绝（队列满/正在关闭）：不能让任务行永远停在 RUNNING
             updateTaskStatus(taskId, STATUS_FAILED, null, "写作任务执行器繁忙，请稍后重试");
@@ -224,11 +230,11 @@ public class WriterService {
     }
 
     private void runTask(Long taskId, Long chapterId, String instruction, boolean autoApproveDelete,
-                         Long supplementId) {
+                         Long supplementId, boolean executeRequirement) {
         boolean supplementApplied = false;
         try {
             WriterResult result = execute(chapterId, instruction, autoApproveDelete, supplementId,
-                    taskListener(taskId));
+                    executeRequirement, taskListener(taskId));
             supplementApplied = result.saved();
             if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
                 // 用户停的：如实说"停了"，不要伪装成"写完了"
@@ -291,11 +297,13 @@ public class WriterService {
         }
     }
 
-    private String writeInputSnapshot(String instruction, boolean autoApproveDelete, Long supplementId) {
+    private String writeInputSnapshot(String instruction, boolean autoApproveDelete, Long supplementId,
+                                      boolean executeRequirement) {
         try {
             Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
             snapshot.put("instruction", instruction == null ? "" : instruction);
             snapshot.put("autoApproveDelete", autoApproveDelete);
+            snapshot.put("executeRequirement", executeRequirement);
             if (supplementId != null) snapshot.put("supplementId", supplementId);
             return MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
@@ -383,11 +391,11 @@ public class WriterService {
     // ==================== 同步执行（调试与异步任务共用） ====================
 
     public WriterResult write(Long chapterId, String instruction) {
-        return execute(chapterId, instruction, false, null, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, false, null, false, AgentRunListener.NOOP);
     }
 
     public WriterResult write(Long chapterId, String instruction, boolean autoApproveDelete) {
-        return execute(chapterId, instruction, autoApproveDelete, null, AgentRunListener.NOOP);
+        return execute(chapterId, instruction, autoApproveDelete, null, false, AgentRunListener.NOOP);
     }
 
     /**
@@ -487,7 +495,8 @@ public class WriterService {
     }
 
     private WriterResult execute(Long chapterId, String instruction, boolean autoApproveDelete,
-                                 Long targetSupplementId, AgentRunListener listener) {
+                                 Long targetSupplementId, boolean executeRequirement,
+                                 AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
         // 保存成功的判定基准：版本号只在真正写入正文时递增。
@@ -564,6 +573,9 @@ public class WriterService {
                 supplementService.markSubmitted(supplementService.pending(chapterId));
             }
             memoryWorker.schedule(projectId, chapterId);
+            if (executeRequirement) {
+                chapterService.markWritingRequirementExecuted(chapterId);
+            }
             log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
         }
 

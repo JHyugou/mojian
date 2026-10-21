@@ -1,11 +1,10 @@
 package com.mojian.agent.tool.impl;
 
 import com.mojian.agent.AgentContext;
-import com.mojian.agent.entity.WriterInstruction;
 import com.mojian.agent.material.ChapterIndex;
-import com.mojian.agent.service.WriterInstructionService;
 import com.mojian.agent.tool.AgentTool;
 import com.mojian.chapter.entity.Chapter;
+import com.mojian.chapter.service.ChapterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -16,11 +15,11 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 策划 → 写作 的交接工具。
+ * 策划 → 写作的交接工具。
  *
- * <p>写作 Agent 现在有两个指令来源：作者直接输入，以及策划 Agent 通过本工具下发的提示词。
- * 这份提示词会落库、在写作面板显示，并在写作任务开始时作为必备材料注入。
- * <b>不会自动开写</b>：用户仍然要切到写作模式、点一下开始 —— 花钱的动作应由作者发起。
+ * <p>策划给出的写作要求直接写入章节的 writingRequirement 字段；
+ * 作者在写作面板的「写作要求」弹窗里点「执行写作」才会真正开写。
+ * 不再另建一份待执行指令，避免"写作要求"和"指令"两套状态各自为政。
  */
 @Slf4j
 @Component
@@ -28,7 +27,7 @@ import java.util.Optional;
 public class InstructWriterTool implements AgentTool {
 
     private final ChapterIndex chapterIndex;
-    private final WriterInstructionService instructionService;
+    private final ChapterService chapterService;
 
     @Override
     public String name() {
@@ -37,12 +36,10 @@ public class InstructWriterTool implements AgentTool {
 
     @Override
     public String description() {
-        return "把一段写作提示词交给写作 Agent（针对某一章），由它下次开写时执行。"
-                + "当你已经把走向落成蓝图，想明确告诉写作 Agent『这一章怎么写』时使用。"
+        return "把这一章的写作要求写入章节（人称、视角、篇幅、禁忌、必须出现/不能出现的元素）。"
+                + "写入后作者会在写作面板的「写作要求」里看到，并由作者点「执行写作」；不会自动开写。"
                 + "chapterNo 是章节序号（从 1 开始，必须已经存在）。"
-                + "instruction 要写成可执行的具体要求：写哪一段、节奏、视角、必须出现/不能出现的东西、"
-                + "与前后章的衔接点。不要只写『按蓝图来』这种空话。"
-                + "调用后告诉用户：指令已排队，切到写作模式即可执行（不会自动花钱开写）。";
+                + "instruction 要写成可直接执行的要点，不要写『按蓝图来』这种空话。";
     }
 
     @Override
@@ -58,7 +55,7 @@ public class InstructWriterTool implements AgentTool {
                         "chapterNo", Map.of("type", "integer",
                                 "description", "目标章节序号，从 1 开始；必须已存在"),
                         "instruction", Map.of("type", "string",
-                                "description", "给写作 Agent 的具体写作提示词"),
+                                "description", "给写作 Agent 的具体写作要求"),
                         "reason", Map.of("type", "string",
                                 "description", "为什么这么写（给作者看的依据）")),
                 "required", List.of("chapterNo", "instruction"));
@@ -83,19 +80,17 @@ public class InstructWriterTool implements AgentTool {
         if (chapter.isEmpty()) {
             int total = chapterIndex.count(projectId);
             return "错误：本书目前共 " + total + " 章，没有第 " + chapterNo
-                    + " 章。请让作者先在写作模式里创建这一章，再下发指令。";
+                    + " 章。请先用 create_chapter 建出这一章，再写写作要求。";
         }
 
-        WriterInstruction saved = instructionService.create(projectId, chapter.get().getId(),
-                instruction, text(arguments.get("reason")));
-        String title = StringUtils.hasText(chapter.get().getTitle())
-                ? chapter.get().getTitle().trim() : "第 " + chapterNo + " 章";
-        log.info("策划下发写作指令 {}（项目 {}，章节 {}）", saved.getId(), projectId, chapter.get().getId());
-        return "已把写作指令交给写作 Agent：第 " + chapterNo + " 章｜" + title + "。\n"
-                + "它会在下一次写作任务开始时读取这条指令（与作者输入一起生效），"
-                + "并在写作面板的对话区显示为『策划 Agent 的指令』。\n"
-                + "现在请停下，用两三句话告诉作者你给写作 Agent 交代了什么；"
-                + "提醒他切到写作模式、按需补充作者指令后开始写 —— 不会自动开写。";
+        Chapter updated = chapterService.updateWritingRequirement(chapter.get().getId(), instruction);
+        String title = StringUtils.hasText(updated.getTitle())
+                ? updated.getTitle().trim() : "第 " + chapterNo + " 章";
+        log.info("策划写入第 {} 章写作要求（项目 {}，章节 {}，理由：{}）",
+                chapterNo, projectId, updated.getId(), text(arguments.get("reason")));
+        return "已把写作要求写入第 " + chapterNo + " 章《" + title + "》。\n"
+                + "作者打开写作面板的「写作要求」即可看到，点「执行写作」后开始；不会自动开写。\n"
+                + "请告诉作者：要求已写好，执行按钮在写作要求弹窗里。";
     }
 
     private Integer intOf(Object value) {
