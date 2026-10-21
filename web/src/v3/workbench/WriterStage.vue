@@ -40,6 +40,15 @@ const props = defineProps({
 const emit = defineEmits(['select-chapter', 'reload'])
 
 const notify = useV3Notify()
+/** 当前章节在本书中的序号；提示词里必须带上，写作 Agent 才知道要改哪一章 */
+const chapterNo = computed(() => {
+  const index = props.chapters.findIndex((item) => String(item.id) === String(props.chapter?.id))
+  return index >= 0 ? index + 1 : null
+})
+const chapterLabel = computed(() => {
+  const title = props.chapter?.title || '未命名章节'
+  return chapterNo.value ? `第 ${chapterNo.value} 章《${title}》` : `《${title}》`
+})
 /** 写作页"对话 / 正文"宽度可拖拽（双击恢复默认） */
 const {
   width: chatWidth,
@@ -688,10 +697,10 @@ async function start(options = {}) {
   if (!props.chapter?.id || running.value || (!supplement && !canRun.value)) return
   const outgoing = requirementMode
     ? (text.value
-        ? '请按【本章写作要求】重写这一章，严格执行要求里的写法、视角、篇幅与禁忌。'
-        : '请按【本章写作要求】写这一章。')
+        ? `请按${chapterLabel.value}的【本章写作要求】重写这一章，严格执行要求里的写法、视角、篇幅与禁忌。`
+        : `请按${chapterLabel.value}的【本章写作要求】写这一章。`)
     : supplement
-      ? `请执行本章补充要求（记录 ID ${supplement.id}）：${supplement.content}`
+      ? `请执行${chapterLabel.value}的补充要求（记录 ID ${supplement.id}）：${supplement.content}`
       : buildOutgoing()
   const revising = Boolean(text.value)
   const seq = ++runSeq
@@ -1418,7 +1427,7 @@ watch(() => props.chapter?.id, () => {
     <!-- 章节补充要求：与写作要求分开，逐条展示、逐条执行 -->
     <V3Modal :visible="showSupplements" title="章节补充要求" width="660px" @close="showSupplements = false">
       <p class="modal-hint">
-        策划审稿后逐条追加的修改意见，与「写作要求」分开保存、互不覆盖。
+        当前{{ chapterLabel }}。策划审稿后逐条追加的修改意见，与「写作要求」分开保存、互不覆盖。
         点单条的「执行」只让写作 Agent 处理这一条；写完后先变成「待核验」，请你看过正文再确认落实或打回。
       </p>
       <p v-if="!supplements.length" class="modal-hint muted">这一章还没有补充要求。</p>
@@ -1485,7 +1494,7 @@ watch(() => props.chapter?.id, () => {
 
     <!-- 写作要求 -->
     <V3Modal :visible="showRequirement" title="本章写作要求" width="640px" @close="showRequirement = false">
-      <p class="modal-hint">「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。策划写入的要求也会出现在这里。</p>
+      <p class="modal-hint">当前{{ chapterLabel }}。「怎么写」——人称、视角、篇幅、禁忌、必须出现的元素。它会作为必备材料和蓝图一起交给写作 Agent，不会被裁剪。策划写入的要求也会出现在这里。</p>
       <textarea v-model="requirementDraft" class="req-editor" rows="7"
         placeholder="例：第三人称，视角锁定在主角身上；篇幅 4000~5000 字；短句、动作与器物细节；不要写『仿佛』『宛如』这类套话；必须出现……"></textarea>
       <template #footer>

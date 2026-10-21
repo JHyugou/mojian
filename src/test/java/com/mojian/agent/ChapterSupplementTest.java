@@ -98,7 +98,7 @@ class ChapterSupplementTest {
         // 写作上下文：补充要求与写作要求同时存在，但编号独立
         String contextText = writerService.contextPreview(chapter.getId()).text();
         assertThat(contextText).contains("本章写作要求").contains("第三人称，锁主角视角");
-        assertThat(contextText).contains("本章补充要求 1").contains("本章补充要求 2");
+        assertThat(contextText).contains("第 1 章补充要求 1").contains("第 1 章补充要求 2");
         assertThat(contextText).contains("听觉先行").contains("回头看了一眼来路");
 
         // 审稿能看到两条待执行

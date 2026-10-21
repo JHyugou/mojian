@@ -12,6 +12,7 @@ import com.mojian.agent.AgentStep;
 import com.mojian.agent.context.AgentContextAssembly;
 import com.mojian.agent.context.AgentContextSection;
 import com.mojian.agent.entity.AgentConversation;
+import com.mojian.agent.entity.ChapterSupplement;
 import com.mojian.agent.llm.AgentMessage;
 import com.mojian.agent.llm.TokenUsage;
 import com.mojian.agent.material.ChapterIndex;
@@ -235,7 +236,9 @@ public class WriterService {
         try {
             WriterResult result = execute(chapterId, instruction, autoApproveDelete, supplementId,
                     executeRequirement, taskListener(taskId));
-            supplementApplied = result.saved();
+            supplementApplied = supplementId == null
+                    ? result.saved()
+                    : result.savedChapterIds().contains(chapterId);
             if (result.status().equals(AgentResult.Status.CANCELLED.name())) {
                 // 用户停的：如实说"停了"，不要伪装成"写完了"
                 updateTaskStatus(taskId, STATUS_CANCELLED, null, null);
@@ -420,6 +423,13 @@ public class WriterService {
     private AgentContextAssembly assembleMaterials(Chapter chapter, boolean revising,
                                                    String retrievalQuery, Long targetSupplementId) {
         List<AgentContextSection> required = new ArrayList<>();
+        int chapterNo = chapterIndex.numberOf(chapter.getProjectId(), chapter.getId());
+        String chapterLabel = "第 " + chapterNo + " 章《" + chapter.getTitle() + "》";
+        // 后端不把写作 Agent 锁在"当前章节"上：把任务目标章明确写进材料，保存由 chapterNo 决定
+        required.add(AgentContextSection.required("任务目标章节",
+                chapterLabel + "\n本次任务只修改这一章。"
+                        + "save_chapter_draft 必须带 chapterNo=" + chapterNo
+                        + "，不要保存到其他章节。"));
         AgentContextSection blueprint = blueprintSection(chapter);
         if (blueprint != null) {
             required.add(blueprint);
@@ -442,11 +452,13 @@ public class WriterService {
             if (StringUtils.hasText(supplement.getReason())) {
                 text.append("\n（策划提出这条要求的原因：").append(supplement.getReason().trim()).append("）");
             }
-            required.add(AgentContextSection.required("本章补充要求 " + supplementNo++, text.toString()));
+            required.add(AgentContextSection.required("第 " + chapterNo + " 章补充要求 " + supplementNo++,
+                    text.toString()));
         }
         if (revising) {
             // 没有它，"把第三段改紧凑些"就无从下手 —— 模型看不到第三段是什么
-            required.add(AgentContextSection.required("本章现有稿", chapter.getContent().trim()));
+            required.add(AgentContextSection.required("第 " + chapterNo + " 章现有稿",
+                    chapter.getContent().trim()));
         }
         // 策划 Agent 下发的指令：和作者指令一样是"这次要干什么"，必须 REQUIRED
         List<com.mojian.agent.entity.WriterInstruction> pending =
@@ -499,9 +511,12 @@ public class WriterService {
                                  AgentRunListener listener) {
         Chapter chapter = chapterService.requireById(chapterId);
         Long projectId = chapter.getProjectId();
-        // 保存成功的判定基准：版本号只在真正写入正文时递增。
-        // 之前用"trace 里出现过 save_chapter_draft"判断，工具失败也会记 trace → 假阳性。
-        int versionBefore = chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo();
+        /*
+         * 保存成功的判定基准：版本号只在真正写入正文时递增。
+         * 写作 Agent 现在可以按 chapterNo 保存任意章节，所以不能只看“当前章”的版本；
+         * 先给全书章节拍一个版本快照，跑完再找出真正递增的章节。
+         */
+        java.util.Map<Long, Integer> versionsBefore = chapterVersions(projectId);
 
         // 1. 写作会话：整本书一个，跨章存续。
         //    这样副 Agent 才记得住你上一章说过的偏好与约束，而不是每章从零开始。
@@ -546,10 +561,13 @@ public class WriterService {
         conversationService.append(conversation.getId(), result.steps(),
                 AgentMessage.assistant(result.answer(), null));
 
-        // 7. 判定是否真的写进了正文：以版本号是否前进为准（工具的副作用在库里）
+        // 7. 判定哪些章节真的被写入：以全书版本号是否前进为准（工具的副作用在库里）
         Chapter updated = chapterService.requireById(chapterId);
-        int versionAfter = updated.getCurrentVersionNo() == null ? 0 : updated.getCurrentVersionNo();
-        boolean saved = versionAfter > versionBefore;
+        List<Long> savedChapterIds = chapterIndex.ordered(projectId).stream()
+                .filter(item -> versionOf(item) > versionsBefore.getOrDefault(item.getId(), 0))
+                .map(Chapter::getId)
+                .toList();
+        boolean saved = !savedChapterIds.isEmpty();
 
         // 8. 记账。被终止的运行也要记：钱已经花出去了，不能因为"没写完"就不算
         usageService.record(context, result.usage());
@@ -562,30 +580,46 @@ public class WriterService {
          * 失败只记日志，不影响写作结果；作者仍可在界面上改。
          */
         if (saved) {
-            // 指令已执行：标记 CONSUMED，下一章不会重复注入；失败/取消则保持 PENDING，重试仍带上
-            instructionService.markConsumed(instructionService.pending(projectId, chapterId));
-            if (targetSupplementId != null) {
-                // 单独执行某条：只标记这一条；其他待执行补充要求留给之后的写作
-                supplementService.markSubmitted(List.of(supplementService.require(targetSupplementId)));
-            } else {
-                // 普通写作：本轮上下文里所有待执行补充要求标记为"已提交待核验"。
-                // 保存成功只证明写入了新版本，不能证明每条要求真的落实。
-                supplementService.markSubmitted(supplementService.pending(chapterId));
+            // 被真正写入的每一章都收尾；写作 Agent 可以只写目标章节，也可能一次处理多章
+            for (Long savedChapterId : savedChapterIds) {
+                instructionService.markConsumed(instructionService.pending(projectId, savedChapterId));
+                if (targetSupplementId != null) {
+                    ChapterSupplement supplement = supplementService.require(targetSupplementId);
+                    if (savedChapterId.equals(supplement.getChapterId())) {
+                        supplementService.markSubmitted(List.of(supplement));
+                    }
+                } else {
+                    // 普通写作：本轮上下文里所有待执行补充要求标记为"已提交待核验"。
+                    // 保存成功只证明写入了新版本，不能证明每条要求真的落实。
+                    supplementService.markSubmitted(supplementService.pending(savedChapterId));
+                }
+                memoryWorker.schedule(projectId, savedChapterId);
             }
-            memoryWorker.schedule(projectId, chapterId);
-            if (executeRequirement) {
+            if (executeRequirement && savedChapterIds.contains(chapterId)) {
                 chapterService.markWritingRequirementExecuted(chapterId);
             }
-            log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", chapterId);
+            log.info("章节 {} 已写入正文，已排入章节记忆自动提炼", savedChapterIds);
         }
 
-        log.info("写作任务完成（第 {} 章）：{} 步 / {} / 落库={} / {}",
+        log.info("写作任务完成（目标第 {} 章）：{} 步 / {} / 落库={} / {}",
                 chapterId, result.steps(), result.status(), saved, result.usage().describe());
 
         return new WriterResult(conversation.getId(), result.status().name(), result.answer(),
                 result.steps(), result.trace(), result.usage(), materials.report().summary(),
-                saved, updated.getCurrentVersionNo(),
+                saved, savedChapterIds, updated.getCurrentVersionNo(),
                 updated.getContent() == null ? 0 : updated.getContent().length());
+    }
+
+    private java.util.Map<Long, Integer> chapterVersions(Long projectId) {
+        java.util.Map<Long, Integer> versions = new java.util.LinkedHashMap<>();
+        for (Chapter chapter : chapterIndex.ordered(projectId)) {
+            versions.put(chapter.getId(), versionOf(chapter));
+        }
+        return versions;
+    }
+
+    private int versionOf(Chapter chapter) {
+        return chapter.getCurrentVersionNo() == null ? 0 : chapter.getCurrentVersionNo();
     }
 
     // ==================== 材料 ====================
@@ -623,7 +657,9 @@ public class WriterService {
         if (!StringUtils.hasText(chapter.getWritingRequirement())) {
             return null;
         }
-        return AgentContextSection.required("本章写作要求", chapter.getWritingRequirement().trim());
+        int chapterNo = chapterIndex.numberOf(chapter.getProjectId(), chapter.getId());
+        return AgentContextSection.required("本章写作要求（第 " + chapterNo + " 章）",
+                chapter.getWritingRequirement().trim());
     }
 
     /**
@@ -673,6 +709,7 @@ public class WriterService {
     /** 写作任务结果 */
     public record WriterResult(Long conversationId, String status, String answer, int steps,
                                List<AgentStep> trace, TokenUsage usage,
-                               String contextSummary, boolean saved, Integer versionNo, int charCount) {
+                               String contextSummary, boolean saved, List<Long> savedChapterIds,
+                               Integer versionNo, int charCount) {
     }
 }

@@ -47,6 +47,18 @@ public class ChapterIndex {
         return Optional.of(chapters.get(chapterNo - 1));
     }
 
+    /** 章节所在序号（从 1 开始）；找不到返回 0。 */
+    public int numberOf(Long projectId, Long chapterId) {
+        if (chapterId == null) return 0;
+        List<Chapter> chapters = ordered(projectId);
+        for (int i = 0; i < chapters.size(); i++) {
+            if (chapterId.equals(chapters.get(i).getId())) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
     public int count(Long projectId) {
         return ordered(projectId).size();
     }
